@@ -1,0 +1,52 @@
+minimumLimaVersion: 2.0.0
+vmType: vz
+arch: aarch64
+cpus: 4
+memory: 8GiB
+disk: 80GiB
+images:
+  - location: https://cloud-images.ubuntu.com/releases/noble/release-20260926/ubuntu-24.04-server-cloudimg-arm64.img
+    arch: aarch64
+    digest: sha256:1d6bffe64b848468ac97f821d369a4846d983de1800ccf6b5ec8853e85cefc55
+mounts: []
+containerd:
+  system: false
+  user: false
+provision:
+  - mode: system
+    script: |
+      #!/bin/sh
+      set -eu
+      export DEBIAN_FRONTEND=noninteractive
+      apt-get update -qq
+      apt-get install -y --no-install-recommends \
+        ca-certificates curl git gh golang-go procps libicu74 libssl3t64 \
+        libkrb5-3 zlib1g
+      if ! id ghalet >/dev/null 2>&1; then
+        useradd --create-home --shell /bin/bash ghalet
+      fi
+      GOBIN=/usr/local/bin GOTOOLCHAIN=auto \
+        go install github.com/Songmu/ghalet/cmd/ghalet@latest
+      install -d -o ghalet -g ghalet -m 0700 \
+        /etc/ghalet /var/lib/ghalet /var/cache/ghalet /var/log/ghalet /opt/ghalet
+      cat > /etc/systemd/system/ghalet.service <<'UNIT'
+      [Unit]
+      Description=GitHub Actions Runner Scale Set Process Manager
+      After=network-online.target
+      Wants=network-online.target
+      ConditionPathExists=/etc/ghalet/config.yaml
+      [Service]
+      User=ghalet
+      Group=ghalet
+      Environment=PATH=/usr/local/bin:/usr/bin:/bin
+      ExecStart=/usr/local/bin/ghalet run --config /etc/ghalet/config.yaml
+      Restart=on-failure
+      RestartSec=10
+      KillMode=mixed
+      TimeoutStopSec=infinity
+      UMask=0077
+      [Install]
+      WantedBy=multi-user.target
+      UNIT
+      systemctl daemon-reload
+      systemctl enable ghalet.service

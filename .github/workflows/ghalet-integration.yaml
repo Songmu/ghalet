@@ -1,0 +1,34 @@
+name: ghalet integration
+run-name: ghalet integration ${{ inputs.correlation }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      scale_set:
+        description: Dedicated trusted scale set name
+        required: true
+        type: string
+      correlation:
+        description: Unique test invocation identifier
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  one-job:
+    runs-on: ${{ inputs.scale_set }}
+    timeout-minutes: 3
+    steps:
+    - name: Check ephemeral execution environment
+      shell: bash
+      run: |
+        set -eu
+        test "$(id -u)" != 0
+        test -z "${ACTIONS_RUNNER_INPUT_JITCONFIG:-}"
+        test -z "${GH_TOKEN:-}"
+        test -z "${GH_ENTERPRISE_TOKEN:-}"
+        test -n "${HOME}"
+        test -d "${RUNNER_WORKSPACE}"
+        printf 'Integration job ran as %s on %s\n' "$(id -un)" "$(uname -s)"
