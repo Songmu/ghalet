@@ -198,11 +198,15 @@ type scaleAPI interface {
 	RemoveRunner(context.Context, int64) error
 }
 
-func registration(ctx context.Context, client scaleAPI, target Target, create bool) (*scaleset.RunnerScaleSet, error) {
-	groupName := target.RunnerGroup
-	if groupName == "" {
-		groupName = scaleset.DefaultRunnerGroup
+func runnerGroupName(name string) string {
+	if name == "" {
+		return scaleset.DefaultRunnerGroup
 	}
+	return name
+}
+
+func registration(ctx context.Context, client scaleAPI, target Target, create bool) (*scaleset.RunnerScaleSet, error) {
+	groupName := runnerGroupName(target.RunnerGroup)
 	group, err := client.GetRunnerGroupByName(ctx, groupName)
 	if err != nil {
 		return nil, fmt.Errorf("reference existing runner group %q (requires runner administration permission): %w", groupName, err)
@@ -217,6 +221,7 @@ func registration(ctx context.Context, client scaleAPI, target Target, create bo
 	if !create {
 		return set, nil
 	}
+
 	if set == nil {
 		return client.CreateRunnerScaleSet(ctx, &scaleset.RunnerScaleSet{
 			Name: target.ScaleSetName, RunnerGroupID: group.ID,

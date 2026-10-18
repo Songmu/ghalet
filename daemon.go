@@ -225,8 +225,8 @@ func (d *daemon) recover(ctx context.Context) error {
 			reason = "state does not correspond to a currently configured target"
 		case target.Set == nil || target.Fault != "":
 			reason = "registration cannot be verified; resolve target authentication/registration and restart"
-		case state.ScopeRef != target.Config.ScopeRef || state.ScopeURL != d.config.Scopes[target.Config.ScopeRef].URL ||
-			state.ScaleSetName != target.Config.ScaleSetName || state.GroupName != target.Config.RunnerGroup ||
+		case state.ScopeURL != d.config.Scopes[target.Config.ScopeRef].URL ||
+			state.ScaleSetName != target.Config.ScaleSetName || runnerGroupName(state.GroupName) != runnerGroupName(target.Config.RunnerGroup) ||
 			state.ScaleSetID != target.Set.ID || state.GroupID != target.Set.RunnerGroupID:
 			reason = "recorded registration differs from the current explicit scope/group/scale set"
 		case state.User != d.user.Name || state.UID != d.user.UID || state.Home != d.user.Home:

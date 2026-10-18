@@ -178,3 +178,17 @@ func TestConfigPathDoesNotSearchCurrentDirectory(t *testing.T) {
 		t.Fatal(path, err)
 	}
 }
+
+func TestDefaultGroupIsEquivalentForExplicitOldTargetRecovery(t *testing.T) {
+	d, _ := testDaemon(t)
+	state := testState(t, d.config)
+	run := &activeRun{State: state, Uncertain: true}
+	d.runs[state.RunID] = run
+	plan := destroyPlan{URL: state.ScopeURL, ScaleSet: state.ScaleSetName, ScaleSetID: 10, GroupID: 1, RunnerGroup: "default"}
+	if err := d.adoptForDestroy(t.Context(), d.targets["build"], plan); err != nil {
+		t.Fatal("omitted default group did not match an explicitly named default group", err)
+	}
+	if run.Uncertain || !run.State.ProcessDone {
+		t.Fatal("explicit recovery failed to reverify the equivalent default group")
+	}
+}

@@ -441,10 +441,10 @@ func (d *daemon) adoptForDestroy(ctx context.Context, target *targetRuntime, pla
 	for _, run := range d.runs {
 		state := run.State
 		if state.ScopeURL == plan.URL && state.ScaleSetID == plan.ScaleSetID &&
-			(state.ScaleSetName != plan.ScaleSet || state.GroupName != plan.RunnerGroup) {
+			(state.ScaleSetName != plan.ScaleSet || runnerGroupName(state.GroupName) != runnerGroupName(plan.RunnerGroup)) {
 			return errors.New("local execution names conflict with the approved scale set ID; manual inspection required")
 		}
-		if state.ScopeURL != plan.URL || state.ScaleSetName != plan.ScaleSet || state.GroupName != plan.RunnerGroup {
+		if state.ScopeURL != plan.URL || state.ScaleSetName != plan.ScaleSet || runnerGroupName(state.GroupName) != runnerGroupName(plan.RunnerGroup) {
 			continue
 		}
 		if d.runTarget(run) == target && !run.Uncertain {

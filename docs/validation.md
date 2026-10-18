@@ -129,6 +129,13 @@ semantics. In particular:
   keychain access, Linux runtime, VM reboot, sleep/wake or App permissions.
 
 The initial implementation was developed with Go 1.27.2 on macOS ARM64.
+The following local checks were executed on October 19, 2026 (JST):
+race-enabled unit/subprocess tests, vet, current staticcheck and actionlint,
+native macOS ARM64 plus Linux AMD64/ARM64 and macOS AMD64 builds, both plist
+parsers, Lima template validation and the official runner 2.338.0 JIT-input
+smoke test. The latter downloaded the official macOS ARM64 archive and
+passed digest verification and encoded-input masking.
+
 The PR verification record must distinguish executed checks from the
 optional live scenarios. Do not describe those scenarios as passed unless
 they were actually executed on the stated host and GitHub registration.
