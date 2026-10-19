@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -157,7 +156,7 @@ func TestRunnerGuardControllerHelper(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	d, err := newDaemon(config, slog.New(slog.NewJSONHandler(os.Stdout, nil)))
+	d, err := newDaemon(config)
 	if err != nil {
 		t.Fatal(err)
 	}

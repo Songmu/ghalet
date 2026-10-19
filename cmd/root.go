@@ -61,17 +61,22 @@ func Run(ctx context.Context, argv []string, outStream, errStream io.Writer) err
 	if fs.NArg() != 0 {
 		return fmt.Errorf("unexpected arguments: %s", strings.Join(fs.Args(), " "))
 	}
-	logger := slog.New(slog.NewJSONHandler(outStream, nil))
-	controlLogger := slog.New(slog.NewJSONHandler(errStream, nil))
+	logStream := errStream
+	if command == "run" {
+		logStream = outStream
+	}
+	slog.SetDefault(slog.New(slog.NewJSONHandler(logStream, &slog.HandlerOptions{
+		ReplaceAttr: ghalet.RedactLogAttr,
+	})))
 	commands := map[string]func() error{
-		"run":      func() error { return run(ctx, *config, logger) },
+		"run":      func() error { return run(ctx, *config) },
 		"validate": func() error { return validate(*config, outStream) },
 		"status":   func() error { return status(ctx, *config, outStream) },
 		"doctor":   func() error { return doctor(ctx, *config, outStream) },
 		"drain":    func() error { return drain(ctx, *config, *target, outStream) },
-		"gc":       func() error { return gc(ctx, *config, *dryRun, outStream, controlLogger) },
+		"gc":       func() error { return gc(ctx, *config, *dryRun, outStream) },
 		"destroy": func() error {
-			return destroy(ctx, *config, *target, *runnerGroup, *scaleSet, outStream, controlLogger)
+			return destroy(ctx, *config, *target, *runnerGroup, *scaleSet, outStream)
 		},
 	}
 	run, ok := commands[command]

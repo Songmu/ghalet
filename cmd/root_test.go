@@ -3,8 +3,10 @@ package cmd
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -154,6 +156,38 @@ func TestCommandDispatchAndFlagPlacement(t *testing.T) {
 				if err == nil || !strings.Contains(err.Error(), want) {
 					t.Fatalf("%v: command was not dispatched: %v", args, err)
 				}
+			}
+		})
+	}
+}
+
+func TestDefaultLoggerRoutesOutput(t *testing.T) {
+	original := slog.Default()
+	defer slog.SetDefault(original)
+	missing := filepath.Join(testDirectory(t), "missing.yaml")
+	for _, command := range []string{"run", "gc", "status"} {
+		t.Run(command, func(t *testing.T) {
+			var output, stderr bytes.Buffer
+			if err := Run(t.Context(), []string{command, "--config", missing}, &output, &stderr); err == nil {
+				t.Fatal("missing config was accepted")
+			}
+			slog.Info("global logger configured", "command", command)
+			logOutput, unused := &stderr, &output
+			if command == "run" {
+				logOutput, unused = &output, &stderr
+			}
+			if unused.Len() != 0 {
+				t.Fatal("log written to the wrong stream", unused.String())
+			}
+			var record struct {
+				Message string `json:"msg"`
+				Command string `json:"command"`
+			}
+			if err := json.Unmarshal(logOutput.Bytes(), &record); err != nil {
+				t.Fatal("default logger did not produce JSON", err, logOutput.String())
+			}
+			if record.Message != "global logger configured" || record.Command != command {
+				t.Fatal("default logger lost structured output", record)
 			}
 		})
 	}

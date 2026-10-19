@@ -351,7 +351,7 @@ func TestStatusAndDoctorExitCodesAndPartialGC(t *testing.T) {
 		case "doctor":
 			_, err = Doctor(t.Context(), d.config.Path)
 		case "gc":
-			results, err = GC(t.Context(), d.config.Path, false, d.log)
+			results, err = GC(t.Context(), d.config.Path, false)
 		}
 		if (command == "status" && err != nil) || (command != "status" && err == nil) {
 			t.Fatalf("incorrect %s exit behavior: %v", command, err)
@@ -398,7 +398,7 @@ func TestDisconnectedControlCannotBypassWorkRootLock(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer lock.close()
-	_, err = GC(t.Context(), c.Path, false, nil)
+	_, err = GC(t.Context(), c.Path, false)
 	if err == nil || !strings.Contains(err.Error(), "refusing direct operation") {
 		t.Fatal("disconnected socket bypassed live workRoot lock", err)
 	}
@@ -428,7 +428,7 @@ func TestDestroyAPIRequiresApproval(t *testing.T) {
 					return nil
 				}
 			}
-			results, err := Destroy(t.Context(), d.config.Path, DestroyOptions{Target: "build", ScaleSet: "build"}, confirm, d.log)
+			results, err := Destroy(t.Context(), d.config.Path, DestroyOptions{Target: "build", ScaleSet: "build"}, confirm)
 			if approval == "approved" {
 				if err != nil || api.deleteCalls != 1 || len(results.Results) != 1 {
 					t.Fatal("approved deletion failed", results, err)
@@ -453,7 +453,7 @@ func TestDestroyAPIPreservesIncompleteDrainSnapshot(t *testing.T) {
 	t.Cleanup(func() { server.close(); os.Remove(server.path + ".lock") })
 	go server.serve(d)
 	result, err := Destroy(t.Context(), d.config.Path, DestroyOptions{Target: "build", ScaleSet: "build"},
-		func(DestroyPlan) error { return nil }, d.log)
+		func(DestroyPlan) error { return nil })
 	if err == nil || result.Status == nil || len(result.Status.Problems) == 0 || api.deleteCalls != 0 {
 		t.Fatal("incomplete drain lost diagnostics or deleted the registration", result, err)
 	}

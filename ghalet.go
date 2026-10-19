@@ -83,7 +83,7 @@ func Drain(ctx context.Context, path, target string) (*Status, error) {
 }
 
 // GC cleans stopped executions and expired logs, returning partial results on error.
-func GC(ctx context.Context, path string, dryRun bool, logger *slog.Logger) ([]OperationResult, error) {
+func GC(ctx context.Context, path string, dryRun bool) ([]OperationResult, error) {
 	path, err := selectedConfigPath(path)
 	if err != nil {
 		return nil, err
@@ -93,7 +93,7 @@ func GC(ctx context.Context, path string, dryRun bool, logger *slog.Logger) ([]O
 	if connectionErr == nil {
 		return response.Results, responseError(response)
 	}
-	d, close, err := offlineDaemon(ctx, path, connectionErr, logger)
+	d, close, err := offlineDaemon(ctx, path, connectionErr)
 	if err != nil {
 		return nil, err
 	}
@@ -104,7 +104,7 @@ func GC(ctx context.Context, path string, dryRun bool, logger *slog.Logger) ([]O
 
 // Destroy drains and deletes an explicitly selected registration only after confirm approves its plan.
 // When the daemon is unavailable, it uses locked offline execution.
-func Destroy(ctx context.Context, path string, options DestroyOptions, confirm func(DestroyPlan) error, logger *slog.Logger) (DestroyResult, error) {
+func Destroy(ctx context.Context, path string, options DestroyOptions, confirm func(DestroyPlan) error) (DestroyResult, error) {
 	path, err := selectedConfigPath(path)
 	if err != nil {
 		return DestroyResult{}, err
@@ -120,7 +120,7 @@ func Destroy(ctx context.Context, path string, options DestroyOptions, confirm f
 	var d *daemon
 	if connectionErr != nil {
 		var close func()
-		d, close, err = offlineDaemon(ctx, path, connectionErr, logger)
+		d, close, err = offlineDaemon(ctx, path, connectionErr)
 		if err != nil {
 			return DestroyResult{}, err
 		}
@@ -162,7 +162,7 @@ func Destroy(ctx context.Context, path string, options DestroyOptions, confirm f
 	return DestroyResult{Status: response.Status, Results: response.Results}, responseError(response)
 }
 
-func offlineDaemon(ctx context.Context, path string, connectionErr error, logger *slog.Logger) (*daemon, func(), error) {
+func offlineDaemon(ctx context.Context, path string, connectionErr error) (*daemon, func(), error) {
 	config, err := LoadConfig(path)
 	if err != nil {
 		return nil, nil, err
@@ -185,7 +185,7 @@ func offlineDaemon(ctx context.Context, path string, connectionErr error, logger
 		close()
 		return nil, nil, errors.New("daemon became available; retry the operation through its control socket")
 	}
-	d, err := newDaemon(config, logger)
+	d, err := newDaemon(config)
 	if err != nil {
 		close()
 		return nil, nil, err
@@ -222,7 +222,7 @@ func (d *daemon) runOfflineEngine(ctx context.Context) {
 }
 
 // RunDaemon runs the daemon until ctx is canceled and its runners are drained.
-func RunDaemon(ctx context.Context, config *Config, logger *slog.Logger) error {
+func RunDaemon(ctx context.Context, config *Config) error {
 	lock, err := lockWorkRoot(config.Runner.WorkRoot)
 	if err != nil {
 		return err
@@ -233,7 +233,7 @@ func RunDaemon(ctx context.Context, config *Config, logger *slog.Logger) error {
 		return err
 	}
 	defer server.close()
-	d, err := newDaemon(config, logger)
+	d, err := newDaemon(config)
 	if err != nil {
 		return err
 	}
@@ -242,6 +242,6 @@ func RunDaemon(ctx context.Context, config *Config, logger *slog.Logger) error {
 		return err
 	}
 	go server.serve(d)
-	d.log.Info("Daemon ready", "event", "daemon.ready", "config", config.Path, "capacity", config.Capacity.MaxRunners)
+	slog.Info("Daemon ready", "event", "daemon.ready", "config", config.Path, "capacity", config.Capacity.MaxRunners)
 	return d.serve(ctx)
 }

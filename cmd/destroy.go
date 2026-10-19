@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"os"
 	"os/exec"
 
@@ -13,7 +12,7 @@ import (
 	"github.com/Songmu/prompter"
 )
 
-func destroy(ctx context.Context, config, target, runnerGroup, scaleSet string, outStream io.Writer, logger *slog.Logger) error {
+func destroy(ctx context.Context, config, target, runnerGroup, scaleSet string, outStream io.Writer) error {
 	terminal := exec.Command("/bin/sh", "-c", "test -t 0")
 	terminal.Stdin = os.Stdin
 	if terminal.Run() != nil {
@@ -21,7 +20,7 @@ func destroy(ctx context.Context, config, target, runnerGroup, scaleSet string, 
 	}
 	result, err := ghalet.Destroy(ctx, config, ghalet.DestroyOptions{
 		Target: target, RunnerGroup: runnerGroup, ScaleSet: scaleSet,
-	}, confirmDestroy, logger)
+	}, confirmDestroy)
 	return printResponse(outStream, commandResponse{Status: result.Status, Results: result.Results}, err)
 }
 

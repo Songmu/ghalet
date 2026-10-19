@@ -98,8 +98,11 @@ func TestGitHubEphemeralLifecycle(t *testing.T) {
 	defer cancel()
 	c.Runner.DrainTimeout = Duration(15 * time.Second)
 	var logs lockedBuffer
+	original := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&logs, &slog.HandlerOptions{ReplaceAttr: RedactLogAttr})))
+	defer slog.SetDefault(original)
 	finished := make(chan error, 1)
-	go func() { finished <- RunDaemon(ctx, c, slog.New(slog.NewJSONHandler(&logs, nil))) }()
+	go func() { finished <- RunDaemon(ctx, c) }()
 	defer func() {
 		cancel()
 		select {
