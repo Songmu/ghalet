@@ -37,16 +37,14 @@ targets:
     scope: &repository OWNER/REPO
     credential: &personal
       type: gh
-    # scaleSet: build
-    # Defaults to id.
+    # scaleSet: build # Defaults to id.
     scaling: &scaling
       minRunners: 0
       maxRunners: 2
   - id: test
     scope: *repository
     credential: *personal
-    # scaleSet: test
-    # Defaults to id.
+    # scaleSet: test # Defaults to id.
     scaling: *scaling
 ```
 
