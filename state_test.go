@@ -115,6 +115,31 @@ func TestWorkRootLockIsOSBacked(t *testing.T) {
 	third.close()
 }
 
+func TestLaunchedProcessRequiresCompleteIdentity(t *testing.T) {
+	valid := ProcessIdentity{PID: 1234, PGID: 1234, UID: 501, Started: "kernel-start"}
+	for _, tc := range []struct {
+		name     string
+		identity ProcessIdentity
+		wantErr  bool
+	}{
+		{"valid", valid, false},
+		{"empty start", ProcessIdentity{PID: 1234, PGID: 1234, UID: 501}, true},
+		{"wrong group", ProcessIdentity{PID: 1234, PGID: 5678, UID: 501, Started: "kernel-start"}, true},
+		{"wrong user", ProcessIdentity{PID: 1234, PGID: 1234, UID: 502, Started: "kernel-start"}, true},
+		{"wrong PID", ProcessIdentity{PID: 5678, PGID: 1234, UID: 501, Started: "kernel-start"}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			identity, err := launchedProcessIdentity(map[int]processEntry{1234: {ProcessIdentity: tc.identity}}, valid.PID, valid.UID)
+			if (err != nil) != tc.wantErr || (!tc.wantErr && identity != valid) {
+				t.Fatal("unexpected launch identity validation result", identity, err)
+			}
+		})
+	}
+	if _, err := launchedProcessIdentity(nil, valid.PID, valid.UID); err == nil {
+		t.Fatal("absent launch identity was accepted")
+	}
+}
+
 func TestProcessIdentitySafety(t *testing.T) {
 	state := &RunState{UID: 501, RunnerDir: "/managed/runner", Phase: "busy",
 		Process: ProcessIdentity{PID: 1234, PGID: 1234, UID: 501, Started: "original-start"}}
@@ -123,6 +148,7 @@ func TestProcessIdentitySafety(t *testing.T) {
 	if err != nil || !alive || len(members) != 1 {
 		t.Fatal("valid identity rejected", err)
 	}
+
 	reused := leader
 	reused.Started = "different-start"
 	if _, _, err := inspectGroup(state, map[int]processEntry{1234: reused}); err == nil {

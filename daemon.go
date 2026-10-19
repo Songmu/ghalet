@@ -47,10 +47,23 @@ type activeRun struct {
 	Uncertain       bool
 	CleanupTried    bool
 	WaitDone        chan struct{}
+	OutputError     error
 	Stopping        bool
 	Target          *targetRuntime
 	InspectFailures int
 	JITSecrets      []string
+}
+
+func (r *activeRun) outputCollected() bool {
+	if r.WaitDone == nil {
+		return true
+	}
+	select {
+	case <-r.WaitDone:
+		return true
+	default:
+		return false
+	}
 }
 
 type Problem struct {
@@ -576,6 +589,9 @@ func (d *daemon) reconcile() {
 			if run.WaitDone != nil && !run.Exited {
 				continue
 			}
+			if !alive {
+				run.Exited = true
+			}
 			if err := d.stop(run, false); err != nil {
 				state.Error = d.secrets.redact(err.Error())
 			}
@@ -590,7 +606,7 @@ func (d *daemon) reconcile() {
 		}
 	}
 	for _, target := range d.targets {
-		if target.Draining && !target.Forced && time.Since(target.DrainStarted) >= time.Duration(d.config.Runner.DrainTimeout) {
+		if target.Draining && !target.Forced && !d.drained(target.Config.ID) && time.Since(target.DrainStarted) >= time.Duration(d.config.Runner.DrainTimeout) {
 			target.Forced = true
 			d.log.Error("Drain deadline exceeded", "event", "drain.forced", "targetId", target.Config.ID, "unstartedJobs", max(0, target.Assigned-d.active(target.Config.ID)))
 			for _, run := range d.runs {
@@ -847,26 +863,40 @@ func (d *daemon) launch(run *activeRun, jit string) (retErr error) {
 		return err
 	}
 	writer := &runnerOutput{file: logFile, secrets: d.secrets, ready: func() {
-		d.events <- runEvent{id: state.RunID, kind: "ready"}
+		select {
+		case d.events <- runEvent{id: state.RunID, kind: "ready"}:
+		case <-d.ctx.Done():
+		}
 	}}
+	logInput, logOutput, err := os.Pipe()
+	if err != nil {
+		writer.close()
+		return err
+	}
+	defer logOutput.Close()
+	defer func() {
+		if retErr != nil {
+			logInput.Close()
+		}
+	}()
 	command := exec.Command("/bin/sh", "-c", `read -r ready <&3 && exec 3<&- && exec "$@"`, "ghalet-launch", filepath.Join(state.RunnerDir, "bin", "Runner.Listener"), "run")
 	command.Dir, command.Env, command.SysProcAttr = state.RunnerDir, runnerEnvironment(d.config, d.user, os.Environ(), jit), processAttributes(d.user)
-	command.ExtraFiles, command.Stdout, command.Stderr = []*os.File{input}, writer, writer
+	command.ExtraFiles, command.Stdout, command.Stderr = []*os.File{input}, logOutput, logOutput
 	if err := command.Start(); err != nil {
 		writer.close()
 		return err
 	}
 	spawned = true
+	logOutput.Close()
 	// The child waits on fd 3. No runner can execute until its identity has
 	// been durably recorded; controller death closes the gate without exec.
 	table, err := processTable(d.ctx)
 	if err == nil {
-		entry, ok := table[command.Process.Pid]
-		if !ok || entry.UID != d.user.UID || entry.PGID != command.Process.Pid {
-			err = errors.New("cannot establish launched process identity")
-		} else {
-			state.Process = entry.ProcessIdentity
-			state.Members = []ProcessIdentity{entry.ProcessIdentity}
+		var identity ProcessIdentity
+		identity, err = launchedProcessIdentity(table, command.Process.Pid, d.user.UID)
+		if err == nil {
+			state.Process = identity
+			state.Members = []ProcessIdentity{identity}
 			state.StartedAt = time.Now().UTC()
 			err = d.save(run)
 		}
@@ -885,15 +915,20 @@ func (d *daemon) launch(run *activeRun, jit string) (retErr error) {
 		return err
 	}
 	run.WaitDone = make(chan struct{})
-	d.workers.Go(func() {
-		err := command.Wait()
-		err = errors.Join(err, writer.close())
+	go func() {
+		_, err := io.Copy(writer, logInput)
+		run.OutputError = errors.Join(err, logInput.Close(), writer.close())
 		close(run.WaitDone)
+	}()
+	// Reaping must not wait for inherited output pipes, and an uncertain
+	// live runner must not keep the daemon's shutdown workers blocked.
+	go func() {
+		err := command.Wait()
 		select {
 		case d.events <- runEvent{id: state.RunID, kind: "exit", err: err}:
 		case <-d.ctx.Done():
 		}
-	})
+	}()
 	return nil
 }
 
@@ -992,11 +1027,17 @@ func (d *daemon) cleanup(run *activeRun) error {
 	if !run.State.ProcessDone || run.Uncertain {
 		return errors.New("cannot clean an unverified execution")
 	}
+	if !run.outputCollected() {
+		return errors.New("runner output collection has not completed")
+	}
 	fail := func(err error) error {
 		run.State.Error = d.secrets.redact(err.Error())
 		d.save(run)
 		d.log.Error("Cleanup incomplete; state and files retained", "event", "cleanup.failed", "runId", run.State.RunID, "targetId", run.State.TargetID, "error", err)
 		return err
+	}
+	if run.OutputError != nil {
+		return fail(fmt.Errorf("collect runner output: %w", run.OutputError))
 	}
 	if err := d.unregister(run); err != nil {
 		return fail(err)

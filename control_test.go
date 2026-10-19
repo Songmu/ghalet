@@ -192,3 +192,70 @@ func TestDefaultGroupIsEquivalentForExplicitOldTargetRecovery(t *testing.T) {
 		t.Fatal("explicit recovery failed to reverify the equivalent default group")
 	}
 }
+
+func TestGCWaitsForOutputCollectionBeforeArchiving(t *testing.T) {
+	d, _ := testDaemon(t)
+	state := testState(t, d.config)
+	state.Phase = "registered"
+	if err := d.store.save(state); err != nil {
+		t.Fatal(err)
+	}
+	if err := safeDirectory(state.RunnerDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	source := filepath.Join(state.RunnerDir, "output.log")
+	if err := os.WriteFile(source, []byte("partial output"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	run := &activeRun{State: state, WaitDone: make(chan struct{}), JITSecrets: d.secrets.addJIT("test-jit-secret")}
+	d.runs[state.RunID] = run
+	for _, dryRun := range []bool{true, false} {
+		response := d.gc(t.Context(), dryRun)
+		if response.Error != "" || len(response.Results) != 1 || !strings.Contains(response.Results[0].Action, "awaiting output collection") {
+			t.Fatal("gc did not retain an execution with pending output", response)
+		}
+		if state.ProcessDone || run.CleanupTried || d.runs[state.RunID] == nil || d.secrets.redact("test-jit-secret") == "test-jit-secret" {
+			t.Fatal("gc released execution state or redaction secrets before output completion")
+		}
+		if _, err := os.Stat(source); err != nil {
+			t.Fatal("gc removed the uncollected output", err)
+		}
+	}
+	if err := os.WriteFile(source, []byte("complete output test-jit-secret\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	close(run.WaitDone)
+	if response := d.gc(t.Context(), false); response.Error != "" || d.runs[state.RunID] != nil {
+		t.Fatal("gc did not resume after output collection", response.Error)
+	}
+	data, err := os.ReadFile(filepath.Join(d.config.Cleanup.LogRoot, "runs", state.RunID, "output.log"))
+	if err != nil || string(data) != "complete output ***\n" {
+		t.Fatalf("gc archived incomplete or unredacted output: %q (%v)", data, err)
+	}
+}
+
+func TestGCReportsOutputCollectionFailureWithoutDeletingLogs(t *testing.T) {
+	d, _ := testDaemon(t)
+	state := testState(t, d.config)
+	state.Phase = "registered"
+	if err := d.store.save(state); err != nil {
+		t.Fatal(err)
+	}
+	if err := safeDirectory(state.RunnerDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	source := filepath.Join(state.RunnerDir, "output.log")
+	if err := os.WriteFile(source, []byte("retained output"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	run := &activeRun{State: state, WaitDone: make(chan struct{}), OutputError: errTestAPI}
+	close(run.WaitDone)
+	d.runs[state.RunID] = run
+	response := d.gc(t.Context(), false)
+	if response.Error == "" || d.runs[state.RunID] == nil || !strings.Contains(state.Error, "collect runner output") {
+		t.Fatal("output failure was ignored", response)
+	}
+	if data, err := os.ReadFile(source); err != nil || string(data) != "retained output" {
+		t.Fatal("collection failure removed the original output", err)
+	}
+}

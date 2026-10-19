@@ -55,7 +55,11 @@ non-root subprocesses. They cover:
 | Accepted backlog during drain, startup deadline and forced drain reporting | Lifecycle timeout tests |
 | Atomic state, OS locking, malformed/unknown/PID-reused state | Filesystem and identity tests |
 | Monitoring after the original process parent exits | Subprocess helper exits; another controller recovers and stops the surviving group |
+| Uncertain runners do not block shutdown; recovered busy runs release capacity after confirmed exit | Shutdown and missed-completion recovery regressions |
+| Runner exit is observed independently of descendant-held output pipes | Real subprocess/FIFO test with an observed descendant and a final unterminated log line |
+| Completed target drains do not become forced after their deadline | Drain followed by delayed reconciliation and confirmed destruction |
 | File-only cleanup and archive failures, retry and log retention | Fault injection and retained-file assertions |
+| Archive synchronization and collection completion precede source deletion | Nested diagnostic archives, failed existing-archive retries, pending-output GC and output-error tests; not a power-loss simulation |
 | Config edits preserve control address and running snapshot | Unix socket CLI tests |
 | Partial GC, status/doctor exit behavior and confirmation refusal | Control/CLI tests |
 

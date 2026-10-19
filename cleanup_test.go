@@ -15,9 +15,10 @@ func TestArchiveBeforeDeletionAndIdempotentRetry(t *testing.T) {
 	if err := d.store.save(state); err != nil {
 		t.Fatal(err)
 	}
-	safeDirectory(filepath.Join(state.RunnerDir, "_diag"), 0700)
+	safeDirectory(filepath.Join(state.RunnerDir, "_diag", "nested"), 0700)
 	os.WriteFile(filepath.Join(state.RunnerDir, "output.log"), []byte("management-secret\n"), 0600)
 	os.WriteFile(filepath.Join(state.RunnerDir, "_diag", "Runner.log"), []byte("diagnostic\n"), 0600)
+	os.WriteFile(filepath.Join(state.RunnerDir, "_diag", "nested", "Worker.log"), []byte("nested diagnostic\n"), 0600)
 	os.WriteFile(filepath.Join(state.RunnerDir, ".credentials"), []byte("do-not-archive"), 0600)
 	d.secrets.add("management-secret")
 	state.ProcessDone = true
@@ -34,6 +35,9 @@ func TestArchiveBeforeDeletionAndIdempotentRetry(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(archive, ".credentials")); !os.IsNotExist(err) {
 		t.Fatal("runner credentials were archived")
+	}
+	if data, err := os.ReadFile(filepath.Join(archive, "_diag", "nested", "Worker.log")); err != nil || string(data) != "nested diagnostic\n" {
+		t.Fatal("nested diagnostic log was not preserved", err)
 	}
 	if _, err := os.Stat(filepath.Dir(state.RunnerDir)); !os.IsNotExist(err) {
 		t.Fatal("execution directory survived successful archive and cleanup")
@@ -71,6 +75,44 @@ func TestArchiveFailurePreservesOriginalAndReleasesProcessCapacity(t *testing.T)
 	response := d.gc(t.Context(), false)
 	if response.Error != "" || len(d.runs) != 0 {
 		t.Fatal("gc failed to retry the preserved archive", response.Error)
+	}
+}
+
+func TestArchiveRetryMustEstablishDurabilityBeforeDeletingOriginals(t *testing.T) {
+	d, _ := testDaemon(t)
+	state := testState(t, d.config)
+	state.ProcessDone, state.Phase = true, "cleaning"
+	if err := d.store.save(state); err != nil {
+		t.Fatal(err)
+	}
+	if err := safeDirectory(state.RunnerDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	source := filepath.Join(state.RunnerDir, "output.log")
+	if err := os.WriteFile(source, []byte("must survive a failed archive retry"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := archiveLogs(d.config, state, d.secrets); err != nil {
+		t.Fatal(err)
+	}
+	archive := filepath.Join(d.config.Cleanup.LogRoot, "runs", state.RunID)
+	unsafe := filepath.Join(archive, "unsafe.log")
+	if err := os.Symlink(source, unsafe); err != nil {
+		t.Fatal(err)
+	}
+	run := &activeRun{State: state}
+	d.runs[state.RunID] = run
+	if err := d.cleanup(run); err == nil || !strings.Contains(err.Error(), "unsafe log archive entry") {
+		t.Fatal("existing archive bypassed durability verification", err)
+	}
+	if _, err := os.Stat(source); err != nil {
+		t.Fatal("failed archive retry removed original logs", err)
+	}
+	if err := os.Remove(unsafe); err != nil {
+		t.Fatal(err)
+	}
+	if response := d.gc(t.Context(), false); response.Error != "" || d.runs[state.RunID] != nil {
+		t.Fatal("archive cleanup did not resume after durability verification", response.Error)
 	}
 }
 

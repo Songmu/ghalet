@@ -255,6 +255,8 @@ func (d *daemon) gc(ctx context.Context, dryRun bool) controlResponse {
 				result.Error = err.Error()
 			} else if alive {
 				result.Action = "retain active execution"
+			} else if !run.outputCollected() {
+				result.Action = "retain execution awaiting output collection"
 			} else if !dryRun {
 				state.ProcessDone, state.Phase = true, "cleaning"
 				if err := d.save(run); err != nil {

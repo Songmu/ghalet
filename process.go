@@ -146,6 +146,14 @@ func sameProcess(a, b ProcessIdentity) bool {
 	return a.PID > 1 && a.PID == b.PID && a.PGID == b.PGID && a.UID == b.UID && a.Started != "" && a.Started == b.Started
 }
 
+func launchedProcessIdentity(table map[int]processEntry, pid, uid int) (ProcessIdentity, error) {
+	entry, ok := table[pid]
+	if !ok || pid <= 1 || entry.PID != pid || entry.UID != uid || entry.PGID != pid || entry.Started == "" {
+		return ProcessIdentity{}, errors.New("cannot establish launched process identity")
+	}
+	return entry.ProcessIdentity, nil
+}
+
 // inspectGroup never treats an absent leader as proof that its children exited.
 func inspectGroup(state *RunState, table map[int]processEntry) (bool, []ProcessIdentity, error) {
 	if state.Process.PID == 0 {

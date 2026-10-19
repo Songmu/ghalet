@@ -96,7 +96,7 @@ func archiveLogs(c *Config, state *RunState, secret *secrets) error {
 		data, err := os.ReadFile(filepath.Join(final, "metadata.json"))
 		var archived archivedRun
 		if err == nil && json.Unmarshal(data, &archived) == nil && archived.RunID == state.RunID && archived.TargetID == state.TargetID {
-			return nil
+			return syncLogArchive(final)
 		}
 		return errors.New("existing log archive is incomplete or belongs to another execution")
 	} else if !errors.Is(err, os.ErrNotExist) {
@@ -168,7 +168,61 @@ func archiveLogs(c *Config, state *RunState, secret *secrets) error {
 	if err := atomicFile(filepath.Join(stage, "metadata.json"), data, 0600); err != nil {
 		return err
 	}
-	return os.Rename(stage, final)
+	if err := syncLogArchive(stage); err != nil {
+		return err
+	}
+	if err := os.Rename(stage, final); err != nil {
+		return err
+	}
+	return syncLogArchive(final)
+}
+
+func syncLogArchive(path string) error {
+	root, err := os.OpenRoot(path)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+	var entries []string
+	if err := filepath.WalkDir(path, func(name string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.Type()&os.ModeSymlink != 0 || (!entry.IsDir() && !entry.Type().IsRegular()) {
+			return fmt.Errorf("unsafe log archive entry %s", name)
+		}
+		relative, err := filepath.Rel(path, name)
+		if err != nil {
+			return err
+		}
+		entries = append(entries, relative)
+		return nil
+	}); err != nil {
+		return err
+	}
+	// Persist files and child directories before their parent entries.
+	for i := len(entries) - 1; i >= 0; i-- {
+		file, err := root.Open(entries[i])
+		if err != nil {
+			return err
+		}
+		if err := errors.Join(file.Sync(), file.Close()); err != nil {
+			return err
+		}
+	}
+	// A newly created logRoot may itself have newly created ancestors.
+	for parent := filepath.Dir(path); ; parent = filepath.Dir(parent) {
+		dir, err := os.Open(parent)
+		if err != nil {
+			return err
+		}
+		if err := errors.Join(dir.Sync(), dir.Close()); err != nil {
+			return err
+		}
+		if parent == filepath.Dir(parent) {
+			return nil
+		}
+	}
 }
 
 func expireLogs(ctx context.Context, c *Config, dryRun bool) ([]OperationResult, error) {

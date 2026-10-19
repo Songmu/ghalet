@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -56,6 +57,13 @@ func cleanupProcesses(t *testing.T, d *daemon) {
 					t.Errorf("test process cleanup: %v", err)
 				}
 				cancel()
+			}
+			if run.WaitDone != nil {
+				select {
+				case <-run.WaitDone:
+				case <-time.After(10 * time.Second):
+					t.Error("test runner output collection did not finish")
+				}
 			}
 		}
 		d.mu.Unlock()
@@ -267,6 +275,117 @@ func TestDrainTimeoutForceStopsButIsNotSuccess(t *testing.T) {
 	}
 }
 
+func TestShutdownRetainsUncertainLiveRunnerWithoutWaitingForItsExit(t *testing.T) {
+	d, _ := testDaemon(t)
+	cleanupProcesses(t, d)
+	seedDistribution(t, d.config, "#!/bin/sh\nprintf 'Listening for Jobs\\n'\nsleep 30\n")
+	d.targets["build"].Assigned = 1
+	var run *activeRun
+	pumpUntil(t, d, func() bool {
+		for _, candidate := range d.runs {
+			if candidate.State.Ready && !candidate.Preparing {
+				run = candidate
+				return true
+			}
+		}
+		return false
+	})
+	d.mu.Lock()
+	run.Uncertain, run.State.Error = true, "identity requires manual inspection"
+	d.targets["build"].Assigned = 0
+	d.mu.Unlock()
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	done := make(chan error, 1)
+	go func() { done <- d.serve(ctx) }()
+	select {
+	case err := <-done:
+		if err == nil || !strings.Contains(err.Error(), "unresolved diagnostics") {
+			t.Fatal("uncertain shutdown did not report incomplete drain", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("shutdown waited for an uncertain live runner")
+	}
+	table, err := processTable(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if alive, _, err := inspectGroup(run.State, table); err != nil || !alive {
+		t.Fatal("shutdown stopped the uncertain runner", err)
+	}
+	if _, err := os.Stat(filepath.Join(filepath.Dir(run.State.RunnerDir), "state.json")); err != nil {
+		t.Fatal("shutdown removed the recovery record", err)
+	}
+}
+
+func TestRunnerExitStopsObservedDescendantsBeforeCollectingOutput(t *testing.T) {
+	d, _ := testDaemon(t)
+	cleanupProcesses(t, d)
+	release := filepath.Join(testDirectory(t), "release")
+	if err := syscall.Mkfifo(release, 0600); err != nil {
+		t.Fatal(err)
+	}
+	seedDistribution(t, d.config, "#!/bin/sh\nsleep 30 &\nprintf 'Listening for Jobs\\n'\nread -r release < '"+release+"'\nprintf 'final-secret-tail'\nexit 0\n")
+	d.targets["build"].Assigned = 1
+	var run *activeRun
+	pumpUntil(t, d, func() bool {
+		for _, candidate := range d.runs {
+			if candidate.State.Ready && !candidate.Preparing && len(candidate.State.Members) >= 2 {
+				run = candidate
+				return true
+			}
+		}
+		return false
+	})
+	d.mu.Lock()
+	run.State.Busy, run.State.Phase = true, "busy"
+	d.targets["build"].Assigned = 0
+	if err := d.save(run); err != nil {
+		d.mu.Unlock()
+		t.Fatal(err)
+	}
+	d.mu.Unlock()
+	d.secrets.add("final-secret")
+	gate, err := os.OpenFile(release, os.O_WRONLY|syscall.O_NONBLOCK, 0600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, writeErr := gate.WriteString("exit\n")
+	if err := errors.Join(writeErr, gate.Close()); err != nil {
+		t.Fatal(err)
+	}
+	pumpUntil(t, d, func() bool { return d.runs[run.State.RunID] == nil })
+	if !run.Exited || !run.outputCollected() || d.occupied() != 0 || d.targets["build"].Forced {
+		t.Fatal("runner exit retained descendants/output or required forced drain")
+	}
+	data, err := os.ReadFile(filepath.Join(d.config.Cleanup.LogRoot, "runs", run.State.RunID, "output.log"))
+	if err != nil || string(data) != "Listening for Jobs\n***-tail" {
+		t.Fatalf("final partial output was not flushed and redacted: %q (%v)", data, err)
+	}
+}
+
+func TestCompletedTargetDrainDoesNotExpire(t *testing.T) {
+	d, api := testDaemon(t)
+	useFakeManagement(d, api)
+	target := d.targets["build"]
+	d.beginDrain(target)
+	target.DrainStarted = time.Now().Add(-time.Hour)
+	d.reconcile()
+	if target.Forced || len(d.statusLocked().Problems) != 0 {
+		t.Fatal("a completed drain became a forced-drain failure")
+	}
+	if response := d.drain(t.Context(), "build"); response.Error != "" {
+		t.Fatal(response.Error)
+	}
+	plan, err := d.planDestroy(t.Context(), controlRequest{Scope: "repository", ScaleSet: "build"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response := d.destroy(t.Context(), plan.Confirmation); response.Error != "" || api.deleteCalls != 1 {
+		t.Fatal("completed drain prevented later destruction", response.Error)
+	}
+}
+
 func TestFinitePreparationFailuresFaultOnlyAffectedTarget(t *testing.T) {
 	d, _ := testDaemon(t)
 	other := *d.targets["build"]
@@ -343,6 +462,15 @@ func TestRecoveredStoppedCleanupIsNotCountedTwice(t *testing.T) {
 }
 
 func TestExecutorRediscoversReparentedRunner(t *testing.T) {
+	for _, missingCompletion := range []bool{false, true} {
+		t.Run(map[bool]string{false: "explicit stop", true: "missed completion"}[missingCompletion], func(t *testing.T) {
+			testRecoveredRunner(t, missingCompletion)
+		})
+	}
+}
+
+func testRecoveredRunner(t *testing.T, missingCompletion bool) {
+	t.Helper()
 	d, api := testDaemon(t)
 	state := testState(t, d.config)
 	d.store.save(state)
@@ -363,11 +491,25 @@ func TestExecutorRediscoversReparentedRunner(t *testing.T) {
 	if run == nil || run.Uncertain || run.State.ProcessDone || d.occupied() != 1 || run.WaitDone != nil {
 		t.Fatalf("reparented runner not safely adopted: %+v", run)
 	}
-	d.mu.Lock()
-	err := d.stop(run, true)
-	d.mu.Unlock()
-	if err != nil || d.occupied() != 0 {
-		t.Fatal("reparented runner could not be stopped and cleaned", err)
+	if missingCompletion {
+		run.State.Busy, run.State.Phase = true, "busy"
+		if err := d.save(run); err != nil {
+			t.Fatal(err)
+		}
+		if err := stopGroup(t.Context(), run.State); err != nil {
+			t.Fatal(err)
+		}
+		d.reconcile()
+		if !run.Exited || run.ExitError != "" || d.runs[state.RunID] != nil || d.occupied() != 0 {
+			t.Fatal("missing completion retained a recovered busy execution or invented an exit result")
+		}
+	} else {
+		d.mu.Lock()
+		err := d.stop(run, true)
+		d.mu.Unlock()
+		if err != nil || d.occupied() != 0 {
+			t.Fatal("reparented runner could not be stopped and cleaned", err)
+		}
 	}
 }
 
