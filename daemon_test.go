@@ -275,10 +275,21 @@ func TestDrainTimeoutForceStopsButIsNotSuccess(t *testing.T) {
 	}
 }
 
-func TestShutdownRetainsUncertainLiveRunnerWithoutWaitingForItsExit(t *testing.T) {
+func TestShutdownWaitsForUncertainLiveRunnerAfterDrainDeadline(t *testing.T) {
 	d, _ := testDaemon(t)
+	var done chan error
+	t.Cleanup(func() {
+		if done != nil {
+			select {
+			case <-done:
+			case <-time.After(10 * time.Second):
+				t.Error("shutdown did not observe test process cleanup")
+			}
+		}
+	})
 	cleanupProcesses(t, d)
 	seedDistribution(t, d.config, "#!/bin/sh\nprintf 'Listening for Jobs\\n'\nsleep 30\n")
+	d.config.Runner.DrainTimeout = Duration(50 * time.Millisecond)
 	d.targets["build"].Assigned = 1
 	var run *activeRun
 	pumpUntil(t, d, func() bool {
@@ -292,19 +303,25 @@ func TestShutdownRetainsUncertainLiveRunnerWithoutWaitingForItsExit(t *testing.T
 	})
 	d.mu.Lock()
 	run.Uncertain, run.State.Error = true, "identity requires manual inspection"
+	run.State.Busy, run.State.Phase = true, "busy"
 	d.targets["build"].Assigned = 0
 	d.mu.Unlock()
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	done := make(chan error, 1)
-	go func() { done <- d.serve(ctx) }()
+	done = make(chan error, 1)
+	go func() {
+		defer close(done)
+		done <- d.serve(ctx)
+	}()
 	select {
 	case err := <-done:
-		if err == nil || !strings.Contains(err.Error(), "unresolved diagnostics") {
-			t.Fatal("uncertain shutdown did not report incomplete drain", err)
-		}
-	case <-time.After(3 * time.Second):
-		t.Fatal("shutdown waited for an uncertain live runner")
+		t.Fatal("shutdown abandoned an uncertain live runner", err)
+	case <-time.After(time.Second):
+	}
+	response := d.handle(t.Context(), controlRequest{Command: "doctor"})
+	if response.Error == "" || len(response.Status.Targets) != 1 || !response.Status.Targets[0].Draining ||
+		!response.Status.Targets[0].Forced {
+		t.Fatal("shutdown lost diagnostics/control access or did not reach its drain deadline", response)
 	}
 	table, err := processTable(t.Context())
 	if err != nil {
@@ -315,6 +332,59 @@ func TestShutdownRetainsUncertainLiveRunnerWithoutWaitingForItsExit(t *testing.T
 	}
 	if _, err := os.Stat(filepath.Join(filepath.Dir(run.State.RunnerDir), "state.json")); err != nil {
 		t.Fatal("shutdown removed the recovery record", err)
+	}
+	d.mu.Lock()
+	err = stopGroup(t.Context(), run.State, func() error { return d.store.save(run.State) })
+	d.mu.Unlock()
+	if err != nil {
+		t.Fatal("test could not stop its verified runner", err)
+	}
+	select {
+	case err := <-done:
+		if err == nil || !strings.Contains(err.Error(), "unresolved diagnostics") {
+			t.Fatal("shutdown hid the retained uncertain execution", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("shutdown did not observe the uncertain group's disappearance")
+	}
+	if !run.Uncertain || !run.GroupStopped || !run.Exited || !run.outputCollected() {
+		t.Fatal("shutdown skipped group, exit or output confirmation, or cleared uncertainty")
+	}
+	if _, err := os.Stat(filepath.Join(filepath.Dir(run.State.RunnerDir), "state.json")); err != nil {
+		t.Fatal("group disappearance authorized deletion of uncertain state", err)
+	}
+}
+
+func TestDrainedRequiresUncertainGroupAndObserverConfirmation(t *testing.T) {
+	d, _ := testDaemon(t)
+	state := testState(t, d.config)
+	state.ProcessDone = true
+	run := &activeRun{State: state, Uncertain: true, Stopping: true, WaitDone: make(chan struct{})}
+	d.runs[state.RunID] = run
+	if d.drained("") {
+		t.Fatal("persisted stopped state bypassed uncertain group verification")
+	}
+	d.reconcile()
+	if !run.GroupStopped || d.drained("") {
+		t.Fatal("group absence bypassed exit/output observers")
+	}
+	close(run.WaitDone)
+	if d.drained("") {
+		t.Fatal("collected output bypassed local exit observation")
+	}
+	d.processEvent(runEvent{id: state.RunID, kind: "exit"})
+	if !d.drained("") || !run.Uncertain || len(d.statusLocked().Problems) == 0 {
+		t.Fatal("confirmed stopped execution blocked shutdown or lost its diagnostics")
+	}
+	run.WaitDone = nil
+	run.Exited = false
+	if !d.drained("") {
+		t.Fatal("recovered execution required a nonexistent local exit observer")
+	}
+	state.Process = ProcessIdentity{PID: 2, PGID: 3, UID: state.UID}
+	d.reconcile()
+	if run.GroupStopped || d.drained("") {
+		t.Fatal("failed process inspection retained a stale absence confirmation")
 	}
 }
 

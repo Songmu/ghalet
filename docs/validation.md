@@ -56,7 +56,8 @@ non-root subprocesses. They cover:
 | Accepted backlog during drain, startup deadline and forced drain reporting | Lifecycle timeout tests |
 | Atomic state, OS locking, malformed/unknown/PID-reused state | Filesystem and identity tests |
 | Monitoring after the original process parent exits | Subprocess helper exits; another controller recovers and stops the surviving group |
-| Uncertain runners do not block shutdown; recovered busy runs release capacity after confirmed exit | Shutdown and missed-completion recovery regressions |
+| Shutdown waits for uncertain groups and local exit/output observation without signaling unverified processes | Live-process shutdown, uncertain-group disappearance and delayed-observer regressions |
+| Recovered busy runs release capacity after confirmed exit | Missed-completion recovery regression |
 | Runner exit is observed independently of descendant-held output pipes | Real subprocess/FIFO test with an observed descendant and a final unterminated log line |
 | Termination persists newly verified descendants before signaling and refreshes membership during shutdown | SIGTERM-resistant subprocess tests for children created before/during termination, plus a failed-save no-signal test |
 | Readiness-dependent exit classification waits for collected output | Deterministic exit-before-readiness tests, including real failures and intentional stops |

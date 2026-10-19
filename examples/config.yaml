@@ -44,7 +44,7 @@ runner:
   version: "2.338.0"
   # user: ci-runner
   startupTimeout: 2m
-  drainTimeout: 30m
+  drainTimeout: 10m
   workRoot: runs
   distributionRoot: runners
   cacheRoot: downloads

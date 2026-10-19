@@ -135,7 +135,7 @@ func LoadConfig(path string) (*Config, error) {
 	c := &Config{
 		Path: path, Capacity: CapacityConfig{MaxRunners: 2},
 		Runner: RunnerConfig{
-			StartupTimeout: Duration(2 * time.Minute), DrainTimeout: Duration(30 * time.Minute),
+			StartupTimeout: Duration(2 * time.Minute), DrainTimeout: Duration(10 * time.Minute),
 			WorkRoot: "runs", DistributionRoot: "runners", CacheRoot: "downloads",
 		},
 		Cleanup: CleanupConfig{PreserveLogs: true, LogRetention: Duration(7 * 24 * time.Hour), LogRoot: "logs"},

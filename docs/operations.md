@@ -121,10 +121,15 @@ SIGINT/SIGTERM starts drain for all targets. `ghalet drain --target ID`
 drains only that target and leaves the daemon running. New acquisitions and
 warm replenishment stop, but already assigned, unstarted jobs can still
 provision runners within both limits. The drain deadline starts at the
-request, not at each runner's start. After `drainTimeout`, preparation is
-canceled and verified process groups, including busy jobs, are terminated.
-Forced shutdown is reported as incomplete, not success. Unknown identities
-are retained rather than killed by name or PID alone.
+request, not at each runner's start. The default `drainTimeout` is 10 minutes.
+After that deadline, preparation is canceled and verified process groups,
+including busy jobs, receive SIGTERM, followed by SIGKILL if they remain.
+The controller waits for runner process groups to stop and local exit/output
+observers to finish before exiting. Unknown identities are not signaled by
+name or PID alone and continue to block shutdown until their groups are
+confirmed absent. Their records and diagnostics remain for inspection;
+absence alone does not authorize cleanup. Forced shutdown is reported as
+incomplete, not success.
 
 ## Diagnosis, garbage collection and explicit destruction
 
@@ -207,21 +212,35 @@ copy `examples/ghalet.service` into `/etc/systemd/system/`, and place the
 configuration at `/etc/ghalet/config.yaml`. Set workRoot, distributionRoot,
 cacheRoot and logRoot to suitable user-writable paths. Authenticate as that
 user, run configuration validation, then `systemctl enable --now ghalet`.
-`KillMode=mixed` sends the initial stop signal only to the controller and
-`TimeoutStopSec=infinity` allows its own drain deadline to govern shutdown.
-Host shutdown/power loss can still interrupt jobs.
+`KillMode=mixed` sends the initial stop signal only to the controller, allowing
+it to drain jobs and terminate runner groups before exiting. The finite
+`TimeoutStopSec=15min` is an independent outer deadline: if the controller
+hangs or cannot verify a remaining group, systemd forcibly stops all remaining
+processes in the service's cgroup, including the controller and runners.
+It also kills remaining service processes if the controller crashes/exits.
+This last-resort cleanup deliberately takes precedence over retaining live
+runners for recovery. State and logs remain for recovery after interruption.
+Keep the service deadline longer than the configured drain timeout, with
+allowance for termination, API calls and cleanup; the examples allow five
+additional minutes. Host shutdown/power loss can still interrupt jobs.
 
 For native macOS, customize absolute paths in
 `examples/com.github.ghalet.plist`, create the log directory, and place the
 file in `~/Library/LaunchAgents/`. Use `launchctl bootstrap gui/$(id -u) FILE`.
-The 2,100-second service stop limit exceeds the default 30-minute drain plus
-cleanup allowance; increase it if changing the configured timeout. Zero
-would mean an infinite launchd stop wait and is deliberately avoided.
-`AbandonProcessGroup` leaves crash recovery to ghalet. LaunchAgents start at
-login, not before login, and do not prevent sleep. For another execution user,
-use an administrator-managed LaunchDaemon and set `runner.user`; do not
-assume a LaunchAgent can change users. Test keychain access and shutdown
-behavior in the actual login/service context.
+The 900-second service stop limit exceeds the default 10-minute drain by five
+minutes; increase it if changing the configured timeout. Zero would mean an
+infinite launchd stop wait and is deliberately avoided. Unlike systemd,
+launchd does not provide the example with a cgroup-wide kill boundary:
+its exit-time process-group cleanup only covers the controller's group,
+while runners use separate groups. `AbandonProcessGroup` preserves the
+existing crash-recovery policy. Neither changing that flag nor setting
+`ExitTimeOut` guarantees runner cleanup if the controller is forcibly
+terminated or crashes; surviving groups require recovery or manual
+inspection. Use the Linux/Lima service if cgroup-wide last-resort termination
+is required. LaunchAgents start at login, not before login, and do not prevent
+sleep. For another execution user, use an administrator-managed LaunchDaemon
+and set `runner.user`; do not assume a LaunchAgent can change users. Test
+keychain access and shutdown behavior in the actual login/service context.
 
 For Apple Silicon Lima, `examples/lima.yaml` supplies an Ubuntu ARM64 VM
 with VZ, 4 vCPU, 8 GiB, 80 GiB, no host mounts, no containerd, installation

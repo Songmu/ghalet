@@ -46,6 +46,7 @@ type activeRun struct {
 	ExitError       string
 	ExitResult      *runExit
 	Uncertain       bool
+	GroupStopped    bool // Observed absence does not authorize cleanup of uncertain state.
 	CleanupTried    bool
 	WaitDone        chan struct{}
 	OutputError     error
@@ -572,10 +573,15 @@ func (d *daemon) reconcile() {
 		return
 	}
 	for _, run := range d.runs {
-		if run.Uncertain || run.Preparing {
+		if run.Preparing {
 			continue
 		}
 		state := run.State
+		if run.Uncertain {
+			alive, _, err := inspectGroup(state, table)
+			run.GroupStopped = err == nil && !alive
+			continue
+		}
 		target := d.runTarget(run)
 		if target == nil || target.Client == nil {
 			continue
@@ -1093,14 +1099,18 @@ func (d *daemon) drained(id string) bool {
 		if id != "" && d.runTargetID(run) != id {
 			continue
 		}
-		if run.Preparing || (!run.State.ProcessDone && !run.Uncertain) {
+		if run.Preparing {
 			return false
 		}
-		if run.State.ProcessDone && !run.Uncertain && !run.CleanupTried {
+		if run.Uncertain {
+			if !run.GroupStopped || !run.outputCollected() || (run.WaitDone != nil && !run.Exited) {
+				return false
+			}
+			continue
+		}
+		if !run.State.ProcessDone || !run.CleanupTried {
 			return false
 		}
-		// Unknown processes are not killed speculatively. Their retained
-		// records are reported as an incomplete drain rather than success.
 	}
 	return true
 }

@@ -59,6 +59,7 @@ func testConfig(t *testing.T) *Config {
 func TestConfigDefaultsAndRelativePaths(t *testing.T) {
 	c := testConfig(t)
 	if c.Capacity.MaxRunners != 2 || c.Runner.StartupTimeout != Duration(2*time.Minute) ||
+		c.Runner.DrainTimeout != Duration(10*time.Minute) ||
 		!c.Cleanup.PreserveLogs || c.Cleanup.LogRetention != Duration(7*24*time.Hour) {
 		t.Fatalf("unexpected defaults: %+v", c)
 	}
