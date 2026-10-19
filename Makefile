@@ -1,5 +1,5 @@
 CURRENT_REVISION = $(shell git rev-parse --short HEAD)
-BUILD_LDFLAGS = "-s -w -X github.com/Songmu/ghalet.revision=$(CURRENT_REVISION)"
+BUILD_LDFLAGS = "-s -w -X github.com/Songmu/ghalet.Revision=$(CURRENT_REVISION)"
 u := $(if $(update),-u)
 
 .PHONY: deps

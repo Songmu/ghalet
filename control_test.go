@@ -317,7 +317,7 @@ func TestControlAddressAndRunningSnapshotSurviveConfigEdit(t *testing.T) {
 	original := socketPath(d.config.Path)
 	os.WriteFile(d.config.Path, []byte("this is no longer valid YAML\nworkRoot: /somewhere/else"), 0600)
 	var output, stderr bytes.Buffer
-	if err := Run(t.Context(), []string{"status", "--config", d.config.Path}, &output, &stderr); err != nil {
+	if err := Control(t.Context(), d.config.Path, ControlOptions{Command: "status"}, &output, &stderr); err != nil {
 		t.Fatal("status tried to reload edited config", err)
 	}
 	var response controlResponse
@@ -346,7 +346,7 @@ func TestStatusAndDoctorExitCodesAndPartialGC(t *testing.T) {
 	go server.serve(d)
 	for _, command := range []string{"status", "doctor", "gc"} {
 		var output, stderr bytes.Buffer
-		err := Run(t.Context(), []string{command, "--config", d.config.Path}, &output, &stderr)
+		err := Control(t.Context(), d.config.Path, ControlOptions{Command: command}, &output, &stderr)
 		if (command == "status" && err != nil) || (command != "status" && err == nil) {
 			t.Fatalf("incorrect %s exit behavior: %v, %s", command, err, output.String())
 		}
@@ -402,7 +402,7 @@ func TestDisconnectedControlCannotBypassWorkRootLock(t *testing.T) {
 	}
 	defer lock.close()
 	var output bytes.Buffer
-	err = Run(t.Context(), []string{"gc", "--config", c.Path}, &output, &output)
+	err = Control(t.Context(), c.Path, ControlOptions{Command: "gc"}, &output, &output)
 	if err == nil || !strings.Contains(err.Error(), "refusing direct operation") {
 		t.Fatal("disconnected socket bypassed live workRoot lock", err)
 	}

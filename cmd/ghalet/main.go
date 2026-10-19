@@ -7,13 +7,13 @@ import (
 	"os"
 	"syscall"
 
-	"github.com/Songmu/ghalet"
+	"github.com/Songmu/ghalet/cmd"
 )
 
 func main() {
 	syscall.Umask(0077)
 	log.SetFlags(0)
-	err := ghalet.Run(context.Background(), os.Args[1:], os.Stdout, os.Stderr)
+	err := cmd.Run(context.Background(), os.Args[1:], os.Stdout, os.Stderr)
 	if err != nil && err != flag.ErrHelp {
 		log.Println(err)
 		exitCode := 1

@@ -1,8 +1,6 @@
 package ghalet
 
 import (
-	"bytes"
-	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -654,70 +652,6 @@ func TestConfigValidationOrder(t *testing.T) {
 				t.Fatalf("Validate() = %v, want %q", err, tc.want)
 			}
 		})
-	}
-}
-
-func TestConfigurationValidationCLI(t *testing.T) {
-	testYAML := readFixture(t, "config/base.yaml")
-	path := writeConfig(t, testYAML)
-	for _, args := range [][]string{
-		{"config", "validate", "--config", path},
-		{"--config", path, "config", "validate"},
-		{"--config", path, "config", "validate", "--config", path},
-	} {
-		var output, stderr bytes.Buffer
-		if err := Run(t.Context(), args, &output, &stderr); err != nil {
-			t.Fatalf("%v: %v (%s)", args, err, stderr.String())
-		}
-	}
-	var output bytes.Buffer
-	if err := Run(t.Context(), []string{"--version"}, &output, &output); err != nil || !strings.Contains(output.String(), "ghalet v") {
-		t.Fatal("version command failed")
-	}
-	for _, command := range []string{"run", "status", "doctor", "drain", "gc", "destroy"} {
-		if err := Run(t.Context(), []string{command, "--config", filepath.Join(testDirectory(t), "missing.yaml")}, &output, &output); err == nil {
-			t.Fatalf("%s accepted a missing config", command)
-		}
-	}
-}
-
-func TestConfigurationRejectsLegacyScopeFlag(t *testing.T) {
-	var output bytes.Buffer
-	err := Run(t.Context(), []string{"destroy", "--scope", "repository"}, &output, &output)
-	if err == nil || !strings.Contains(err.Error(), "flag provided but not defined: -scope") {
-		t.Fatal("legacy --scope flag was not rejected", err)
-	}
-}
-
-func TestVersionFlagPlacementDoesNotStartDaemon(t *testing.T) {
-	testYAML := readFixture(t, "config/base.yaml")
-	path := writeConfig(t, testYAML)
-	missing := filepath.Join(filepath.Dir(path), "missing.yaml")
-	t.Setenv("GHALET_TEST_TOKEN", "")
-	ctx, cancel := context.WithCancel(t.Context())
-	cancel()
-	for _, args := range [][]string{
-		{"--version"},
-		{"run", "--version"},
-		{"run", "--config", path, "--version"},
-		{"--config", path, "run", "--version"},
-		{"--config", path, "run", "--target", "build", "--version"},
-		{"--config", path, "config", "validate", "--version"},
-		{"--config", missing, "run", "--version"},
-		{"--version", "run"},
-	} {
-		t.Run(strings.Join(args, " "), func(t *testing.T) {
-			var output, stderr bytes.Buffer
-			if err := Run(ctx, args, &output, &stderr); err != nil {
-				t.Fatal("version query entered command execution", err, stderr.String())
-			}
-			if output.String() != cmdName+" v"+version+" (rev:"+revision+")\n" || stderr.Len() != 0 {
-				t.Fatal("version query produced unexpected output", output.String(), stderr.String())
-			}
-		})
-	}
-	if _, err := os.Stat(filepath.Join(filepath.Dir(path), "runs")); !os.IsNotExist(err) {
-		t.Fatal("version query touched daemon execution directories", err)
 	}
 }
 
