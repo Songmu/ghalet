@@ -67,7 +67,7 @@ type Credential struct {
 
 type Target struct {
 	ID             string        `yaml:"id"`
-	URL            string        `yaml:"url"`
+	URL            string        `yaml:"scope"`
 	Credential     Credential    `yaml:"credential"`
 	InstallationID int64         `yaml:"installationId"`
 	RunnerGroup    string        `yaml:"runnerGroup"`
@@ -163,6 +163,9 @@ func LoadConfig(path string) (*Config, error) {
 		if cred.PrivateKeyFile != "" {
 			cred.PrivateKeyFile = resolve(cred.PrivateKeyFile)
 		}
+		if !strings.Contains(target.URL, ":") {
+			target.URL = "https://github.com/" + target.URL
+		}
 		target.URL = strings.TrimRight(target.URL, "/")
 	}
 	if err := c.Validate(); err != nil {
@@ -226,7 +229,7 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("target %s: installationId is required only for github-app", target.ID)
 		}
 		if cred.Type == "gh" && cred.Hostname != "" && cred.Hostname != u.Host {
-			return fmt.Errorf("target %s: credential hostname does not match target URL", target.ID)
+			return fmt.Errorf("target %s: credential hostname does not match scope hostname", target.ID)
 		}
 		if len(strings.Split(strings.Trim(u.Path, "/"), "/")) == 2 && target.RunnerGroup != "" {
 			return fmt.Errorf("target %s: repository scope cannot specify runnerGroup", target.ID)

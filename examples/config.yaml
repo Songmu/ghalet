@@ -8,14 +8,16 @@ apiVersion: ghalet/v1alpha1
 targets:
   - id: project
     # Unique target ID used by management commands.
-    url: https://github.com/OWNER/REPO
-    # Repository or organization URL; enterprise scopes are not supported.
+    scope: OWNER/REPO
+    # GitHub.com repository (OWNER/REPO) or organization (ORG).
+    # Full HTTPS URLs are also accepted, including other GitHub hosts.
+    # Enterprise scopes are not supported.
     credential: &personal
       type: gh
       # Authentication source. Options: gh, pat, github-app.
       # gh uses the authentication of the user starting ghalet.
       # hostname: ""
-      # gh only; empty uses the hostname from this target's URL.
+      # gh only; empty uses the scope's hostname.
 
     # credential:
     #   type: pat
@@ -43,7 +45,7 @@ targets:
       # Per-target runner limit; shared capacity still applies.
 
   # - id: another-project
-  #   url: https://github.com/OWNER/ANOTHER-REPO
+  #   scope: OWNER/ANOTHER-REPO
   #   credential: *personal
   #   scaleSetName: macmini
   #   scaling:

@@ -16,15 +16,19 @@ control address: it is derived from the normalized absolute config path.
 running snapshot even if the file's contents are now invalid.
 
 `examples/config.yaml` includes repository, organization, `gh`, PAT and App
-examples. Each target contains its registration `url` and a nested
-`credential` mapping with an explicit `type`. App `installationId` belongs
-to the target, not its credential, so multiple installations can share a
-single App key. Reuse values with ordinary YAML anchors and aliases:
+examples. Each target contains its registration `scope` and a nested
+`credential` mapping with an explicit `type`. For GitHub.com, `scope` accepts
+`OWNER/REPO` for a repository or `ORG` for an organization; these are normalized
+to HTTPS URLs before validation, authentication, and registration matching.
+Full HTTPS URLs are also accepted and are required for other GitHub hosts.
+App `installationId` belongs to the target, not its credential, so multiple
+installations can share a single App key. Reuse values with ordinary YAML
+anchors and aliases:
 
 ```yaml
 targets:
   - id: build
-    url: &repository https://github.com/OWNER/REPO
+    scope: &repository OWNER/REPO
     credential: &personal
       type: gh
     scaleSetName: build
@@ -32,7 +36,7 @@ targets:
       minRunners: 0
       maxRunners: 2
   - id: test
-    url: *repository
+    scope: *repository
     credential: *personal
     scaleSetName: test
     scaling: *scaling

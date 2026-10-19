@@ -22,7 +22,7 @@ func testDirectory(t *testing.T) string {
 const testYAML = `apiVersion: ghalet/v1alpha1
 targets:
   - id: build
-    url: https://github.com/owner/repository
+    scope: https://github.com/owner/repository
     credential:
       type: pat
       tokenEnv: GHALET_TEST_TOKEN
@@ -72,11 +72,75 @@ func TestConfigDefaultsAndRelativePaths(t *testing.T) {
 	}
 }
 
+func TestConfigTargetScope(t *testing.T) {
+	for _, tc := range []struct {
+		input, want string
+	}{
+		{"owner/repository", "https://github.com/owner/repository"},
+		{"owner", "https://github.com/owner"},
+		{"owner/repository/", "https://github.com/owner/repository"},
+		{"owner/", "https://github.com/owner"},
+		{"https://github.com/owner/repository/", "https://github.com/owner/repository"},
+		{"https://ghe.example.com/owner/repository", "https://ghe.example.com/owner/repository"},
+		{"https://ghe.example.com/owner", "https://ghe.example.com/owner"},
+		{"", ""},
+		{"owner//repository", ""},
+		{"owner/repository/extra", ""},
+		{"owner/../repository", ""},
+		{"owner/repository?token=hidden", ""},
+		{"owner/repository#fragment", ""},
+		{"http:github.com/owner", ""},
+		{"http://github.com/owner", ""},
+		{"ssh://github.com/owner", ""},
+		{"enterprises/company", ""},
+		{"Enterprises/company", ""},
+	} {
+		t.Run(tc.input, func(t *testing.T) {
+			content := strings.Replace(testYAML, "https://github.com/owner/repository", tc.input, 1)
+			c, err := LoadConfig(writeConfig(t, content))
+			if tc.want == "" {
+				if err == nil {
+					t.Fatal("invalid registration accepted")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if c.Targets[0].URL != tc.want {
+				t.Fatalf("got %q, want %q", c.Targets[0].URL, tc.want)
+			}
+		})
+	}
+}
+
+func TestConfigRejectsDuplicateShorthandRegistration(t *testing.T) {
+	const extra = `
+  - id: other
+    scope: https://github.com/REGISTRATION
+    credential:
+      type: gh
+    scaleSetName: build
+    scaling:
+      maxRunners: 2
+runner:`
+	for _, registration := range []string{"owner", "owner/repository"} {
+		t.Run(registration, func(t *testing.T) {
+			content := strings.Replace(testYAML, "https://github.com/owner/repository", registration, 1)
+			content = strings.Replace(content, "\nrunner:", strings.Replace(extra, "REGISTRATION", registration, 1), 1)
+			if _, err := LoadConfig(writeConfig(t, content)); err == nil ||
+				!strings.Contains(err.Error(), "duplicate scope/group/scale set registration") {
+				t.Fatal("shorthand and full URL bypassed duplicate registration validation", err)
+			}
+		})
+	}
+}
+
 func TestConfigAliases(t *testing.T) {
 	const input = `apiVersion: ghalet/v1alpha1
 targets:
   - id: first
-    url: &url https://github.com/first/
+    scope: &scope first/
     credential: &credential
 CREDENTIAL
 FIRST_INSTALLATION
@@ -85,7 +149,7 @@ FIRST_INSTALLATION
       minRunners: 0
       maxRunners: 2
   - id: second
-    url: *url
+    scope: *scope
     credential: *credential
 SECOND_INSTALLATION
     scaleSetName: test
@@ -108,7 +172,7 @@ runner:
 			content := input
 			if tc.app {
 				firstInstallation, secondInstallation = "    installationId: 100", "    installationId: 200"
-				content = strings.Replace(content, "url: *url", "url: https://github.com/second", 1)
+				content = strings.Replace(content, "scope: *scope", "scope: https://github.com/second", 1)
 			}
 			content = strings.NewReplacer("CREDENTIAL", tc.credential,
 				"FIRST_INSTALLATION", firstInstallation, "SECOND_INSTALLATION", secondInstallation).Replace(content)
@@ -180,7 +244,8 @@ func TestConfigRejectsInvalidInput(t *testing.T) {
 		"unfixed runner":        strings.Replace(testYAML, `"2.338.0"`, "latest", 1),
 		"missing credential":    strings.Replace(testYAML, "    credential:\n      type: pat\n      tokenEnv: GHALET_TEST_TOKEN\n", "", 1),
 		"missing type":          strings.Replace(testYAML, "      type: pat\n", "", 1),
-		"missing URL":           strings.Replace(testYAML, "    url: https://github.com/owner/repository\n", "", 1),
+		"missing scope":         strings.Replace(testYAML, "    scope: https://github.com/owner/repository\n", "", 1),
+		"old URL key":           strings.Replace(testYAML, "scope: https://github.com/owner/repository", "url: https://github.com/owner/repository", 1),
 		"legacy credentials":    testYAML + "credentials: {}\n",
 		"legacy scopes":         testYAML + "scopes: {}\n",
 		"legacy scopeRef":       strings.Replace(testYAML, "id: build", "id: build\n    scopeRef: repository", 1),
