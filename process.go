@@ -183,12 +183,10 @@ func inspectGroup(state *RunState, table map[int]processEntry) (bool, []ProcessI
 		known[member.PID] = member
 	}
 	var members []ProcessIdentity
-	groupObserved := false
 	for _, entry := range table {
 		if entry.PGID != state.Process.PGID {
 			continue
 		}
-		groupObserved = true
 		if entry.Zombie {
 			continue
 		}
@@ -200,14 +198,24 @@ func inspectGroup(state *RunState, table map[int]processEntry) (bool, []ProcessI
 		}
 		members = append(members, entry.ProcessIdentity)
 	}
-	if !groupObserved {
-		// A descendant can be born after ps enumerates PIDs and outlive its leader.
-		err := syscall.Kill(-state.Process.PGID, 0)
-		if err == nil {
-			return false, nil, errors.New("process group still exists outside the process-table snapshot; retry inspection")
+	if len(members) == 0 {
+		// Neither an empty nor a zombie-only ps snapshot rules out a late fork.
+		probeErr := syscall.Kill(-state.Process.PGID, 0)
+		if errors.Is(probeErr, syscall.ESRCH) {
+			return false, nil, nil
 		}
-		if !errors.Is(err, syscall.ESRCH) {
-			return false, nil, fmt.Errorf("cannot confirm process group absence: %w", err)
+		stopped, err := kernelGroupStopped(state.Process.PGID, table)
+		if err != nil || !stopped {
+			if errors.Is(syscall.Kill(-state.Process.PGID, 0), syscall.ESRCH) {
+				return false, nil, nil
+			}
+			if err != nil {
+				return false, nil, fmt.Errorf("cannot verify zombie-only process group: %w", err)
+			}
+			if probeErr != nil {
+				return false, nil, fmt.Errorf("cannot confirm process group absence: %w", probeErr)
+			}
+			return false, nil, errors.New("kernel inspection cannot rule out live group members; retry inspection")
 		}
 	}
 	if state.ProcessDone && len(members) > 0 {

@@ -188,9 +188,14 @@ in diagnostics. Recovery of a surviving process does not recreate `Wait` or
 invent its exit code. Descendants observed in the original process group can
 be recovered; escaped descendants cannot be completely detected or isolated.
 
-An empty process-group snapshot must also pass a kernel absence check;
-otherwise the execution remains uncertain and retains capacity. State files
-are limited to 1 MiB, including their final newline. Oversized saves fail
+Empty and zombie-only process-group snapshots require kernel revalidation.
+Linux checks a fresh `/proc` enumeration, retrying disappearing-PID races
+without silently skipping them; macOS queries `kern.proc.pgrp`. A group is
+treated as stopped only when absent or when every fresh member was already
+observed as a zombie with the same kernel identity. Newly observed zombies
+cannot establish safety because they may have just forked. Failed
+verification retains uncertainty and capacity. State
+files are limited to 1 MiB, including their final newline. Oversized saves fail
 without replacing the last readable record, including when a large descendant
 list cannot be persisted before signaling.
 

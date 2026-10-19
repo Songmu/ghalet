@@ -59,7 +59,8 @@ non-root subprocesses. They cover:
 | Accepted backlog during drain, startup deadline and forced drain reporting | Lifecycle timeout tests |
 | Atomic state, OS locking, malformed/unknown/PID-reused state | Filesystem and identity tests |
 | State writes never replace a readable record with an oversized one | Large member-list rejection, exact 1 MiB read boundary and over-limit trailing-data regressions |
-| An empty process snapshot alone cannot confirm group exit | Real forked descendant with a reaped leader and stale ps output; stop/recovery/GC retain capacity and state, while zombie-only handling is preserved |
+| Empty and zombie-only process snapshots cannot conceal live descendants | Real forked descendants with reaped or zombie leaders and stale ps output; stop/recovery/GC retain capacity and state; native kernel checks accept genuine zombie-only groups |
+| Linux kernel group verification rejects incomplete enumerations | Vanished-PID, omitted-live-child and newly observed zombie fixtures, including a zombie leader with live worker threads |
 | Invalid nonzero process IDs never authorize cleanup | Negative/reserved PID checks and malformed-record recovery/GC retention |
 | Process commands retain consecutive spaces; exited PIDs are absent rather than unverifiable | Real managed-path drain and reaped-PID kernel lookup regressions |
 | Monitoring after the original process parent exits | Subprocess helper exits; another controller recovers and stops the surviving group |

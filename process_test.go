@@ -1,7 +1,6 @@
 package ghalet
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -16,6 +15,33 @@ import (
 )
 
 func TestEmptyProcessSnapshotRetainsForkedDescendant(t *testing.T) {
+	testIncompleteGroupSnapshot(t, false)
+}
+
+func TestZombieProcessSnapshotRetainsForkedDescendant(t *testing.T) {
+	testIncompleteGroupSnapshot(t, true)
+}
+
+func waitForZombie(t *testing.T, pid int) map[int]processEntry {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		table, err := processTable(t.Context())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if table[pid].Zombie {
+			return table
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("process did not become an unreaped zombie", pid)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func testIncompleteGroupSnapshot(t *testing.T, zombieLeader bool) {
+	t.Helper()
 	d, _ := testDaemon(t)
 	state := testState(t, d.config)
 	gate, release, err := os.Pipe()
@@ -24,9 +50,13 @@ func TestEmptyProcessSnapshotRetainsForkedDescendant(t *testing.T) {
 	}
 	defer gate.Close()
 	defer release.Close()
-	var output bytes.Buffer
+	output, err := os.Create(filepath.Join(testDirectory(t), "child-pid"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer output.Close()
 	command := exec.Command("/bin/sh", "-c", "read -r release || exit 1\nsleep 60 </dev/null >/dev/null 2>&1 &\nprintf '%s\\n' \"$!\"\n")
-	command.Stdin, command.Stdout = gate, &output
+	command.Stdin, command.Stdout = gate, output
 	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if err := command.Start(); err != nil {
 		t.Fatal(err)
@@ -51,33 +81,45 @@ func TestEmptyProcessSnapshotRetainsForkedDescendant(t *testing.T) {
 	if _, err := release.WriteString("fork\n"); err != nil {
 		t.Fatal(err)
 	}
-	if err := command.Wait(); err != nil {
+	if zombieLeader {
+		waitForZombie(t, command.Process.Pid)
+	} else {
+		if err := command.Wait(); err != nil {
+			t.Fatal(err)
+		}
+		waited = true
+	}
+	data, err := os.ReadFile(output.Name())
+	if err != nil {
 		t.Fatal(err)
 	}
-	waited = true
 	var childPID int
-	if _, err := fmt.Sscanf(output.String(), "%d", &childPID); err != nil {
+	if _, err := fmt.Sscanf(string(data), "%d", &childPID); err != nil {
 		t.Fatal(err)
 	}
 	table, err := processTable(t.Context())
 	if err != nil || table[childPID].PID != childPID || table[childPID].Zombie {
-		t.Fatal("forked descendant did not survive its reaped leader", err)
+		t.Fatal("forked descendant did not survive its exited leader", err)
 	}
 
 	// Reproduce ps listing the leader before the fork but omitting its new child.
 	dir := testDirectory(t)
-	snapshot := fmt.Sprintf("%d %d %d S Mon Oct 19 00:00:00 2026 %s/bin/Runner.Listener", state.Process.PID, state.Process.PGID, state.UID, state.RunnerDir)
+	status, wantEntries := "S", 0
+	if zombieLeader {
+		status, wantEntries = "Z", 1
+	}
+	snapshot := fmt.Sprintf("%d %d %d %s Mon Oct 19 00:00:00 2026 %s/bin/Runner.Listener", state.Process.PID, state.Process.PGID, state.UID, status, state.RunnerDir)
 	script := fmt.Sprintf("#!/bin/sh\nprintf '%%s\\n' '%s'\n", snapshot)
 	if err := os.WriteFile(filepath.Join(dir, "ps"), []byte(script), 0700); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", dir+":"+os.Getenv("PATH"))
 	table, err = processTable(t.Context())
-	if err != nil || len(table) != 0 {
-		t.Fatal("test did not reproduce an empty snapshot after leader reaping", err)
+	if err != nil || len(table) != wantEntries {
+		t.Fatal("test did not reproduce the incomplete process snapshot", err)
 	}
 	if _, _, err := inspectGroup(state, table); err == nil {
-		t.Fatal("empty snapshot was accepted while a descendant still existed")
+		t.Fatal("incomplete snapshot was accepted while a descendant still existed")
 	}
 	persisted := false
 	if err := stopGroup(t.Context(), state, func() error { persisted = true; return nil }); err == nil || persisted {
@@ -103,8 +145,20 @@ func TestEmptyProcessSnapshotRetainsForkedDescendant(t *testing.T) {
 }
 
 func TestInspectGroupPreservesZombieOnlyHandling(t *testing.T) {
-	state := &RunState{UID: 501, Process: ProcessIdentity{PID: 1234, PGID: 1234, UID: 501, Started: "start"}}
-	table := map[int]processEntry{1234: {ProcessIdentity: state.Process, Zombie: true}}
+	command := exec.Command("/bin/sh", "-c", "exit 0")
+	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if err := command.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { command.Wait() })
+	table := waitForZombie(t, command.Process.Pid)
+	state := &RunState{UID: os.Geteuid(), Process: table[command.Process.Pid].ProcessIdentity}
+	if stopped, err := kernelGroupStopped(state.Process.PGID, table); err != nil || !stopped {
+		t.Fatal("kernel did not confirm a genuinely zombie-only group", err)
+	}
+	if stopped, err := kernelGroupStopped(state.Process.PGID, nil); err != nil || stopped {
+		t.Fatal("a newly observed zombie was accepted as a stable group", err)
+	}
 	if alive, _, err := inspectGroup(state, table); err != nil || alive {
 		t.Fatal("zombie-only group was treated as live", err)
 	}
