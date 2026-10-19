@@ -1,0 +1,60 @@
+# 検証ガイド
+
+[English](validation.md) | [日本語](validation.ja.md)
+
+自動テストと、公式 runner・GitHub に対して任意で実行するテストの手順です。
+セットアップと常駐化は [README](../README.ja.md) と
+[運用ガイド](operations.ja.md)を参照してください。
+
+## 自動テスト
+
+```sh
+go test -race ./...
+go vet ./...
+```
+
+CI は Linux と macOS で、実際の GitHub 登録を使わずにテストを実行します。
+非 root ユーザーで実行してください。root ではプロセスのテストをスキップします。
+
+## 任意実行の公式 runner スモークテスト
+
+```sh
+GHALET_TEST_OFFICIAL_RUNNER=1 \
+  go test -run '^TestOfficialRunnerJITInputSmoke$' -v
+```
+
+固定した公式 runner をダウンロード・検証し、不正な JIT 入力が出力と診断ログで
+マスクされることを確認します。runner の登録やジョブ実行は行いません。
+runner が要求する OS の依存パッケージと、外向き HTTPS 通信が必要です。
+
+## 明示的に実行する実環境の受け入れテスト
+
+このテストは GitHub 上で実際のジョブを実行します。使い捨て可能な信頼できるホストと、
+専用のリポジトリ / Scale Set を使い、既存の管理対象の実行がない状態で始めてください。
+
+1. リポジトリのデフォルトブランチに[受け入れテスト用 workflow](../.github/workflows/ghalet-integration.yaml)
+   を配置します。
+2. リポジトリ target をちょうど 1 つ、`minRunners: 0`、`preserveLogs: true`
+   とする設定を用意します。
+3. runner の管理と、受け入れテスト用 workflow の起動・参照ができる認証情報を用意します。
+
+```sh
+GHALET_INTEGRATION_CONFIG=/absolute/path/to/dedicated/config.yaml \
+  go test -run '^TestGitHubEphemeralLifecycle$' -timeout 20m -v
+```
+
+必要に応じて、起動する workflow のリビジョンを `GHALET_INTEGRATION_REF` で指定します。
+テストは Scale Set を作成または再利用し、2 つのジョブを順次実行して、
+別々の実行ログを確認し、15 秒の期限でデーモンを drain します。
+**Scale Set の登録は残ります。** 実行後は
+[`ghalet destroy`](operations.ja.md#診断ガベージコレクション明示的な削除)
+を使い、対話で承認して削除してください。
+
+## 検証の限界
+
+自動テストは偽の API を使うため、GitHub サーバー側の割り当て動作やジョブの隔離を
+実証するものではありません。Organization / App の権限、複数 target のスケジューリング、
+サービスの停止、再起動、スリープ・復帰は、実際の運用環境で確認してください。
+[信頼境界](operations.ja.md#信頼境界)も参照してください。
+
+結果を報告する際は、実行済みの確認と未実行のシナリオを区別してください。
