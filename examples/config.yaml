@@ -47,4 +47,4 @@ targets:
 # cleanup:
 #   preserveLogs: true # Archive logs before cleanup.
 #   logRetention: 7d # Log retention (d, h, m, s).
-#   logRoot: logs # Log archive directory.
+#   logRoot: /absolute/path/to/logs # Default: $XDG_STATE_HOME/ghalet/logs or ~/.local/state/ghalet/logs.
