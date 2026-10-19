@@ -1,0 +1,248 @@
+# yaml-language-server: $schema=https://json-schema.org/draft/2020-12/schema
+
+"$schema": https://json-schema.org/draft/2020-12/schema
+title: Ghalet Configuration Schema
+description: |
+  Configuration for the ghalet self-hosted runner manager. Relative paths use
+  the configuration file's directory. Use ghalet config validate for additional
+  checks such as conflicting registrations, capacity totals, and path safety.
+type: object
+additionalProperties: false
+required:
+  - targets
+properties:
+  capacity:
+    type: object
+    additionalProperties: false
+    properties:
+      maxRunners:
+        $ref: "#/$defs/runnerLimit"
+        default: 2
+        description: Total runner limit across all targets.
+  targets:
+    type: array
+    minItems: 1
+    description: Repository or organization runner registrations.
+    items:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - scope
+      properties:
+        id:
+          type: string
+          pattern: "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$"
+          description: Unique local ID used by management commands.
+        scope:
+          type: string
+          minLength: 1
+          description: |
+            OWNER/REPO or ORG for GitHub.com, or a full HTTPS repository or
+            organization URL. Enterprise scopes are unsupported.
+          examples:
+            - OWNER/REPO
+            - ORG
+            - https://ghe.example.com/OWNER/REPO
+        credential:
+          $ref: "#/$defs/credential"
+        installationId:
+          type: integer
+          minimum: 0
+          description: Positive installation ID required only for github-app credentials.
+        runnerGroup:
+          type: string
+          pattern: '^[^\r\n\u0000]*$'
+          description: Organization runner group; empty uses the default group. Not supported for repositories.
+        scaleSet:
+          type: string
+          pattern: '^(|[^\s\u0000]([^\r\n\u0000]*[^\s\u0000])?)$'
+          description: GitHub scale set name and runs-on label. Defaults to id when omitted or empty.
+        scaling:
+          type: object
+          additionalProperties: false
+          properties:
+            minRunners:
+              type: integer
+              minimum: 0
+              maximum: 10000
+              default: 0
+              description: Idle warm runners; must not exceed maxRunners.
+            maxRunners:
+              $ref: "#/$defs/runnerLimit"
+              default: 2
+              description: Per-target runner limit, subject to the shared capacity limit.
+      if:
+        required:
+          - credential
+        properties:
+          credential:
+            required:
+              - type
+            properties:
+              type:
+                const: github-app
+      then:
+        required:
+          - installationId
+        properties:
+          installationId:
+            minimum: 1
+      else:
+        properties:
+          installationId:
+            const: 0
+  runner:
+    type: object
+    additionalProperties: false
+    properties:
+      version:
+        type: string
+        pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
+        description: Pinned runner version. Defaults to the version bundled with ghalet.
+      user:
+        type: string
+        description: Existing OS user for jobs. Empty uses the current user; root must select a non-root user.
+      startupTimeout:
+        $ref: "#/$defs/duration"
+        default: 2m
+        description: Runner readiness deadline.
+      drainTimeout:
+        $ref: "#/$defs/duration"
+        default: 10m
+        description: Grace period before forced stop.
+      workRoot:
+        $ref: "#/$defs/path"
+        default: runs
+        description: Directory for runs and recovery state.
+      distributionRoot:
+        $ref: "#/$defs/path"
+        default: runners
+        description: Directory for pinned runner metadata.
+      cacheRoot:
+        $ref: "#/$defs/path"
+        default: downloads
+        description: Directory for runner archives.
+      env:
+        type: object
+        propertyNames:
+          pattern: "^[a-zA-Z_][a-zA-Z0-9_]*$"
+        additionalProperties:
+          type: string
+        description: |
+          Explicit job environment; the parent's environment is not inherited.
+          Identity variables, management credential variables, and
+          ACTIONS_RUNNER_INPUT_* overrides are not allowed.
+  cleanup:
+    type: object
+    additionalProperties: false
+    properties:
+      preserveLogs:
+        type: boolean
+        default: true
+        description: Archive runner logs before cleanup.
+      logRetention:
+        $ref: "#/$defs/duration"
+        default: 7d
+        description: Retention period for archived logs.
+      logRoot:
+        $ref: "#/$defs/path"
+        description: |
+          Log directory. Defaults to $XDG_STATE_HOME/ghalet/logs when
+          XDG_STATE_HOME is absolute, otherwise ~/.local/state/ghalet/logs.
+$defs:
+  runnerLimit:
+    type: integer
+    minimum: 1
+    maximum: 10000
+  path:
+    type: string
+    minLength: 1
+  duration:
+    type: string
+    minLength: 1
+    description: Positive Go duration, such as 90m or 1h30m, or a number of days, such as 7d or 1.5d.
+  credential:
+    type: object
+    additionalProperties: false
+    description: Management credential. Defaults to gh, including when type is omitted.
+    properties:
+      type:
+        type: string
+        enum:
+          - gh
+          - pat
+          - github-app
+        default: gh
+        description: Authentication using GitHub CLI, a PAT, or a GitHub App.
+      hostname:
+        type: string
+        description: GitHub CLI hostname; defaults to the scope's host and must match it.
+      tokenEnv:
+        type: string
+        pattern: "^([a-zA-Z_][a-zA-Z0-9_]*)?$"
+        description: Environment variable containing the PAT. Use this or tokenFile.
+      tokenFile:
+        type: string
+        description: Owner-only PAT file. Use this or tokenEnv.
+      clientId:
+        type: string
+        description: GitHub App client ID.
+      privateKeyFile:
+        type: string
+        description: Owner-only GitHub App private key file.
+    oneOf:
+      - properties:
+          type:
+            const: gh
+          tokenEnv:
+            const: ""
+          tokenFile:
+            const: ""
+          clientId:
+            const: ""
+          privateKeyFile:
+            const: ""
+      - required:
+          - type
+        properties:
+          type:
+            const: pat
+          hostname:
+            const: ""
+          clientId:
+            const: ""
+          privateKeyFile:
+            const: ""
+        oneOf:
+          - required:
+              - tokenEnv
+            properties:
+              tokenEnv:
+                minLength: 1
+              tokenFile:
+                const: ""
+          - required:
+              - tokenFile
+            properties:
+              tokenFile:
+                minLength: 1
+              tokenEnv:
+                const: ""
+      - required:
+          - type
+          - clientId
+          - privateKeyFile
+        properties:
+          type:
+            const: github-app
+          clientId:
+            minLength: 1
+          privateKeyFile:
+            minLength: 1
+          hostname:
+            const: ""
+          tokenEnv:
+            const: ""
+          tokenFile:
+            const: ""

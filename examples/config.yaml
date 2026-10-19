@@ -1,4 +1,5 @@
-apiVersion: ghalet/v1alpha1
+# yaml-language-server: $schema=https://raw.githubusercontent.com/Songmu/ghalet/main/schema.yaml
+
 # Relative paths use this file's directory.
 
 # capacity:

@@ -1,4 +1,3 @@
-apiVersion: ghalet/v1alpha1
 targets:
   - id: build
     scope: owner/repository
