@@ -148,6 +148,15 @@ func (s *secrets) release(values []string) {
 }
 
 func (s *secrets) replaceAttr(_ []string, attr slog.Attr) slog.Attr {
+	attr.Value = attr.Value.Resolve()
+	if attr.Value.Kind() == slog.KindGroup {
+		attrs := attr.Value.Group()
+		redacted := make([]slog.Attr, len(attrs))
+		for i, child := range attrs {
+			redacted[i] = s.replaceAttr(nil, child)
+		}
+		attr.Value = slog.GroupValue(redacted...)
+	}
 	if attr.Value.Kind() == slog.KindString {
 		attr.Value = slog.StringValue(s.redact(attr.Value.String()))
 	} else if attr.Value.Kind() == slog.KindAny {
@@ -156,6 +165,32 @@ func (s *secrets) replaceAttr(_ []string, attr slog.Attr) slog.Attr {
 		}
 	}
 	return attr
+}
+
+type redactingHandler struct {
+	slog.Handler
+	secrets *secrets
+}
+
+func (h *redactingHandler) Handle(ctx context.Context, record slog.Record) error {
+	redacted := slog.NewRecord(record.Time, record.Level, h.secrets.redact(record.Message), record.PC)
+	record.Attrs(func(attr slog.Attr) bool {
+		redacted.AddAttrs(h.secrets.replaceAttr(nil, attr))
+		return true
+	})
+	return h.Handler.Handle(ctx, redacted)
+}
+
+func (h *redactingHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	redacted := make([]slog.Attr, len(attrs))
+	for i, attr := range attrs {
+		redacted[i] = h.secrets.replaceAttr(nil, attr)
+	}
+	return &redactingHandler{Handler: h.Handler.WithAttrs(redacted), secrets: h.secrets}
+}
+
+func (h *redactingHandler) WithGroup(name string) slog.Handler {
+	return &redactingHandler{Handler: h.Handler.WithGroup(name), secrets: h.secrets}
 }
 
 func readProtected(path string) (string, error) {

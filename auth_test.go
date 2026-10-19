@@ -41,6 +41,28 @@ func TestCredentialsAndSecretRedaction(t *testing.T) {
 	}
 }
 
+func TestDaemonLoggerRedactsSecrets(t *testing.T) {
+	config := testConfig(t)
+	t.Setenv("GHALET_TEST_TOKEN", "management-secret")
+	var output bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&output, nil))
+	d, err := newDaemon(config, logger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.cancel()
+	d.secrets.add("jit-secret")
+	d.log.With("credential", "management-secret").WithGroup("execution").Info("jit-secret",
+		slog.Group("details", "error", errors.New("jit-secret"), "token", "management-secret"))
+	if strings.Contains(output.String(), "management-secret") || strings.Contains(output.String(), "jit-secret") ||
+		!json.Valid(bytes.TrimSpace(output.Bytes())) {
+		t.Fatal("configured logger leaked a secret or invalid JSON", output.String())
+	}
+	if !strings.Contains(output.String(), `"credential":"***"`) || !strings.Contains(output.String(), `"execution":`) {
+		t.Fatal("logger lost structured attributes", output.String())
+	}
+}
+
 func TestProtectedCredentials(t *testing.T) {
 	for _, tc := range []struct {
 		name    string

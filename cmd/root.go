@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log/slog"
 	"strings"
 
 	"github.com/Songmu/ghalet"
@@ -13,18 +14,12 @@ import (
 
 const cmdName = "ghalet"
 
-type options struct {
-	config  string
-	control ghalet.ControlOptions
-}
-
 // Run executes the ghalet command.
 func Run(ctx context.Context, argv []string, outStream, errStream io.Writer) error {
 	fs := flag.NewFlagSet(cmdName, flag.ContinueOnError)
 	fs.SetOutput(errStream)
 	versionFlag := fs.Bool("version", false, "display version")
-	var opts options
-	fs.StringVar(&opts.config, "config", "", "configuration path (default ~/.config/ghalet/config.yaml)")
+	config := fs.String("config", "", "configuration path (default ~/.config/ghalet/config.yaml)")
 	// Accept common flags both before and after the command.
 	command := ""
 	if len(argv) > 0 && !strings.HasPrefix(argv[0], "-") {
@@ -36,10 +31,10 @@ func Run(ctx context.Context, argv []string, outStream, errStream io.Writer) err
 		}
 		command, argv = "validate", argv[1:]
 	}
-	fs.StringVar(&opts.control.Target, "target", "", "target id (required for destroy; default all targets for drain)")
-	fs.BoolVar(&opts.control.DryRun, "dry-run", false, "show garbage collection without modifying files")
-	fs.StringVar(&opts.control.RunnerGroup, "runner-group", "", "existing organization runner group")
-	fs.StringVar(&opts.control.ScaleSet, "scale-set", "", "explicit scale set name to destroy")
+	target := fs.String("target", "", "target id (required for destroy; default all targets for drain)")
+	dryRun := fs.Bool("dry-run", false, "show garbage collection without modifying files")
+	runnerGroup := fs.String("runner-group", "", "existing organization runner group")
+	scaleSet := fs.String("scale-set", "", "explicit scale set name to destroy")
 	fs.Usage = func() {
 		fmt.Fprintln(errStream, "Usage: ghalet <run|config validate|status|doctor|drain|gc|destroy> [options]")
 		fs.PrintDefaults()
@@ -66,12 +61,25 @@ func Run(ctx context.Context, argv []string, outStream, errStream io.Writer) err
 	if fs.NArg() != 0 {
 		return fmt.Errorf("unexpected arguments: %s", strings.Join(fs.Args(), " "))
 	}
+	logger := slog.New(slog.NewJSONHandler(outStream, nil))
+	controlLogger := slog.New(slog.NewJSONHandler(errStream, nil))
+	commands := map[string]func() error{
+		"run":      func() error { return run(ctx, *config, logger) },
+		"validate": func() error { return validate(*config, outStream) },
+		"status":   func() error { return status(ctx, *config, outStream) },
+		"doctor":   func() error { return doctor(ctx, *config, outStream) },
+		"drain":    func() error { return drain(ctx, *config, *target, outStream) },
+		"gc":       func() error { return gc(ctx, *config, *dryRun, outStream, controlLogger) },
+		"destroy": func() error {
+			return destroy(ctx, *config, *target, *runnerGroup, *scaleSet, outStream, controlLogger)
+		},
+	}
 	run, ok := commands[command]
 	if !ok {
 		fs.Usage()
 		return errors.New("a supported command is required")
 	}
-	return run(ctx, opts, outStream, errStream)
+	return run()
 }
 
 func printVersion(out io.Writer) error {

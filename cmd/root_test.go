@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"flag"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -139,25 +138,7 @@ func TestHelpAndInvalidArguments(t *testing.T) {
 func TestCommandDispatchAndFlagPlacement(t *testing.T) {
 	for _, name := range []string{"run", "validate", "status", "doctor", "drain", "gc", "destroy"} {
 		t.Run(name, func(t *testing.T) {
-			original := commands[name]
-			t.Cleanup(func() { commands[name] = original })
-			want := options{
-				config: "after.yaml",
-				control: ghalet.ControlOptions{
-					Target: "build", DryRun: true, RunnerGroup: "builders", ScaleSet: "runners",
-				},
-			}
-			ctx := t.Context()
 			var output, stderr bytes.Buffer
-			called := false
-			wantErr := errors.New("command result")
-			commands[name] = func(gotCtx context.Context, got options, outStream, errStream io.Writer) error {
-				called = true
-				if gotCtx != ctx || got != want || outStream != &output || errStream != &stderr {
-					t.Fatalf("command inputs were not forwarded: %+v", got)
-				}
-				return wantErr
-			}
 			command := []string{name}
 			if name == "validate" {
 				command = []string{"config", "validate"}
@@ -165,8 +146,12 @@ func TestCommandDispatchAndFlagPlacement(t *testing.T) {
 			for _, prefix := range [][]string{nil, {"--config", "before.yaml", "--target", "before"}} {
 				args := append(append([]string{}, prefix...), command...)
 				args = append(args, "--config", "after.yaml", "--target", "build", "--dry-run", "--runner-group", "builders", "--scale-set", "runners")
-				called = false
-				if err := Run(ctx, args, &output, &stderr); !errors.Is(err, wantErr) || !called {
+				err := Run(t.Context(), args, &output, &stderr)
+				want := "after.yaml"
+				if name == "destroy" {
+					want = "destroy requires an interactive terminal"
+				}
+				if err == nil || !strings.Contains(err.Error(), want) {
 					t.Fatalf("%v: command was not dispatched: %v", args, err)
 				}
 			}

@@ -2,7 +2,7 @@ package cmd
 
 import (
 	"context"
-	"io"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
@@ -10,12 +10,12 @@ import (
 	"github.com/Songmu/ghalet"
 )
 
-func run(ctx context.Context, opts options, outStream, errStream io.Writer) error {
-	config, err := ghalet.LoadConfig(opts.config)
+func run(ctx context.Context, path string, logger *slog.Logger) error {
+	config, err := ghalet.LoadConfig(path)
 	if err != nil {
 		return err
 	}
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	return ghalet.RunDaemon(ctx, config, outStream)
+	return ghalet.RunDaemon(ctx, config, logger)
 }

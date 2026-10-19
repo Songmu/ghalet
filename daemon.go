@@ -143,7 +143,10 @@ type daemon struct {
 	clientFactory func(context.Context, Target) (scaleAPI, error)
 }
 
-func newDaemon(c *Config, out io.Writer) (*daemon, error) {
+func newDaemon(c *Config, logger *slog.Logger) (*daemon, error) {
+	if logger == nil {
+		logger = slog.Default()
+	}
 	account, err := resolveUser(c.Runner.User)
 	if err != nil {
 		return nil, err
@@ -162,7 +165,7 @@ func newDaemon(c *Config, out io.Writer) (*daemon, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	d := &daemon{
 		config: c, user: account, secrets: secret,
-		log:   slog.New(slog.NewJSONHandler(out, &slog.HandlerOptions{ReplaceAttr: secret.replaceAttr})),
+		log:   slog.New(&redactingHandler{Handler: logger.Handler(), secrets: secret}),
 		store: stateStore{c.Runner.WorkRoot}, distribution: newDistribution(),
 		targets: map[string]*targetRuntime{}, runs: map[string]*activeRun{}, events: make(chan runEvent, 1024),
 		ctx: ctx, cancel: cancel, confirmations: map[string]destroyPlan{},

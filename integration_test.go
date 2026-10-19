@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -98,7 +99,7 @@ func TestGitHubEphemeralLifecycle(t *testing.T) {
 	c.Runner.DrainTimeout = Duration(15 * time.Second)
 	var logs lockedBuffer
 	finished := make(chan error, 1)
-	go func() { finished <- RunDaemon(ctx, c, &logs) }()
+	go func() { finished <- RunDaemon(ctx, c, slog.New(slog.NewJSONHandler(&logs, nil))) }()
 	defer func() {
 		cancel()
 		select {
