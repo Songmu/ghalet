@@ -46,12 +46,11 @@ func (d *Duration) UnmarshalYAML(unmarshal func(any) error) error {
 }
 
 type Config struct {
-	APIVersion string         `yaml:"apiVersion"`
-	Capacity   CapacityConfig `yaml:"capacity"`
-	Targets    []Target       `yaml:"targets"`
-	Runner     RunnerConfig   `yaml:"runner"`
-	Cleanup    CleanupConfig  `yaml:"cleanup"`
-	Path       string         `yaml:"-"`
+	Capacity CapacityConfig `yaml:"capacity"`
+	Targets  []Target       `yaml:"targets"`
+	Runner   RunnerConfig   `yaml:"runner"`
+	Cleanup  CleanupConfig  `yaml:"cleanup"`
+	Path     string         `yaml:"-"`
 }
 
 type CapacityConfig struct {
@@ -216,9 +215,6 @@ var runnerVersion = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+$`)
 var envName = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
 
 func (c *Config) Validate() error {
-	if c.APIVersion != "ghalet/v1alpha1" {
-		return errors.New("apiVersion must be ghalet/v1alpha1")
-	}
 	if c.Capacity.MaxRunners < 1 || c.Capacity.MaxRunners > 10000 {
 		return errors.New("capacity.maxRunners must be between 1 and 10000")
 	}

@@ -35,11 +35,18 @@ App `installationId` belongs to the target, not its credential, so multiple
 installations can share a single App key. A minimal configuration is:
 
 ```yaml
-apiVersion: ghalet/v1alpha1
+# yaml-language-server: $schema=https://raw.githubusercontent.com/Songmu/ghalet/main/schema.yaml
+
 targets:
   - id: build
     scope: OWNER/REPO
 ```
+
+The optional first-line comment selects the repository's `schema.yaml` for
+editor completion and validation. No configuration version field is needed.
+Remove `apiVersion` from older configurations; it is no longer accepted.
+Use `ghalet config validate` to also check constraints such as conflicting
+registrations, minimum capacities, and managed directory safety.
 
 There is no separate scope or credential registry. The old top-level
 `scopes` and `credentials` mappings and the `scopeRef` / `credentialRef`

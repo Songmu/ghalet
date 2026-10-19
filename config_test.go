@@ -184,15 +184,24 @@ func TestConfigCredentialDefaults(t *testing.T) {
 
 func TestConfigMinimal(t *testing.T) {
 	input := readFixture(t, "config/minimal.yaml")
-	c, err := LoadConfig(writeConfig(t, input))
-	if err != nil {
-		t.Fatal(err)
-	}
-	target := c.Targets[0]
-	if target.Credential != (Credential{Type: "gh"}) ||
-		target.ScaleSetName != target.ID || target.Scaling != (ScalingConfig{MaxRunners: 2}) ||
-		c.Runner.Version != defaultRunnerVersion {
-		t.Fatalf("unexpected minimal config defaults: %+v", c)
+	for _, tc := range []struct {
+		name, prefix string
+	}{
+		{"without schema comment", ""},
+		{"with schema comment", "# yaml-language-server: $schema=https://raw.githubusercontent.com/Songmu/ghalet/main/schema.yaml\n\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c, err := LoadConfig(writeConfig(t, tc.prefix+input))
+			if err != nil {
+				t.Fatal(err)
+			}
+			target := c.Targets[0]
+			if target.Credential != (Credential{Type: "gh"}) ||
+				target.ScaleSetName != target.ID || target.Scaling != (ScalingConfig{MaxRunners: 2}) ||
+				c.Runner.Version != defaultRunnerVersion {
+				t.Fatalf("unexpected minimal config defaults: %+v", c)
+			}
+		})
 	}
 }
 
@@ -493,11 +502,11 @@ func TestConfigRejectsInvalidInput(t *testing.T) {
 	cases := map[string]string{
 		"unknown key":              testYAML + "unknown: true\n",
 		"nested unknown key":       strings.Replace(testYAML, "minRunners: 0", "minRunners: 0\n      unknown: true", 1),
-		"duplicate YAML key":       testYAML + "apiVersion: ghalet/v1alpha1\n",
+		"duplicate YAML key":       testYAML + "targets: []\n",
 		"nested duplicate key":     strings.Replace(testYAML, "minRunners: 0", "minRunners: 0\n      minRunners: 1", 1),
-		"multiple documents":       testYAML + "---\napiVersion: ghalet/v1alpha1\n",
+		"multiple documents":       testYAML + "---\ntargets: []\n",
 		"empty extra document":     testYAML + "---\n",
-		"wrong version":            strings.Replace(testYAML, "ghalet/v1alpha1", "ghalet/v2", 1),
+		"removed apiVersion":       testYAML + "apiVersion: ghalet/v1alpha1\n",
 		"unfixed runner":           strings.Replace(testYAML, `"2.338.0"`, "latest", 1),
 		"empty runner version":     strings.Replace(testYAML, `"2.338.0"`, `""`, 1),
 		"empty credential type":    strings.Replace(testYAML, "    credential:\n      type: pat\n      tokenEnv: GHALET_TEST_TOKEN\n", "    credential:\n      type: \"\"\n", 1),
