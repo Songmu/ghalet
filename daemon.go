@@ -75,6 +75,11 @@ func (r *activeRun) outputCollected() bool {
 	}
 }
 
+func (r *activeRun) canRetireIdle() bool {
+	return r.State.Ready && !r.State.Busy && !r.State.ProcessDone && !r.Uncertain &&
+		!r.Preparing && r.InspectFailures == 0 && r.State.Phase != "exiting"
+}
+
 type Problem struct {
 	Path     string `json:"path,omitempty"`
 	TargetID string `json:"targetId,omitempty"`
@@ -576,85 +581,10 @@ func (d *daemon) reconcile() {
 		return
 	}
 	for _, run := range d.runs {
-		if run.Preparing {
-			continue
-		}
-		state := run.State
-		if run.Uncertain {
-			alive, _, err := inspectGroup(state, table)
-			run.GroupStopped = err == nil && !alive
-			continue
-		}
-		target := d.runTarget(run)
-		if target == nil || target.Client == nil {
-			continue
-		}
-		if state.ProcessDone {
-			if !run.CleanupTried {
-				d.cleanup(run)
-			}
-			continue
-		}
-		alive, members, err := inspectGroup(state, table)
-		if err != nil {
-			run.InspectFailures++
-			// ps collects status and argv separately; an exiting process can
-			// lose argv between those reads. Recheck without signaling it.
-			if run.InspectFailures < 3 {
-				continue
-			}
-			run.Uncertain, state.Error = true, err.Error()
-			d.log.Error("Process identity is uncertain; retaining capacity", "event", "process.uncertain", "runId", state.RunID, "error", err)
-			continue
-		}
-		run.InspectFailures = 0
-		if !reflect.DeepEqual(members, state.Members) {
-			state.Members = members
-			if d.save(run) != nil {
-				continue
-			}
-		}
-		if !alive || run.Exited {
-			if run.WaitDone != nil && !run.Exited {
-				continue
-			}
-			if !alive {
-				run.Exited = true
-			}
-			if err := d.stop(run, false); err != nil {
-				state.Error = d.secrets.redact(err.Error())
-			}
-			continue
-		}
-		if !state.Ready && !state.Busy && time.Since(state.StartedAt) > time.Duration(d.config.Runner.StartupTimeout) {
-			if err := d.retireIdle(run); err != nil {
-				state.Error = d.secrets.redact(err.Error())
-			} else {
-				d.startFailure(target, errors.New("runner startup timeout before readiness"))
-			}
-		}
+		d.reconcileRun(run, table)
 	}
 	for _, target := range d.targets {
-		if target.Draining && !target.Forced && !d.drained(target.Config.ID) && time.Since(target.DrainStarted) >= time.Duration(d.config.Runner.DrainTimeout) {
-			target.Forced = true
-			d.log.Error("Drain deadline exceeded", "event", "drain.forced", "targetId", target.Config.ID, "unstartedJobs", max(0, target.Assigned-d.active(target.Config.ID)))
-			for _, run := range d.runs {
-				if d.runTarget(run) != target {
-					continue
-				}
-				if run.Cancel != nil {
-					run.Cancel()
-				}
-				if !run.Preparing && !run.Uncertain && !run.State.ProcessDone {
-					if err := d.stop(run, true); err != nil {
-						run.State.Error = d.secrets.redact(err.Error())
-						if !run.State.ProcessDone {
-							run.Uncertain = true
-						}
-					}
-				}
-			}
-		}
+		d.enforceDrainDeadline(target)
 	}
 	// Real assigned jobs get all available slots before warm-pool maintenance.
 	for _, id := range d.order {
@@ -665,18 +595,7 @@ func (d *daemon) reconcile() {
 			}
 			d.fill(target, min(target.Assigned, target.Config.Scaling.MaxRunners))
 		}
-		if time.Now().After(d.nextRetention) {
-			d.nextRetention = time.Now().Add(time.Hour)
-			results, err := expireLogs(d.ctx, d.config, false)
-			if err != nil {
-				d.log.Error("Log retention failed", "event", "logs.expire_failed", "error", err)
-			}
-			for _, result := range results {
-				if result.Error != "" {
-					d.log.Error("Log retention failed", "event", "logs.expire_failed", "path", result.Path, "error", result.Error)
-				}
-			}
-		}
+		d.expireLogsIfDue()
 	}
 	realDemand := false
 	for _, target := range d.targets {
@@ -685,23 +604,129 @@ func (d *daemon) reconcile() {
 		}
 	}
 	for _, id := range d.order {
-		target := d.targets[id]
-		wanted := min(target.Config.Scaling.MaxRunners, target.Assigned+target.Config.Scaling.MinRunners)
-		if target.Draining {
-			wanted = min(target.Config.Scaling.MaxRunners, target.Assigned)
+		d.reconcileIdle(d.targets[id], realDemand)
+	}
+}
+
+func (d *daemon) reconcileRun(run *activeRun, table map[int]processEntry) {
+	if run.Preparing {
+		return
+	}
+	state := run.State
+	if run.Uncertain {
+		alive, _, err := inspectGroup(state, table)
+		run.GroupStopped = err == nil && !alive
+		return
+	}
+	target := d.runTarget(run)
+	if target == nil || target.Client == nil {
+		return
+	}
+	if state.ProcessDone {
+		if !run.CleanupTried {
+			d.cleanup(run)
 		}
-		if !realDemand && !target.Draining && d.canStart(target) {
-			d.fill(target, wanted)
+		return
+	}
+	alive, members, err := inspectGroup(state, table)
+	if err != nil {
+		run.InspectFailures++
+		// ps collects status and argv separately; an exiting process can
+		// lose argv between those reads. Recheck without signaling it.
+		if run.InspectFailures < 3 {
+			return
 		}
-		if d.active(id) > wanted || (target.Draining && target.Assigned == 0 && target.Pending == 0) {
-			for _, run := range d.runs {
-				if d.runTargetID(run) == id && !run.State.Busy && run.State.Ready && !run.State.ProcessDone && !run.Uncertain && !run.Preparing && run.InspectFailures == 0 && run.State.Phase != "exiting" {
-					if err := d.retireIdle(run); err != nil {
-						run.State.Error = d.secrets.redact(err.Error())
-					}
-					break
+		run.Uncertain, state.Error = true, err.Error()
+		d.log.Error("Process identity is uncertain; retaining capacity", "event", "process.uncertain", "runId", state.RunID, "error", err)
+		return
+	}
+	run.InspectFailures = 0
+	if !reflect.DeepEqual(members, state.Members) {
+		state.Members = members
+		if d.save(run) != nil {
+			return
+		}
+	}
+	if !alive || run.Exited {
+		if run.WaitDone != nil && !run.Exited {
+			return
+		}
+		if !alive {
+			run.Exited = true
+		}
+		if err := d.stop(run, false); err != nil {
+			state.Error = d.secrets.redact(err.Error())
+		}
+		return
+	}
+	if !state.Ready && !state.Busy && time.Since(state.StartedAt) > time.Duration(d.config.Runner.StartupTimeout) {
+		if err := d.retireIdle(run); err != nil {
+			state.Error = d.secrets.redact(err.Error())
+		} else {
+			d.startFailure(target, errors.New("runner startup timeout before readiness"))
+		}
+	}
+}
+
+func (d *daemon) enforceDrainDeadline(target *targetRuntime) {
+	if !target.Draining || target.Forced || d.drained(target.Config.ID) ||
+		time.Since(target.DrainStarted) < time.Duration(d.config.Runner.DrainTimeout) {
+		return
+	}
+	target.Forced = true
+	d.log.Error("Drain deadline exceeded", "event", "drain.forced", "targetId", target.Config.ID, "unstartedJobs", max(0, target.Assigned-d.active(target.Config.ID)))
+	for _, run := range d.runs {
+		if d.runTarget(run) != target {
+			continue
+		}
+		if run.Cancel != nil {
+			run.Cancel()
+		}
+		if !run.Preparing && !run.Uncertain && !run.State.ProcessDone {
+			if err := d.stop(run, true); err != nil {
+				run.State.Error = d.secrets.redact(err.Error())
+				if !run.State.ProcessDone {
+					run.Uncertain = true
 				}
 			}
+		}
+	}
+}
+
+func (d *daemon) expireLogsIfDue() {
+	if !time.Now().After(d.nextRetention) {
+		return
+	}
+	d.nextRetention = time.Now().Add(time.Hour)
+	results, err := expireLogs(d.ctx, d.config, false)
+	if err != nil {
+		d.log.Error("Log retention failed", "event", "logs.expire_failed", "error", err)
+	}
+	for _, result := range results {
+		if result.Error != "" {
+			d.log.Error("Log retention failed", "event", "logs.expire_failed", "path", result.Path, "error", result.Error)
+		}
+	}
+}
+
+func (d *daemon) reconcileIdle(target *targetRuntime, realDemand bool) {
+	id := target.Config.ID
+	wanted := min(target.Config.Scaling.MaxRunners, target.Assigned+target.Config.Scaling.MinRunners)
+	if target.Draining {
+		wanted = min(target.Config.Scaling.MaxRunners, target.Assigned)
+	}
+	if !realDemand && !target.Draining && d.canStart(target) {
+		d.fill(target, wanted)
+	}
+	if d.active(id) <= wanted && !(target.Draining && target.Assigned == 0 && target.Pending == 0) {
+		return
+	}
+	for _, run := range d.runs {
+		if d.runTargetID(run) == id && run.canRetireIdle() {
+			if err := d.retireIdle(run); err != nil {
+				run.State.Error = d.secrets.redact(err.Error())
+			}
+			break
 		}
 	}
 }
@@ -741,8 +766,7 @@ func (d *daemon) yieldIdle(forTarget string) {
 			continue
 		}
 		for _, run := range d.runs {
-			if d.runTargetID(run) == id && run.State.Ready && !run.State.Busy && !run.State.ProcessDone && run.InspectFailures == 0 &&
-				!run.Uncertain && !run.Preparing && run.State.Phase != "exiting" {
+			if d.runTargetID(run) == id && run.canRetireIdle() {
 				if err := d.retireIdle(run); err != nil {
 					run.State.Error = d.secrets.redact(err.Error())
 					d.log.Warn("Idle runner could not yield capacity", "event", "capacity.yield_failed", "runId", run.State.RunID, "error", err)

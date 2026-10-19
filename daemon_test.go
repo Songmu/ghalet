@@ -70,6 +70,31 @@ func cleanupProcesses(t *testing.T, d *daemon) {
 	})
 }
 
+func TestCanRetireIdle(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		change func(*activeRun)
+		want   bool
+	}{
+		{"idle", func(*activeRun) {}, true},
+		{"not ready", func(r *activeRun) { r.State.Ready = false }, false},
+		{"busy", func(r *activeRun) { r.State.Busy = true }, false},
+		{"process done", func(r *activeRun) { r.State.ProcessDone = true }, false},
+		{"uncertain", func(r *activeRun) { r.Uncertain = true }, false},
+		{"preparing", func(r *activeRun) { r.Preparing = true }, false},
+		{"inspection failed", func(r *activeRun) { r.InspectFailures = 1 }, false},
+		{"exiting", func(r *activeRun) { r.State.Phase = "exiting" }, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			run := &activeRun{State: &RunState{Ready: true, Phase: "idle"}}
+			tc.change(run)
+			if got := run.canRetireIdle(); got != tc.want {
+				t.Fatalf("canRetireIdle() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestEphemeralJobsNeverReuseExecutionDirectories(t *testing.T) {
 	d, _ := testDaemon(t)
 	cleanupProcesses(t, d)

@@ -234,53 +234,11 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("invalid or duplicate target id %q", target.ID)
 		}
 		ids[target.ID] = true
-		u, err := scopeURL(target.URL)
-		if err != nil {
+		if err := target.validate(); err != nil {
 			return fmt.Errorf("target %s: %w", target.ID, err)
 		}
-		cred := target.Credential
-		switch cred.Type {
-		case "gh":
-			if cred.TokenEnv != "" || cred.TokenFile != "" || cred.ClientID != "" || cred.PrivateKeyFile != "" {
-				return fmt.Errorf("target %s: gh credential accepts only hostname", target.ID)
-			}
-		case "pat":
-			if (cred.TokenEnv == "") == (cred.TokenFile == "") || cred.ClientID != "" || cred.PrivateKeyFile != "" || cred.Hostname != "" {
-				return fmt.Errorf("target %s: pat credential requires exactly one of tokenEnv or tokenFile", target.ID)
-			}
-			if cred.TokenEnv != "" && !envName.MatchString(cred.TokenEnv) {
-				return fmt.Errorf("target %s: invalid tokenEnv", target.ID)
-			}
-		case "github-app":
-			if cred.ClientID == "" || cred.PrivateKeyFile == "" || cred.TokenEnv != "" || cred.TokenFile != "" || cred.Hostname != "" {
-				return fmt.Errorf("target %s: github-app credential requires clientId and privateKeyFile", target.ID)
-			}
-		default:
-			return fmt.Errorf("target %s: unsupported credential type %q", target.ID, cred.Type)
-		}
-		if (cred.Type == "github-app" && target.InstallationID <= 0) || (cred.Type != "github-app" && target.InstallationID != 0) {
-			return fmt.Errorf("target %s: installationId is required only for github-app", target.ID)
-		}
-		if cred.Type == "gh" && cred.Hostname != "" && cred.Hostname != u.Host {
-			return fmt.Errorf("target %s: credential hostname does not match scope hostname", target.ID)
-		}
-		if len(strings.Split(strings.Trim(u.Path, "/"), "/")) == 2 && target.RunnerGroup != "" {
-			return fmt.Errorf("target %s: repository scope cannot specify runnerGroup", target.ID)
-		}
-		if target.ScaleSetName == "" || strings.TrimSpace(target.ScaleSetName) != target.ScaleSetName ||
-			strings.ContainsAny(target.ScaleSetName, "\x00\r\n") || strings.ContainsAny(target.RunnerGroup, "\x00\r\n") {
-			return fmt.Errorf("target %s: invalid scale set or runner group name", target.ID)
-		}
-		if target.Scaling.MaxRunners < 1 || target.Scaling.MaxRunners > 10000 ||
-			target.Scaling.MinRunners < 0 || target.Scaling.MinRunners > target.Scaling.MaxRunners {
-			return fmt.Errorf("target %s: require 0 <= minRunners <= maxRunners <= 10000", target.ID)
-		}
 		minimum += target.Scaling.MinRunners
-		group := target.RunnerGroup
-		if group == "" {
-			group = "default"
-		}
-		key := strings.ToLower(target.URL) + "\x00" + group + "\x00" + target.ScaleSetName
+		key := strings.ToLower(target.URL) + "\x00" + runnerGroupName(target.RunnerGroup) + "\x00" + target.ScaleSetName
 		if registrations[key] {
 			return fmt.Errorf("target %s: duplicate scope/group/scale set registration", target.ID)
 		}
@@ -289,12 +247,75 @@ func (c *Config) Validate() error {
 	if minimum > c.Capacity.MaxRunners {
 		return errors.New("sum of minRunners exceeds capacity.maxRunners")
 	}
+	if err := c.validateEnvironment(); err != nil {
+		return err
+	}
+	return c.validateDirectories()
+}
+
+func (t Target) validate() error {
+	u, err := scopeURL(t.URL)
+	if err != nil {
+		return err
+	}
+	cred := t.Credential
+	if err := cred.validate(); err != nil {
+		return err
+	}
+	if (cred.Type == "github-app" && t.InstallationID <= 0) || (cred.Type != "github-app" && t.InstallationID != 0) {
+		return errors.New("installationId is required only for github-app")
+	}
+	if cred.Type == "gh" && cred.Hostname != "" && cred.Hostname != u.Host {
+		return errors.New("credential hostname does not match scope hostname")
+	}
+	if len(strings.Split(strings.Trim(u.Path, "/"), "/")) == 2 && t.RunnerGroup != "" {
+		return errors.New("repository scope cannot specify runnerGroup")
+	}
+	if t.ScaleSetName == "" || strings.TrimSpace(t.ScaleSetName) != t.ScaleSetName ||
+		strings.ContainsAny(t.ScaleSetName, "\x00\r\n") || strings.ContainsAny(t.RunnerGroup, "\x00\r\n") {
+		return errors.New("invalid scale set or runner group name")
+	}
+	if t.Scaling.MaxRunners < 1 || t.Scaling.MaxRunners > 10000 ||
+		t.Scaling.MinRunners < 0 || t.Scaling.MinRunners > t.Scaling.MaxRunners {
+		return errors.New("require 0 <= minRunners <= maxRunners <= 10000")
+	}
+	return nil
+}
+
+func (c Credential) validate() error {
+	switch c.Type {
+	case "gh":
+		if c.TokenEnv != "" || c.TokenFile != "" || c.ClientID != "" || c.PrivateKeyFile != "" {
+			return errors.New("gh credential accepts only hostname")
+		}
+	case "pat":
+		if (c.TokenEnv == "") == (c.TokenFile == "") || c.ClientID != "" || c.PrivateKeyFile != "" || c.Hostname != "" {
+			return errors.New("pat credential requires exactly one of tokenEnv or tokenFile")
+		}
+		if c.TokenEnv != "" && !envName.MatchString(c.TokenEnv) {
+			return errors.New("invalid tokenEnv")
+		}
+	case "github-app":
+		if c.ClientID == "" || c.PrivateKeyFile == "" || c.TokenEnv != "" || c.TokenFile != "" || c.Hostname != "" {
+			return errors.New("github-app credential requires clientId and privateKeyFile")
+		}
+	default:
+		return fmt.Errorf("unsupported credential type %q", c.Type)
+	}
+	return nil
+}
+
+func (c *Config) validateEnvironment() error {
 	for name, value := range c.Runner.Env {
 		if !envName.MatchString(name) || strings.ContainsRune(value, 0) || c.secretEnv(name) ||
 			name == "HOME" || name == "USER" || name == "LOGNAME" || strings.HasPrefix(strings.ToUpper(name), "ACTIONS_RUNNER_INPUT_") {
 			return fmt.Errorf("runner.env cannot set invalid, identity or management credential variable %q", name)
 		}
 	}
+	return nil
+}
+
+func (c *Config) validateDirectories() error {
 	paths := []string{c.Runner.WorkRoot, c.Runner.DistributionRoot, c.Runner.CacheRoot, c.Cleanup.LogRoot}
 	home, _ := os.UserHomeDir()
 	for i, path := range paths {

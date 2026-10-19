@@ -620,6 +620,43 @@ func TestConfigDuplicateRegistrationAndID(t *testing.T) {
 	}
 }
 
+func TestConfigValidationOrder(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		change func(*Config)
+		want   string
+	}{
+		{"ID before scope", func(c *Config) {
+			c.Targets[0].ID, c.Targets[0].URL = "!", "invalid"
+		}, `invalid or duplicate target id "!"`},
+		{"scope before credential", func(c *Config) {
+			c.Targets[0].URL, c.Targets[0].Credential.Type = "invalid", "invalid"
+		}, "target build: scope URL must be an HTTPS organization or repository URL"},
+		{"credential before installation", func(c *Config) {
+			c.Targets[0].Credential.Type, c.Targets[0].InstallationID = "invalid", 1
+		}, `target build: unsupported credential type "invalid"`},
+		{"target before total minimum", func(c *Config) {
+			c.Targets[0].Scaling.MinRunners = c.Capacity.MaxRunners + 1
+		}, "target build: require 0 <= minRunners <= maxRunners <= 10000"},
+		{"total minimum before environment", func(c *Config) {
+			c.Targets[0].Scaling = ScalingConfig{MinRunners: c.Capacity.MaxRunners + 1, MaxRunners: 10000}
+			c.Runner.Env = map[string]string{"HOME": "/tmp"}
+		}, "sum of minRunners exceeds capacity.maxRunners"},
+		{"environment before directories", func(c *Config) {
+			c.Runner.Env = map[string]string{"HOME": "/tmp"}
+			c.Runner.WorkRoot = "/"
+		}, `runner.env cannot set invalid, identity or management credential variable "HOME"`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := testConfig(t)
+			tc.change(c)
+			if err := c.Validate(); err == nil || err.Error() != tc.want {
+				t.Fatalf("Validate() = %v, want %q", err, tc.want)
+			}
+		})
+	}
+}
+
 func TestConfigurationValidationCLI(t *testing.T) {
 	testYAML := readFixture(t, "config/base.yaml")
 	path := writeConfig(t, testYAML)
