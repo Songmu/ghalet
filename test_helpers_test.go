@@ -5,11 +5,48 @@ import (
 	"errors"
 	"io"
 	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 
 	"github.com/actions/scaleset"
 )
+
+func testDirectory(t *testing.T) string {
+	t.Helper()
+	path, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func readFixture(t *testing.T, name string) string {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join("testdata", name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(data)
+}
+
+func writeConfig(t *testing.T, content string) string {
+	t.Helper()
+	path := filepath.Join(testDirectory(t), "config.yaml")
+	if err := os.WriteFile(path, []byte(content), 0600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func testConfig(t *testing.T) *Config {
+	t.Helper()
+	c, err := LoadConfig(writeConfig(t, readFixture(t, "config/base.yaml")+"cleanup:\n  logRoot: logs\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return c
+}
 
 type fakeScaleAPI struct {
 	mu               sync.Mutex

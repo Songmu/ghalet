@@ -10,49 +10,8 @@ import (
 	"time"
 )
 
-func testDirectory(t *testing.T) string {
-	t.Helper()
-	path, err := filepath.EvalSymlinks(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	return path
-}
-
-const testYAML = `apiVersion: ghalet/v1alpha1
-targets:
-  - id: build
-    scope: https://github.com/owner/repository
-    credential:
-      type: pat
-      tokenEnv: GHALET_TEST_TOKEN
-    scaleSet: build
-    scaling:
-      minRunners: 0
-      maxRunners: 2
-runner:
-  version: "2.338.0"
-`
-
-func writeConfig(t *testing.T, content string) string {
-	t.Helper()
-	path := filepath.Join(testDirectory(t), "config.yaml")
-	if err := os.WriteFile(path, []byte(content), 0600); err != nil {
-		t.Fatal(err)
-	}
-	return path
-}
-
-func testConfig(t *testing.T) *Config {
-	t.Helper()
-	c, err := LoadConfig(writeConfig(t, testYAML+"cleanup:\n  logRoot: logs\n"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	return c
-}
-
 func TestConfigLogRootDefaults(t *testing.T) {
+	testYAML := readFixture(t, "config/base.yaml")
 	home, stateHome := testDirectory(t), testDirectory(t)
 	for _, tc := range []struct {
 		name, stateHome, want string
@@ -86,6 +45,7 @@ func TestConfigLogRootDefaults(t *testing.T) {
 }
 
 func TestConfigLogRootOverride(t *testing.T) {
+	testYAML := readFixture(t, "config/base.yaml")
 	t.Setenv("XDG_STATE_HOME", testDirectory(t))
 	for _, root := range []string{"logs", "custom/logs", filepath.Join(testDirectory(t), "logs")} {
 		t.Run(root, func(t *testing.T) {
@@ -106,6 +66,7 @@ func TestConfigLogRootOverride(t *testing.T) {
 }
 
 func TestConfigLogRootWithoutHome(t *testing.T) {
+	testYAML := readFixture(t, "config/base.yaml")
 	t.Setenv("HOME", "")
 	if err := os.Unsetenv("HOME"); err != nil {
 		t.Fatal(err)
@@ -175,6 +136,7 @@ func TestConfigLogRootWithoutHome(t *testing.T) {
 }
 
 func TestConfigDefaultsAndRelativePaths(t *testing.T) {
+	testYAML := readFixture(t, "config/base.yaml")
 	c := testConfig(t)
 	if c.Capacity.MaxRunners != 2 || c.Runner.StartupTimeout != Duration(2*time.Minute) ||
 		c.Runner.DrainTimeout != Duration(10*time.Minute) ||
@@ -195,6 +157,7 @@ func TestConfigDefaultsAndRelativePaths(t *testing.T) {
 }
 
 func TestConfigCredentialDefaults(t *testing.T) {
+	testYAML := readFixture(t, "config/base.yaml")
 	const credential = "    credential:\n      type: pat\n      tokenEnv: GHALET_TEST_TOKEN\n"
 	for _, tc := range []struct {
 		name, input string
@@ -220,11 +183,7 @@ func TestConfigCredentialDefaults(t *testing.T) {
 }
 
 func TestConfigMinimal(t *testing.T) {
-	const input = `apiVersion: ghalet/v1alpha1
-targets:
-  - id: build
-    scope: owner/repository
-`
+	input := readFixture(t, "config/minimal.yaml")
 	c, err := LoadConfig(writeConfig(t, input))
 	if err != nil {
 		t.Fatal(err)
@@ -238,6 +197,7 @@ targets:
 }
 
 func TestConfigRunnerVersionDefault(t *testing.T) {
+	testYAML := readFixture(t, "config/base.yaml")
 	for _, tc := range []struct {
 		name, runner, want string
 	}{
@@ -260,6 +220,7 @@ func TestConfigRunnerVersionDefault(t *testing.T) {
 }
 
 func TestConfigScalingDefaults(t *testing.T) {
+	testYAML := readFixture(t, "config/base.yaml")
 	const scaling = "    scaling:\n      minRunners: 0\n      maxRunners: 2\n"
 	for _, tc := range []struct {
 		name, input string
@@ -285,15 +246,7 @@ func TestConfigScalingDefaults(t *testing.T) {
 }
 
 func TestConfigScalingAliasDefaults(t *testing.T) {
-	content := strings.Replace(testYAML, "      maxRunners: 2\n", "", 1)
-	content = strings.Replace(content, "    scaling:", "    scaling: &scaling", 1)
-	content = strings.Replace(content, "\nrunner:", `
-  - id: other
-    scope: owner/another-repository
-    credential:
-      type: gh
-    scaling: *scaling
-runner:`, 1)
+	content := readFixture(t, "config/scaling-alias.yaml")
 	c, err := LoadConfig(writeConfig(t, content))
 	if err != nil {
 		t.Fatal(err)
@@ -306,6 +259,7 @@ runner:`, 1)
 }
 
 func TestConfigTargetScope(t *testing.T) {
+	testYAML := readFixture(t, "config/base.yaml")
 	for _, tc := range []struct {
 		input, want string
 	}{
@@ -354,6 +308,7 @@ func TestConfigTargetScope(t *testing.T) {
 }
 
 func TestConfigScaleSetName(t *testing.T) {
+	testYAML := readFixture(t, "config/base.yaml")
 	for _, tc := range []struct {
 		name, scaleSetName, want string
 	}{
@@ -379,6 +334,7 @@ func TestConfigScaleSetName(t *testing.T) {
 }
 
 func TestConfigScaleSetNameRegistrations(t *testing.T) {
+	testYAML := readFixture(t, "config/base.yaml")
 	const extra = `
   - id: other
     scope: owner/repository
@@ -418,6 +374,7 @@ runner:`
 }
 
 func TestConfigRejectsDuplicateShorthandRegistration(t *testing.T) {
+	testYAML := readFixture(t, "config/base.yaml")
 	const extra = `
   - id: other
     scope: REGISTRATION
@@ -451,26 +408,7 @@ runner:`
 }
 
 func TestConfigAliases(t *testing.T) {
-	const input = `apiVersion: ghalet/v1alpha1
-targets:
-  - id: first
-    scope: &scope first/
-    credential: &credential
-CREDENTIAL
-FIRST_INSTALLATION
-    scaleSet: build
-    scaling: &scaling
-      minRunners: 0
-      maxRunners: 2
-  - id: second
-    scope: *scope
-    credential: *credential
-SECOND_INSTALLATION
-    scaleSet: test
-    scaling: *scaling
-runner:
-  version: "2.338.0"
-`
+	input := readFixture(t, "config/aliases.yaml.tmpl")
 	for _, tc := range []struct {
 		name       string
 		credential string
@@ -551,6 +489,7 @@ func TestConfigTargetCredentials(t *testing.T) {
 }
 
 func TestConfigRejectsInvalidInput(t *testing.T) {
+	testYAML := readFixture(t, "config/base.yaml")
 	cases := map[string]string{
 		"unknown key":              testYAML + "unknown: true\n",
 		"nested unknown key":       strings.Replace(testYAML, "minRunners: 0", "minRunners: 0\n      unknown: true", 1),
@@ -607,6 +546,7 @@ func TestConfigRejectsInvalidInput(t *testing.T) {
 }
 
 func TestConfigRejectsRunnerInputEnvironmentCaseInsensitively(t *testing.T) {
+	testYAML := readFixture(t, "config/base.yaml")
 	for _, name := range []string{
 		"ACTIONS_RUNNER_INPUT_HELP",
 		"actions_runner_input_help",
@@ -623,6 +563,7 @@ func TestConfigRejectsRunnerInputEnvironmentCaseInsensitively(t *testing.T) {
 }
 
 func TestConfigDurationDecoding(t *testing.T) {
+	testYAML := readFixture(t, "config/base.yaml")
 	for _, tc := range []struct {
 		input string
 		want  time.Duration
@@ -652,20 +593,26 @@ func TestConfigDurationDecoding(t *testing.T) {
 }
 
 func TestConfigDuplicateRegistrationAndID(t *testing.T) {
-	for _, duplicateID := range []bool{false, true} {
-		c := testConfig(t)
-		target := c.Targets[0]
-		if !duplicateID {
-			target.ID = "other"
-		}
-		c.Targets = append(c.Targets, target)
-		if err := c.Validate(); err == nil {
-			t.Fatal("duplicate accepted")
-		}
+	for _, tc := range []struct {
+		name, targetID, wantErr string
+	}{
+		{"registration", "other", "duplicate scope/group/scale set registration"},
+		{"target ID", "build", "duplicate target id"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := testConfig(t)
+			target := c.Targets[0]
+			target.ID = tc.targetID
+			c.Targets = append(c.Targets, target)
+			if err := c.Validate(); err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("got %v, want %q", err, tc.wantErr)
+			}
+		})
 	}
 }
 
 func TestConfigurationValidationCLI(t *testing.T) {
+	testYAML := readFixture(t, "config/base.yaml")
 	path := writeConfig(t, testYAML)
 	for _, args := range [][]string{
 		{"config", "validate", "--config", path},
@@ -697,6 +644,7 @@ func TestConfigurationRejectsLegacyScopeFlag(t *testing.T) {
 }
 
 func TestVersionFlagPlacementDoesNotStartDaemon(t *testing.T) {
+	testYAML := readFixture(t, "config/base.yaml")
 	path := writeConfig(t, testYAML)
 	missing := filepath.Join(filepath.Dir(path), "missing.yaml")
 	t.Setenv("GHALET_TEST_TOKEN", "")
@@ -728,14 +676,25 @@ func TestVersionFlagPlacementDoesNotStartDaemon(t *testing.T) {
 }
 
 func TestScopeURLValidation(t *testing.T) {
-	for _, raw := range []string{"https://github.com/org", "https://github.com/org/repo", "https://ghe.example.com/org/repo"} {
-		if _, err := scopeURL(raw); err != nil {
-			t.Fatalf("%s: %v", raw, err)
-		}
-	}
-	for _, raw := range []string{"https://github.com", "https://github.com/a/../b", "https://github.com/a/b/c", "https://github.com/a%2fb", "https://github.com:443/org", "https://github.com/Enterprises/acme", "https://github.com/ENTERPRISES/acme"} {
-		if _, err := scopeURL(raw); err == nil {
-			t.Fatalf("accepted %s", raw)
-		}
+	for _, tc := range []struct {
+		name, raw string
+		wantErr   bool
+	}{
+		{"organization", "https://github.com/org", false},
+		{"repository", "https://github.com/org/repo", false},
+		{"enterprise host", "https://ghe.example.com/org/repo", false},
+		{"missing owner", "https://github.com", true},
+		{"parent traversal", "https://github.com/a/../b", true},
+		{"extra path", "https://github.com/a/b/c", true},
+		{"encoded slash", "https://github.com/a%2fb", true},
+		{"explicit port", "https://github.com:443/org", true},
+		{"enterprise scope", "https://github.com/Enterprises/acme", true},
+		{"uppercase enterprise scope", "https://github.com/ENTERPRISES/acme", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := scopeURL(tc.raw); (err != nil) != tc.wantErr {
+				t.Fatalf("scopeURL(%q): got %v, want error=%v", tc.raw, err, tc.wantErr)
+			}
+		})
 	}
 }

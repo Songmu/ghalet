@@ -150,14 +150,22 @@ func TestOfficialReleaseDigestAndCanceledPreparation(t *testing.T) {
 }
 
 func TestRunnerPlatforms(t *testing.T) {
-	for _, value := range [][3]string{{"darwin", "arm64", "osx-arm64"}, {"darwin", "amd64", "osx-x64"}, {"linux", "amd64", "linux-x64"}, {"linux", "arm64", "linux-arm64"}} {
-		actual, err := runnerPlatform(value[0], value[1])
-		if err != nil || actual != value[2] {
-			t.Fatal(value, actual, err)
-		}
-	}
-	if _, err := runnerPlatform("windows", "amd64"); err == nil {
-		t.Fatal("unsupported platform accepted")
+	for _, tc := range []struct {
+		goos, goarch, want string
+		wantErr            bool
+	}{
+		{goos: "darwin", goarch: "arm64", want: "osx-arm64"},
+		{goos: "darwin", goarch: "amd64", want: "osx-x64"},
+		{goos: "linux", goarch: "amd64", want: "linux-x64"},
+		{goos: "linux", goarch: "arm64", want: "linux-arm64"},
+		{goos: "windows", goarch: "amd64", wantErr: true},
+	} {
+		t.Run(tc.goos+"/"+tc.goarch, func(t *testing.T) {
+			got, err := runnerPlatform(tc.goos, tc.goarch)
+			if (err != nil) != tc.wantErr || got != tc.want {
+				t.Fatalf("got %q, %v; want %q, error=%v", got, err, tc.want, tc.wantErr)
+			}
+		})
 	}
 }
 

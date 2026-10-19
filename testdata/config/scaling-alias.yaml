@@ -1,0 +1,17 @@
+apiVersion: ghalet/v1alpha1
+targets:
+  - id: build
+    scope: https://github.com/owner/repository
+    credential:
+      type: pat
+      tokenEnv: GHALET_TEST_TOKEN
+    scaleSet: build
+    scaling: &scaling
+      minRunners: 0
+  - id: other
+    scope: owner/another-repository
+    credential:
+      type: gh
+    scaling: *scaling
+runner:
+  version: "2.338.0"
