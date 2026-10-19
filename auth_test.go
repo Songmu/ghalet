@@ -41,19 +41,16 @@ func TestCredentialsAndSecretRedaction(t *testing.T) {
 	}
 }
 
-func TestDaemonLoggerRedactsSecrets(t *testing.T) {
-	config := testConfig(t)
-	t.Setenv("GHALET_TEST_TOKEN", "management-secret")
+func TestGlobalLoggerRedactsSecrets(t *testing.T) {
 	var output bytes.Buffer
 	original := slog.Default()
 	slog.SetDefault(slog.New(slog.NewJSONHandler(&output, &slog.HandlerOptions{ReplaceAttr: RedactLogAttr})))
 	defer slog.SetDefault(original)
-	d, err := newDaemon(config)
-	if err != nil {
-		t.Fatal(err)
+	values := []string{"management-secret", "jit-secret"}
+	for _, value := range values {
+		logSecrets.add(value)
 	}
-	defer d.cancel()
-	d.secrets.add("jit-secret")
+	defer logSecrets.release(values)
 	slog.With("credential", "management-secret").WithGroup("execution").Info("jit-secret",
 		slog.Group("details", "error", errors.New("jit-secret"), "token", "management-secret"))
 	if strings.Contains(output.String(), "management-secret") || strings.Contains(output.String(), "jit-secret") ||
@@ -70,18 +67,14 @@ func TestGlobalLogRedactionTracksJITLifetime(t *testing.T) {
 	original := slog.Default()
 	slog.SetDefault(slog.New(slog.NewJSONHandler(&output, &slog.HandlerOptions{ReplaceAttr: RedactLogAttr})))
 	defer slog.SetDefault(original)
-	d, err := newDaemon(testConfig(t))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer d.cancel()
 	value := base64.StdEncoding.EncodeToString([]byte("global-log-jit-lifetime-secret"))
-	values := d.secrets.addJIT(value)
+	values := logSecrets.addJIT(value)
 	slog.Info("Runner failed", "jit", value)
-	if strings.Contains(output.String(), value) || !strings.Contains(output.String(), `"jit":"***"`) {
-		t.Fatal("new JIT secret was not redacted", output.String())
+	redacted := output.String()
+	logSecrets.release(values)
+	if strings.Contains(redacted, value) || !strings.Contains(redacted, `"jit":"***"`) {
+		t.Fatal("new JIT secret was not redacted", redacted)
 	}
-	d.secrets.release(values)
 	output.Reset()
 	slog.Info("Runner cleaned", "jit", value)
 	if !strings.Contains(output.String(), value) {
