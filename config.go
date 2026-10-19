@@ -79,7 +79,10 @@ type Target struct {
 
 func (t *Target) UnmarshalYAML(unmarshal func(any) error) error {
 	type plain Target
-	value := plain{Scaling: ScalingConfig{MaxRunners: 2}}
+	value := plain{
+		Credential: Credential{Type: "gh"},
+		Scaling:    ScalingConfig{MaxRunners: 2},
+	}
 	if err := unmarshal(&value); err != nil {
 		return err
 	}
@@ -308,7 +311,7 @@ func scopeURL(raw string) (*url.URL, error) {
 		u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.RawPath != "" {
 		return nil, errors.New("scope URL must be an HTTPS organization or repository URL")
 	}
-	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
+	parts := strings.Split(strings.TrimPrefix(strings.TrimRight(u.Path, "/"), "/"), "/")
 	if len(parts) < 1 || len(parts) > 2 || strings.EqualFold(parts[0], "enterprises") {
 		return nil, errors.New("only repository and organization scopes are supported")
 	}

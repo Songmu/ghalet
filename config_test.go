@@ -72,6 +72,49 @@ func TestConfigDefaultsAndRelativePaths(t *testing.T) {
 	}
 }
 
+func TestConfigCredentialDefaults(t *testing.T) {
+	const credential = "    credential:\n      type: pat\n      tokenEnv: GHALET_TEST_TOKEN\n"
+	for _, tc := range []struct {
+		name, input string
+		want        Credential
+	}{
+		{"omitted", "", Credential{Type: "gh"}},
+		{"empty", "    credential: {}\n", Credential{Type: "gh"}},
+		{"hostname only", "    credential:\n      hostname: github.com\n", Credential{Type: "gh", Hostname: "github.com"}},
+		{"explicit gh", "    credential:\n      type: gh\n", Credential{Type: "gh"}},
+		{"explicit PAT", credential, Credential{Type: "pat", TokenEnv: "GHALET_TEST_TOKEN"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			content := strings.Replace(testYAML, credential, tc.input, 1)
+			c, err := LoadConfig(writeConfig(t, content))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if c.Targets[0].Credential != tc.want {
+				t.Fatalf("got %+v, want %+v", c.Targets[0].Credential, tc.want)
+			}
+		})
+	}
+}
+
+func TestConfigMinimal(t *testing.T) {
+	const input = `apiVersion: ghalet/v1alpha1
+targets:
+  - id: build
+    scope: owner/repository
+`
+	c, err := LoadConfig(writeConfig(t, input))
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := c.Targets[0]
+	if target.Credential != (Credential{Type: "gh"}) ||
+		target.ScaleSetName != target.ID || target.Scaling != (ScalingConfig{MaxRunners: 2}) ||
+		c.Runner.Version != defaultRunnerVersion {
+		t.Fatalf("unexpected minimal config defaults: %+v", c)
+	}
+}
+
 func TestConfigRunnerVersionDefault(t *testing.T) {
 	for _, tc := range []struct {
 		name, runner, want string
@@ -152,6 +195,12 @@ func TestConfigTargetScope(t *testing.T) {
 		{"https://ghe.example.com/owner/repository", "https://ghe.example.com/owner/repository"},
 		{"https://ghe.example.com/owner", "https://ghe.example.com/owner"},
 		{"", ""},
+		{"/owner", ""},
+		{"/owner/repository", ""},
+		{"//owner", ""},
+		{"//owner/repository", ""},
+		{"https://github.com//owner", ""},
+		{"https://github.com//owner/repository", ""},
 		{"owner//repository", ""},
 		{"owner/repository/extra", ""},
 		{"owner/../repository", ""},
@@ -249,7 +298,7 @@ runner:`
 func TestConfigRejectsDuplicateShorthandRegistration(t *testing.T) {
 	const extra = `
   - id: other
-    scope: https://github.com/REGISTRATION
+    scope: REGISTRATION
     credential:
       type: gh
     scaleSet: build
@@ -257,14 +306,25 @@ func TestConfigRejectsDuplicateShorthandRegistration(t *testing.T) {
       maxRunners: 2
 runner:`
 	for _, registration := range []string{"owner", "owner/repository"} {
-		t.Run(registration, func(t *testing.T) {
-			content := strings.Replace(testYAML, "https://github.com/owner/repository", registration, 1)
-			content = strings.Replace(content, "\nrunner:", strings.Replace(extra, "REGISTRATION", registration, 1), 1)
-			if _, err := LoadConfig(writeConfig(t, content)); err == nil ||
-				!strings.Contains(err.Error(), "duplicate scope/group/scale set registration") {
-				t.Fatal("shorthand and full URL bypassed duplicate registration validation", err)
-			}
-		})
+		for _, tc := range []struct {
+			prefix, want string
+		}{
+			{"https://github.com/", "duplicate scope/group/scale set registration"},
+			{"/", ""},
+			{"https://github.com//", ""},
+		} {
+			t.Run(registration+"/"+tc.prefix, func(t *testing.T) {
+				content := strings.Replace(testYAML, "https://github.com/owner/repository", registration, 1)
+				content = strings.Replace(content, "\nrunner:", strings.Replace(extra, "REGISTRATION", tc.prefix+registration, 1), 1)
+				_, err := LoadConfig(writeConfig(t, content))
+				if err == nil {
+					t.Fatal("duplicate or invalid registration was accepted")
+				}
+				if tc.want != "" && !strings.Contains(err.Error(), tc.want) {
+					t.Fatalf("expected %q, got %v", tc.want, err)
+				}
+			})
+		}
 	}
 }
 
@@ -294,6 +354,7 @@ runner:
 		credential string
 		app        bool
 	}{
+		{"default gh", "      hostname: github.com", false},
 		{"gh", "      type: gh", false},
 		{"PAT environment", "      type: pat\n      tokenEnv: SHARED_TOKEN", false},
 		{"PAT file", "      type: pat\n      tokenFile: credentials/token", false},
@@ -317,6 +378,9 @@ runner:
 			if first.Credential != second.Credential || first.Scaling != second.Scaling ||
 				first.URL != "https://github.com/first" || (!tc.app && first.URL != second.URL) {
 				t.Fatal("aliases did not expand into target values", c.Targets)
+			}
+			if tc.name == "default gh" && first.Credential.Type != "gh" {
+				t.Fatal("aliased credential lost default type", first.Credential)
 			}
 			if first.Credential.TokenFile != "" && first.Credential.TokenFile != filepath.Join(filepath.Dir(path), "credentials/token") {
 				t.Fatal("aliased token path was not resolved relative to config")
@@ -366,46 +430,49 @@ func TestConfigTargetCredentials(t *testing.T) {
 
 func TestConfigRejectsInvalidInput(t *testing.T) {
 	cases := map[string]string{
-		"unknown key":           testYAML + "unknown: true\n",
-		"nested unknown key":    strings.Replace(testYAML, "minRunners: 0", "minRunners: 0\n      unknown: true", 1),
-		"duplicate YAML key":    testYAML + "apiVersion: ghalet/v1alpha1\n",
-		"nested duplicate key":  strings.Replace(testYAML, "minRunners: 0", "minRunners: 0\n      minRunners: 1", 1),
-		"multiple documents":    testYAML + "---\napiVersion: ghalet/v1alpha1\n",
-		"empty extra document":  testYAML + "---\n",
-		"wrong version":         strings.Replace(testYAML, "ghalet/v1alpha1", "ghalet/v2", 1),
-		"unfixed runner":        strings.Replace(testYAML, `"2.338.0"`, "latest", 1),
-		"empty runner version":  strings.Replace(testYAML, `"2.338.0"`, `""`, 1),
-		"missing credential":    strings.Replace(testYAML, "    credential:\n      type: pat\n      tokenEnv: GHALET_TEST_TOKEN\n", "", 1),
-		"missing type":          strings.Replace(testYAML, "      type: pat\n", "", 1),
-		"missing scope":         strings.Replace(testYAML, "    scope: https://github.com/owner/repository\n", "", 1),
-		"multiple scopes":       strings.Replace(testYAML, "scope: https://github.com/owner/repository", "scope: [owner/repository, owner/another-repository]", 1),
-		"old URL key":           strings.Replace(testYAML, "scope: https://github.com/owner/repository", "url: https://github.com/owner/repository", 1),
-		"legacy credentials":    testYAML + "credentials: {}\n",
-		"legacy scopes":         testYAML + "scopes: {}\n",
-		"legacy scopeRef":       strings.Replace(testYAML, "id: build", "id: build\n    scopeRef: repository", 1),
-		"legacy credentialRef":  strings.Replace(testYAML, "id: build", "id: build\n    credentialRef: personal", 1),
-		"old scale set key":     strings.Replace(testYAML, "scaleSet: build", "scaleSetName: build", 1),
-		"repository group":      strings.Replace(testYAML, "scaleSet: build", "runnerGroup: special\n    scaleSet: build", 1),
-		"enterprise":            strings.Replace(testYAML, "owner/repository", "enterprises/company", 1),
-		"HTTP scope":            strings.Replace(testYAML, "https:", "http:", 1),
-		"userinfo":              strings.Replace(testYAML, "github.com/", "user:secret@github.com/", 1),
-		"query":                 strings.Replace(testYAML, "owner/repository", "owner/repository?token=abc", 1),
-		"invalid target id":     strings.Replace(testYAML, "id: build", "id: ../outside", 1),
-		"missing target id":     strings.Replace(testYAML, "  - id: build\n    scope:", "  - scope:", 1),
-		"empty target id":       strings.Replace(testYAML, "id: build", `id: ""`, 1),
-		"negative min":          strings.Replace(testYAML, "minRunners: 0", "minRunners: -1", 1),
-		"min exceeds max":       strings.Replace(testYAML, "minRunners: 0", "minRunners: 3", 1),
-		"zero max":              strings.Replace(testYAML, "maxRunners: 2", "maxRunners: 0", 1),
-		"min exceeds global":    strings.Replace(testYAML, "minRunners: 0", "minRunners: 2", 1) + "capacity:\n  maxRunners: 1\n",
-		"zero startup timeout":  testYAML + "cleanup:\n  logRetention: 0s\n",
-		"two PAT inputs":        strings.Replace(testYAML, "tokenEnv: GHALET_TEST_TOKEN", "tokenEnv: GHALET_TEST_TOKEN\n      tokenFile: token", 1),
-		"inline token":          strings.Replace(testYAML, "tokenEnv: GHALET_TEST_TOKEN", "token: secret", 1),
-		"App installation":      strings.Replace(testYAML, "id: build", "id: build\n    installationId: 10", 1),
-		"credential env":        strings.Replace(testYAML, `"2.338.0"`, "\"2.338.0\"\n  env:\n    GH_TOKEN: never-copy", 1),
-		"custom credential env": strings.Replace(testYAML, `"2.338.0"`, "\"2.338.0\"\n  env:\n    GHALET_TEST_TOKEN: never-copy", 1),
-		"identity env":          strings.Replace(testYAML, `"2.338.0"`, "\"2.338.0\"\n  env:\n    HOME: /tmp", 1),
-		"overlapping roots":     strings.Replace(testYAML, `"2.338.0"`, "\"2.338.0\"\n  cacheRoot: runs/downloads", 1),
-		"root directory":        strings.Replace(testYAML, `"2.338.0"`, "\"2.338.0\"\n  workRoot: /", 1),
+		"unknown key":              testYAML + "unknown: true\n",
+		"nested unknown key":       strings.Replace(testYAML, "minRunners: 0", "minRunners: 0\n      unknown: true", 1),
+		"duplicate YAML key":       testYAML + "apiVersion: ghalet/v1alpha1\n",
+		"nested duplicate key":     strings.Replace(testYAML, "minRunners: 0", "minRunners: 0\n      minRunners: 1", 1),
+		"multiple documents":       testYAML + "---\napiVersion: ghalet/v1alpha1\n",
+		"empty extra document":     testYAML + "---\n",
+		"wrong version":            strings.Replace(testYAML, "ghalet/v1alpha1", "ghalet/v2", 1),
+		"unfixed runner":           strings.Replace(testYAML, `"2.338.0"`, "latest", 1),
+		"empty runner version":     strings.Replace(testYAML, `"2.338.0"`, `""`, 1),
+		"empty credential type":    strings.Replace(testYAML, "    credential:\n      type: pat\n      tokenEnv: GHALET_TEST_TOKEN\n", "    credential:\n      type: \"\"\n", 1),
+		"PAT without type":         strings.Replace(testYAML, "      type: pat\n", "", 1),
+		"App without type":         strings.Replace(testYAML, "      type: pat\n      tokenEnv: GHALET_TEST_TOKEN", "      clientId: app\n      privateKeyFile: credentials/app.pem", 1),
+		"unknown credential key":   strings.Replace(testYAML, "      type: pat\n      tokenEnv: GHALET_TEST_TOKEN", "      unknown: true", 1),
+		"duplicate credential key": strings.Replace(testYAML, "      type: pat", "      type: pat\n      type: gh", 1),
+		"missing scope":            strings.Replace(testYAML, "    scope: https://github.com/owner/repository\n", "", 1),
+		"multiple scopes":          strings.Replace(testYAML, "scope: https://github.com/owner/repository", "scope: [owner/repository, owner/another-repository]", 1),
+		"old URL key":              strings.Replace(testYAML, "scope: https://github.com/owner/repository", "url: https://github.com/owner/repository", 1),
+		"legacy credentials":       testYAML + "credentials: {}\n",
+		"legacy scopes":            testYAML + "scopes: {}\n",
+		"legacy scopeRef":          strings.Replace(testYAML, "id: build", "id: build\n    scopeRef: repository", 1),
+		"legacy credentialRef":     strings.Replace(testYAML, "id: build", "id: build\n    credentialRef: personal", 1),
+		"old scale set key":        strings.Replace(testYAML, "scaleSet: build", "scaleSetName: build", 1),
+		"repository group":         strings.Replace(testYAML, "scaleSet: build", "runnerGroup: special\n    scaleSet: build", 1),
+		"enterprise":               strings.Replace(testYAML, "owner/repository", "enterprises/company", 1),
+		"HTTP scope":               strings.Replace(testYAML, "https:", "http:", 1),
+		"userinfo":                 strings.Replace(testYAML, "github.com/", "user:secret@github.com/", 1),
+		"query":                    strings.Replace(testYAML, "owner/repository", "owner/repository?token=abc", 1),
+		"invalid target id":        strings.Replace(testYAML, "id: build", "id: ../outside", 1),
+		"missing target id":        strings.Replace(testYAML, "  - id: build\n    scope:", "  - scope:", 1),
+		"empty target id":          strings.Replace(testYAML, "id: build", `id: ""`, 1),
+		"negative min":             strings.Replace(testYAML, "minRunners: 0", "minRunners: -1", 1),
+		"min exceeds max":          strings.Replace(testYAML, "minRunners: 0", "minRunners: 3", 1),
+		"zero max":                 strings.Replace(testYAML, "maxRunners: 2", "maxRunners: 0", 1),
+		"min exceeds global":       strings.Replace(testYAML, "minRunners: 0", "minRunners: 2", 1) + "capacity:\n  maxRunners: 1\n",
+		"zero startup timeout":     testYAML + "cleanup:\n  logRetention: 0s\n",
+		"two PAT inputs":           strings.Replace(testYAML, "tokenEnv: GHALET_TEST_TOKEN", "tokenEnv: GHALET_TEST_TOKEN\n      tokenFile: token", 1),
+		"inline token":             strings.Replace(testYAML, "tokenEnv: GHALET_TEST_TOKEN", "token: secret", 1),
+		"App installation":         strings.Replace(testYAML, "id: build", "id: build\n    installationId: 10", 1),
+		"credential env":           strings.Replace(testYAML, `"2.338.0"`, "\"2.338.0\"\n  env:\n    GH_TOKEN: never-copy", 1),
+		"custom credential env":    strings.Replace(testYAML, `"2.338.0"`, "\"2.338.0\"\n  env:\n    GHALET_TEST_TOKEN: never-copy", 1),
+		"identity env":             strings.Replace(testYAML, `"2.338.0"`, "\"2.338.0\"\n  env:\n    HOME: /tmp", 1),
+		"overlapping roots":        strings.Replace(testYAML, `"2.338.0"`, "\"2.338.0\"\n  cacheRoot: runs/downloads", 1),
+		"root directory":           strings.Replace(testYAML, `"2.338.0"`, "\"2.338.0\"\n  workRoot: /", 1),
 	}
 	for name, input := range cases {
 		t.Run(name, func(t *testing.T) {

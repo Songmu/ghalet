@@ -16,8 +16,12 @@ control address: it is derived from the normalized absolute config path.
 running snapshot even if the file's contents are now invalid.
 
 `examples/config.yaml` includes repository, organization, `gh`, PAT and App
-examples. Each target contains its registration `scope` and a nested
-`credential` mapping with an explicit `type`. For GitHub.com, `scope` accepts
+examples. Each target contains its registration `scope`. The optional
+`credential` mapping defaults to `type: gh`, including when the mapping is
+empty or `type` is omitted. PAT and App credentials require an explicit
+`type: pat` or `type: github-app`; credential-specific fields do not select
+the type automatically. An explicitly empty type is rejected.
+For GitHub.com, `scope` accepts
 `OWNER/REPO` for a repository or `ORG` for an organization; these are normalized
 to HTTPS URLs before validation, authentication, and registration matching.
 Full HTTPS URLs are also accepted and are required for other GitHub hosts.
@@ -28,24 +32,13 @@ and workflow `runs-on` label, including a shared name across scopes.
 IDs must be unique across all targets and contain 1-64 ASCII letters,
 digits, underscores or hyphens, starting with a letter or digit.
 App `installationId` belongs to the target, not its credential, so multiple
-installations can share a single App key. Reuse values with ordinary YAML
-anchors and aliases:
+installations can share a single App key. A minimal configuration is:
 
 ```yaml
+apiVersion: ghalet/v1alpha1
 targets:
   - id: build
-    scope: &repository OWNER/REPO
-    credential: &personal
-      type: gh
-    # scaleSet: build # Defaults to id.
-    scaling: &scaling
-      minRunners: 0
-      maxRunners: 2
-  - id: test
-    scope: *repository
-    credential: *personal
-    # scaleSet: test # Defaults to id.
-    scaling: *scaling
+    scope: OWNER/REPO
 ```
 
 There is no separate scope or credential registry. The old top-level
@@ -56,11 +49,17 @@ Unknown keys, duplicate IDs, conflicting registrations, unsupported enterprise
 scopes, repository runner groups, and impossible minimum capacities are
 rejected before any GitHub operation.
 
-For `gh`, log in as the account that actually starts the service. ghalet runs
+For the default `gh` authentication, install GitHub CLI where ghalet runs
+and log in as the account that actually starts the service. ghalet runs
 `gh auth token --hostname HOST` with a 15-second deadline and does not write
 the token to configuration. A login in an interactive user's keychain does
 not automatically grant access to a different service user or to a locked
 keychain. Test the command as that user in the actual service environment.
+Missing GitHub CLI or authentication is an error; ghalet does not fall back
+to another credential type.
+Jobs running as the same OS user may still access that user's saved GitHub
+CLI credentials. Stripping token environment variables or supplying a
+job-scoped `GH_TOKEN` does not isolate those saved credentials from jobs.
 
 For PATs, select exactly one of `tokenEnv` and `tokenFile`. Credential files,
 including App private keys, must be owner-only regular files (normally

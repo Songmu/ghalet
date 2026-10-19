@@ -10,11 +10,9 @@ targets:
     scope: OWNER/REPO
     # GitHub.com: OWNER/REPO or ORG; other hosts: full HTTPS URL.
     # Enterprise scopes are unsupported.
-    credential: &personal
-      type: gh
-      # Options: gh, pat, github-app.
-      # gh uses the launching user's login.
-      # hostname: "" # gh only; defaults to scope's host.
+    # credential:
+    #   type: gh # Default; uses the launching user's gh login.
+    #   hostname: "" # gh only; defaults to scope's host.
 
     # credential: # PAT alternative.
     #   type: pat
@@ -34,7 +32,6 @@ targets:
 
   # - id: another-project # Optional second target.
   #   scope: OWNER/ANOTHER-REPO
-  #   credential: *personal # Reuse credentials via YAML alias.
   #   scaleSet: macmini
 
 # runner:
