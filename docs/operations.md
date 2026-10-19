@@ -25,8 +25,9 @@ For GitHub.com, `scope` accepts
 `OWNER/REPO` for a repository or `ORG` for an organization; these are normalized
 to HTTPS URLs before validation, authentication, and registration matching.
 Full HTTPS URLs are also accepted and are required for other GitHub hosts.
-Each target accepts exactly one scope. Its required `id` identifies it in
-management commands and local state. The optional `scaleSet` defaults
+Only repository and organization scopes are supported; `runnerGroup` is
+organization-only. Each target accepts exactly one scope. Its required `id`
+identifies it in management commands and local state. The optional `scaleSet` defaults
 to `id`; set it explicitly to use a different GitHub registration name
 and workflow `runs-on` label, including a shared name across scopes.
 IDs must be unique across all targets and contain 1-64 ASCII letters,
@@ -44,17 +45,13 @@ targets:
 
 The optional first-line comment selects the repository's `schema.yaml` for
 editor completion and validation. No configuration version field is needed.
-Remove `apiVersion` from older configurations; it is no longer accepted.
 Use `ghalet config validate` to also check constraints such as conflicting
 registrations, minimum capacities, and managed directory safety.
 
-There is no separate scope or credential registry. The old top-level
-`scopes` and `credentials` mappings and the `scopeRef` / `credentialRef`
-fields are no longer accepted; move their values into each target.
-Use `scaleSet` instead of the old `scaleSetName` configuration key.
-Unknown keys, duplicate IDs, conflicting registrations, unsupported enterprise
-scopes, repository runner groups, and impossible minimum capacities are
-rejected before any GitHub operation.
+For older configurations, remove `apiVersion`, move top-level `scopes` /
+`credentials` into each target instead of using `scopeRef` / `credentialRef`,
+and rename `scaleSetName` to `scaleSet`. These legacy keys and all other
+unknown keys are rejected before any GitHub operation.
 
 For the default `gh` authentication, install GitHub CLI where ghalet runs
 and log in as the account that actually starts the service. ghalet runs
@@ -64,9 +61,6 @@ not automatically grant access to a different service user or to a locked
 keychain. Test the command as that user in the actual service environment.
 Missing GitHub CLI or authentication is an error; ghalet does not fall back
 to another credential type.
-Jobs running as the same OS user may still access that user's saved GitHub
-CLI credentials. Stripping token environment variables or supplying a
-job-scoped `GH_TOKEN` does not isolate those saved credentials from jobs.
 
 For PATs, select exactly one of `tokenEnv` and `tokenFile`. Credential files,
 including App private keys, must be owner-only regular files (normally
@@ -125,11 +119,9 @@ field. Do not intentionally copy management secrets into another variable.
 The runner's own files are private to its execution directory and removed
 after execution.
 
-This is environment minimization, not filesystem or keychain isolation.
-Jobs still use the execution user's real HOME and may access that user's
-saved credentials. Use a separate execution user to separate those credentials.
-The controller's environment for authentication, API calls and downloads is
-unchanged.
+This minimizes the runner environment; the controller's environment for
+authentication, API calls and downloads is unchanged. Filesystem and
+keychain access remain subject to the [trust boundary](#trust-boundary).
 
 Install build tools and the official runner's OS prerequisites on the host
 before use. Docker actions, job containers and services are unsupported.
@@ -284,10 +276,9 @@ your collector to select structured fields and perform any forwarding or
 OTel conversion externally. There is no embedded HTTP health endpoint,
 metrics exporter, OTel SDK or collector dependency.
 
-The `scope` field in new runner-start events and log archive metadata contains
-the registration URL rather than a configured scope name. Existing execution
-state files remain readable; their legacy `scopeRef` does not select credentials
-or determine registration identity.
+The `scope` field in runner-start events and archive metadata is the
+registration URL. Legacy state `scopeRef` fields remain readable but do not
+select credentials or determine registration identity.
 
 With `preserveLogs: true`, `output.log` and `_diag/**/*.log` are archived to
 `cleanup.logRoot/runs/RUN_ID` before removing the execution. `cleanup.logRoot`
@@ -361,9 +352,9 @@ the actual login/service context.
 For Apple Silicon Lima, `examples/lima.yaml` supplies an Ubuntu ARM64 VM
 with VZ, 4 vCPU, 8 GiB, 80 GiB, no host mounts, no containerd, installation
 and an enabled systemd service. Provisioning does not copy host credentials.
-It builds the published ghalet module with Go's toolchain selection; before
-the implementation is merged/published, copy a locally built Linux ARM64
-binary instead. Copy a configuration explicitly with `limactl copy`, log in
+It builds the published ghalet module with Go's toolchain selection.
+To test unpublished changes, copy a locally built Linux ARM64 binary instead.
+Copy a configuration explicitly with `limactl copy`, log in
 as the guest `ghalet` user or supply guest-only credentials, and start the
 service. The service is conditionally skipped until configuration exists.
 
@@ -380,6 +371,10 @@ acceptance checks, not established by template validation.
 trusted repositories, never hostile fork PRs. Each runner has separate
 execution/work paths but shares an OS, execution user's HOME, caches, tools,
 network and existing privileges. Jobs can modify that shared environment.
+They may access the execution user's saved credentials, including GitHub CLI
+and keychain credentials; stripping token variables or supplying a job-scoped
+`GH_TOKEN` does not isolate that storage. Use a separate execution user to
+separate those credentials.
 The default same-user model also exposes controller files/processes to jobs;
 file permissions, redaction and a private socket are not security boundaries
 against that user. No extra sudo or Docker socket is provided and root jobs
