@@ -148,7 +148,7 @@ func newDaemon(c *Config) (*daemon, error) {
 	if err != nil {
 		return nil, err
 	}
-	secret := &logSecrets
+	secret := &logreduct.Default
 	for _, entry := range os.Environ() {
 		for i := 0; i < len(entry); i++ {
 			if entry[i] == '=' {

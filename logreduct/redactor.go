@@ -18,6 +18,10 @@ type Redactor struct {
 	refs   map[string]int
 }
 
+// Default is a shared redactor for process-wide logging. Handlers using its
+// ReplaceAttr method see secrets registered after the handler was configured.
+var Default Redactor
+
 func secretComponents(value string) []string {
 	if value == "" {
 		return nil

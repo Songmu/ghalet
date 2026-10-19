@@ -45,13 +45,13 @@ func TestCredentialsAndSecretRedaction(t *testing.T) {
 func TestGlobalLoggerRedactsSecrets(t *testing.T) {
 	var output bytes.Buffer
 	original := slog.Default()
-	slog.SetDefault(slog.New(slog.NewJSONHandler(&output, &slog.HandlerOptions{ReplaceAttr: RedactLogAttr})))
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&output, &slog.HandlerOptions{ReplaceAttr: logreduct.Default.ReplaceAttr})))
 	defer slog.SetDefault(original)
 	values := []string{"management-secret", "jit-secret"}
 	for _, value := range values {
-		logSecrets.Add(value)
+		logreduct.Default.Add(value)
 	}
-	defer logSecrets.Release(values)
+	defer logreduct.Default.Release(values)
 	slog.With("credential", "management-secret").WithGroup("execution").Info("jit-secret",
 		slog.Group("details", "error", errors.New("jit-secret"), "token", "management-secret"))
 	if strings.Contains(output.String(), "management-secret") || strings.Contains(output.String(), "jit-secret") ||
@@ -66,13 +66,13 @@ func TestGlobalLoggerRedactsSecrets(t *testing.T) {
 func TestGlobalLogRedactionTracksJITLifetime(t *testing.T) {
 	var output bytes.Buffer
 	original := slog.Default()
-	slog.SetDefault(slog.New(slog.NewJSONHandler(&output, &slog.HandlerOptions{ReplaceAttr: RedactLogAttr})))
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&output, &slog.HandlerOptions{ReplaceAttr: logreduct.Default.ReplaceAttr})))
 	defer slog.SetDefault(original)
 	value := base64.StdEncoding.EncodeToString([]byte("global-log-jit-lifetime-secret"))
-	values := logSecrets.AddJIT(value)
+	values := logreduct.Default.AddJIT(value)
 	slog.Info("Runner failed", "jit", value)
 	redacted := output.String()
-	logSecrets.Release(values)
+	logreduct.Default.Release(values)
 	if strings.Contains(redacted, value) || !strings.Contains(redacted, `"jit":"***"`) {
 		t.Fatal("new JIT secret was not redacted", redacted)
 	}
@@ -103,7 +103,7 @@ func TestDirectAPILogRedactionWithOrdinaryHandler(t *testing.T) {
 			original := slog.Default()
 			slog.SetDefault(slog.New(slog.NewJSONHandler(&output, nil)))
 			defer slog.SetDefault(original)
-			defer logSecrets.Release([]string{credential})
+			defer logreduct.Default.Release([]string{credential})
 			ctx, cancel := context.WithCancel(t.Context())
 			cancel()
 			switch command {

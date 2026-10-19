@@ -15,6 +15,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/Songmu/ghalet/logreduct"
 )
 
 type lockedBuffer struct {
@@ -99,7 +101,7 @@ func TestGitHubEphemeralLifecycle(t *testing.T) {
 	c.Runner.DrainTimeout = Duration(15 * time.Second)
 	var logs lockedBuffer
 	original := slog.Default()
-	slog.SetDefault(slog.New(slog.NewJSONHandler(&logs, &slog.HandlerOptions{ReplaceAttr: RedactLogAttr})))
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&logs, &slog.HandlerOptions{ReplaceAttr: logreduct.Default.ReplaceAttr})))
 	defer slog.SetDefault(original)
 	finished := make(chan error, 1)
 	go func() { finished <- RunDaemon(ctx, c) }()

@@ -10,6 +10,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/Songmu/ghalet/logreduct"
 	"github.com/actions/scaleset"
 )
 
@@ -175,7 +176,7 @@ func testDaemon(t *testing.T) (*daemon, *fakeScaleAPI) {
 	}
 	c := testConfig(t)
 	original := slog.Default()
-	slog.SetDefault(slog.New(slog.NewJSONHandler(io.Discard, &slog.HandlerOptions{ReplaceAttr: RedactLogAttr})))
+	slog.SetDefault(slog.New(slog.NewJSONHandler(io.Discard, &slog.HandlerOptions{ReplaceAttr: logreduct.Default.ReplaceAttr})))
 	t.Cleanup(func() { slog.SetDefault(original) })
 	d, err := newDaemon(c)
 	if err != nil {

@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"os"
 	"os/exec"
 	"strings"
@@ -18,15 +17,6 @@ const apiTimeout = 45 * time.Second
 const preparationTimeout = 10 * time.Minute
 const commandTimeout = 15 * time.Second
 const maxAttempts = 4
-
-// Logs and execution output share a process-wide registry so direct slog calls
-// see credentials registered after the default handler was configured.
-var logSecrets logreduct.Redactor
-
-// RedactLogAttr masks known management and runner secrets in slog handler output.
-func RedactLogAttr(groups []string, attr slog.Attr) slog.Attr {
-	return logSecrets.ReplaceAttr(groups, attr)
-}
 
 func readProtected(path string) (string, error) {
 	info, err := os.Stat(path)
