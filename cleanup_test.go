@@ -247,6 +247,11 @@ func TestLogLineLimitsApplyToLiveOutputAndArchives(t *testing.T) {
 			chunks: []string{"Listening for Jobs", strings.Repeat("x", maxLogLineBytes), "\n"},
 			want:   omittedLogLine,
 		},
+		{
+			name:   "newline-inclusive secret",
+			chunks: []string{"whole-line-", "secret\n", "next\n"},
+			want:   "***next\n",
+		},
 	} {
 		for _, live := range []bool{true, false} {
 			mode := "archive"
@@ -257,6 +262,7 @@ func TestLogLineLimitsApplyToLiveOutputAndArchives(t *testing.T) {
 				path := filepath.Join(testDirectory(t), "output.log")
 				secret := &secrets{}
 				secret.add("secret-value")
+				secret.add("whole-line-secret\n")
 				if live {
 					file, err := os.Create(path)
 					if err != nil {

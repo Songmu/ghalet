@@ -56,7 +56,7 @@ func (w *runnerOutput) Write(data []byte) (int, error) {
 				w.ready()
 				w.ready = nil
 			}
-			if _, err := io.WriteString(w.file, w.secrets.redact(line)+"\n"); err != nil {
+			if _, err := io.WriteString(w.file, w.secrets.redact(line+"\n")); err != nil {
 				return 0, err
 			}
 		}
