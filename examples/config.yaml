@@ -1,54 +1,79 @@
 apiVersion: ghalet/v1alpha1
+# Supported configuration version.
 
-capacity:
-  maxRunners: 2
+# capacity:
+#   maxRunners: 2
+# Maximum concurrent runners across all targets.
 
 targets:
   - id: project
+    # Unique target ID used by management commands.
     url: https://github.com/OWNER/REPO
+    # Repository or organization URL; enterprise scopes are not supported.
     credential: &personal
       type: gh
+      # Authentication source. Options: gh, pat, github-app.
+      # gh uses the authentication of the user starting ghalet.
+      # hostname: ""
+      # gh only; empty uses the hostname from this target's URL.
+
+    # credential:
+    #   type: pat
+    #   tokenFile: credentials/token
+    # PAT alternative: replace the credential mapping above.
+    # Use exactly one of tokenFile or tokenEnv (for example MY_GITHUB_TOKEN).
+    # Token files must be owner-only, normally chmod 600.
+
+    # credential:
+    #   type: github-app
+    #   clientId: "<app-client-id>"
+    #   privateKeyFile: credentials/app.pem
+    # installationId: 12345
+    # App alternative: replace the credential mapping and set installationId.
+    # The private key must be owner-only; installationId is target-specific.
+
+    # runnerGroup: ""
+    # Organization targets only; empty selects GitHub's default runner group.
     scaleSetName: macmini
+    # Scale set name and workflow runs-on label.
     scaling:
-      minRunners: 0
+      # minRunners: 0
+      # Warm runners to retain when idle.
       maxRunners: 2
+      # Per-target runner limit; shared capacity still applies.
+
   # - id: another-project
   #   url: https://github.com/OWNER/ANOTHER-REPO
   #   credential: *personal
   #   scaleSetName: macmini
   #   scaling:
-  #     minRunners: 0
   #     maxRunners: 2
-  # - id: organization
-  #   url: https://github.com/EXAMPLE-ORG
-  #   credential:
-  #     type: github-app
-  #     clientId: "<app-client-id>"
-  #     privateKeyFile: credentials/app.pem
-  #   installationId: 12345
-  #   runnerGroup: existing-build-runners
-  #   scaleSetName: linux-arm64
-  #   scaling:
-  #     minRunners: 0
-  #     maxRunners: 2
-  # For PAT authentication, replace a target's credential with:
-  # credential:
-  #   type: pat
-  #   tokenFile: credentials/token
-  #   # Alternatively use tokenEnv: MY_GITHUB_TOKEN (not both).
+  # Optional second target reusing the &personal credential via a YAML alias.
 
 runner:
   version: "2.338.0"
-  # user: ci-runner
-  startupTimeout: 2m
-  drainTimeout: 10m
-  workRoot: runs
-  distributionRoot: runners
-  cacheRoot: downloads
-  env:
-    LANG: en_US.UTF-8
+  # Required pinned numeric runner version; automatic updates are disabled.
+  # user: ""
+  # Empty uses the launching user. Root must select a non-root account.
+  # startupTimeout: 2m
+  # Maximum time for a new runner to become ready.
+  # drainTimeout: 10m
+  # Grace period before remaining runner processes are forcibly stopped.
+  # workRoot: runs
+  # Execution directories and recovery state.
+  # distributionRoot: runners
+  # Pinned runner distribution metadata.
+  # cacheRoot: downloads
+  # Downloaded runner archives.
+  # Relative paths are resolved from this configuration file's directory.
+  # env: {}
+  # Overrides for inherited job environment variables, e.g. {LANG: en_US.UTF-8}.
+  # Management credentials and runner input variables cannot be set here.
 
-cleanup:
-  preserveLogs: true
-  logRetention: 7d
-  logRoot: logs
+# cleanup:
+#   preserveLogs: true
+#   Archive runner logs before removing execution directories.
+#   logRetention: 7d
+#   Retention for completed log archives; durations support d, h, m and s.
+#   logRoot: logs
+#   Log archive directory, relative to this configuration file.
