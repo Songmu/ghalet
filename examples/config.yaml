@@ -1,58 +1,57 @@
 apiVersion: ghalet/v1alpha1
-# Supported configuration version.
+# Relative paths use this file's directory.
 
 # capacity:
-#   maxRunners: 2 # Maximum concurrent runners across all targets.
+#   maxRunners: 2 # Total runner limit.
 
 targets:
   - id: project
-    # Unique target ID used by management commands.
+    # Unique local ID for management commands.
     scope: OWNER/REPO
-    # GitHub.com repository (OWNER/REPO) or organization (ORG).
-    # Full HTTPS URLs are also accepted, including other GitHub hosts.
-    # Enterprise scopes are not supported.
+    # GitHub.com: OWNER/REPO or ORG; other hosts: full HTTPS URL.
+    # Enterprise scopes are unsupported.
     credential: &personal
       type: gh
-      # Authentication source. Options: gh, pat, github-app.
-      # gh uses the authentication of the user starting ghalet.
-      # hostname: "" # gh only; empty uses the scope's hostname.
+      # Options: gh, pat, github-app.
+      # gh uses the launching user's login.
+      # hostname: "" # gh only; defaults to scope's host.
 
-    # credential: # PAT alternative: replace the credential mapping above.
+    # credential: # PAT alternative.
     #   type: pat
-    #   tokenFile: credentials/token # Use this or tokenEnv (e.g. MY_GITHUB_TOKEN); owner-only file (chmod 600).
+    #   tokenFile: credentials/token # chmod 600; use this or tokenEnv.
 
-    # credential: # App alternative: replace the credential mapping above and set installationId.
+    # credential: # GitHub App alternative.
     #   type: github-app
     #   clientId: "<app-client-id>"
-    #   privateKeyFile: credentials/app.pem # Owner-only private key file (chmod 600).
-    # installationId: 12345 # Required for github-app; target-specific.
+    #   privateKeyFile: credentials/app.pem # chmod 600.
+    # installationId: 12345 # Required for github-app; per target.
 
-    # runnerGroup: "" # Organization targets only; empty selects GitHub's default runner group.
-    # scaleSet: project # Defaults to id; scale set name and runs-on label (may be shared across scopes).
+    # runnerGroup: "" # Org only; empty uses default group.
+    # scaleSet: project # Defaults to id; GitHub name and runs-on label.
     scaling:
-      # minRunners: 0 # Warm runners to retain when idle.
+      # minRunners: 0 # Idle warm runners.
       maxRunners: 2
-      # Per-target runner limit; shared capacity still applies.
+      # Per-target limit; shared capacity applies.
 
   # - id: another-project # Optional second target.
   #   scope: OWNER/ANOTHER-REPO
-  #   credential: *personal # Reuse the &personal credential via a YAML alias.
+  #   credential: *personal # Reuse credentials via YAML alias.
   #   scaleSet: macmini
   #   scaling:
   #     maxRunners: 2
 
 runner:
   version: "2.338.0"
-  # Required pinned numeric runner version; automatic updates are disabled.
-  # user: "" # Empty uses the launching user. Root must select a non-root account.
-  # startupTimeout: 2m # Maximum time for a new runner to become ready.
-  # drainTimeout: 10m # Grace period before remaining runner processes are forcibly stopped.
-  # workRoot: runs # Execution directories and recovery state; relative to the config directory.
-  # distributionRoot: runners # Pinned runner distribution metadata; relative to the config directory.
-  # cacheRoot: downloads # Downloaded runner archives; relative to the config directory.
-  # env: {} # Job environment overrides, e.g. {LANG: en_US.UTF-8}; no management credentials or runner input variables.
+  # Pinned runner version; auto-update disabled.
+  # user: "" # Empty: current user. Root must set a non-root user.
+  # startupTimeout: 2m # Runner readiness deadline.
+  # drainTimeout: 10m # Grace period before forced stop.
+  # workRoot: runs # Runs and recovery state.
+  # distributionRoot: runners # Pinned runner metadata.
+  # cacheRoot: downloads # Runner archives.
+  # env: {} # Job env; no credentials or runner input variables.
 
 # cleanup:
-#   preserveLogs: true # Archive runner logs before removing execution directories.
-#   logRetention: 7d # Retention for completed log archives; durations support d, h, m and s.
-#   logRoot: logs # Log archive directory; relative to the config directory.
+#   preserveLogs: true # Archive logs before cleanup.
+#   logRetention: 7d # Log retention (d, h, m, s).
+#   logRoot: logs # Log archive directory.
