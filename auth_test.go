@@ -42,18 +42,25 @@ func TestCredentialsAndSecretRedaction(t *testing.T) {
 }
 
 func TestProtectedCredentials(t *testing.T) {
-	path := filepath.Join(testDirectory(t), "token")
-	if err := os.WriteFile(path, []byte(" secret \n"), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	if _, err := readProtected(path); err == nil {
-		t.Fatal("world-readable secret accepted")
-	}
-	os.Chmod(path, 0600)
-	value, err := readProtected(path)
-	if err != nil || value != "secret" {
-		t.Fatalf("%q, %v", value, err)
+	for _, tc := range []struct {
+		name    string
+		mode    os.FileMode
+		want    string
+		wantErr bool
+	}{
+		{name: "world-readable", mode: 0644, wantErr: true},
+		{name: "private", mode: 0600, want: "secret"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(testDirectory(t), "token")
+			if err := os.WriteFile(path, []byte(" secret \n"), tc.mode); err != nil {
+				t.Fatal(err)
+			}
+			value, err := readProtected(path)
+			if (err != nil) != tc.wantErr || value != tc.want {
+				t.Fatalf("got %q, %v; want %q, error=%v", value, err, tc.want, tc.wantErr)
+			}
+		})
 	}
 }
 
@@ -199,30 +206,46 @@ func TestGhAuthenticationUsesHostAndFiniteCommand(t *testing.T) {
 }
 
 func TestExplicitRegistrationAndDisableUpdate(t *testing.T) {
-	api := newFakeAPI()
 	target := testConfig(t).Targets[0]
-	set, err := registration(t.Context(), api, target, true)
-	if err != nil || set.ID != 10 || api.createCalls != 0 {
-		t.Fatal("existing registration was not reused")
-	}
-	api.set.RunnerSetting.DisableUpdate = false
-	if _, err := registration(t.Context(), api, target, true); err != nil || api.updateCalls != 1 || !api.set.RunnerSetting.DisableUpdate {
-		t.Fatal("runner update was not disabled")
-	}
-	api.set = nil
-	if _, err := registration(t.Context(), api, target, false); err != nil || api.createCalls != 0 {
-		t.Fatal("lookup-only operation created a scale set")
-	}
-	if _, err := registration(t.Context(), api, target, true); err != nil || api.createCalls != 1 {
-		t.Fatal("missing explicit registration was not created")
-	}
-	api.getErr = errTestAPI
-	if _, err := registration(t.Context(), api, target, true); err == nil || api.createCalls != 1 {
-		t.Fatal("API failure interpreted as missing registration")
-	}
-	api.groupErr = errTestAPI
-	if _, err := registration(t.Context(), api, target, true); err == nil || api.createCalls != 1 {
-		t.Fatal("group failure fell back or created a registration")
+	for _, tc := range []struct {
+		name                   string
+		create                 bool
+		missing                bool
+		enableUpdate           bool
+		getErr, groupErr       error
+		wantErr                error
+		wantSet                bool
+		wantCreate, wantUpdate int
+	}{
+		{name: "reuse existing", create: true, wantSet: true},
+		{name: "disable runner updates", create: true, enableUpdate: true, wantSet: true, wantUpdate: 1},
+		{name: "lookup missing", missing: true},
+		{name: "create missing", create: true, missing: true, wantSet: true, wantCreate: 1},
+		{name: "scale set lookup failure", create: true, getErr: errTestAPI, wantErr: errTestAPI},
+		{name: "group lookup failure", create: true, getErr: errTestAPI, groupErr: errTestAPI, wantErr: errTestAPI},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			api := newFakeAPI()
+			api.set.RunnerSetting.DisableUpdate = !tc.enableUpdate
+			if tc.missing {
+				api.set = nil
+			}
+			api.getErr, api.groupErr = tc.getErr, tc.groupErr
+			set, err := registration(t.Context(), api, target, tc.create)
+			if !errors.Is(err, tc.wantErr) {
+				t.Fatalf("got error %v, want %v", err, tc.wantErr)
+			}
+			if (set != nil) != tc.wantSet {
+				t.Fatalf("got scale set %+v, want present=%v", set, tc.wantSet)
+			}
+			if set != nil && (set.ID != 10 || !set.RunnerSetting.DisableUpdate) {
+				t.Fatalf("unexpected registration: %+v", set)
+			}
+			if api.createCalls != tc.wantCreate || api.updateCalls != tc.wantUpdate {
+				t.Fatalf("got create=%d, update=%d; want create=%d, update=%d",
+					api.createCalls, api.updateCalls, tc.wantCreate, tc.wantUpdate)
+			}
+		})
 	}
 }
 

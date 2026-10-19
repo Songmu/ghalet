@@ -1,0 +1,19 @@
+apiVersion: ghalet/v1alpha1
+targets:
+  - id: first
+    scope: &scope first/
+    credential: &credential
+CREDENTIAL
+FIRST_INSTALLATION
+    scaleSet: build
+    scaling: &scaling
+      minRunners: 0
+      maxRunners: 2
+  - id: second
+    scope: *scope
+    credential: *credential
+SECOND_INSTALLATION
+    scaleSet: test
+    scaling: *scaling
+runner:
+  version: "2.338.0"
