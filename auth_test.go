@@ -9,6 +9,8 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"runtime"
+	"slices"
 	"strings"
 	"testing"
 
@@ -226,40 +228,75 @@ func TestExplicitRegistrationAndDisableUpdate(t *testing.T) {
 
 func TestRunnerEnvironment(t *testing.T) {
 	c := testConfig(t)
+	for key, value := range map[string]string{
+		"PATH": "/controller/bin", "HOME": "/home/controller", "USER": "controller", "LOGNAME": "controller",
+		"GH_TOKEN": "management", "GITHUB_TOKEN": "management", "GHALET_TEST_TOKEN": "management",
+		"AWS_SECRET_ACCESS_KEY": "unlisted-secret", "NPM_TOKEN": "unlisted-secret",
+		"SSH_AUTH_SOCK": "/controller/agent", "HTTPS_PROXY": "http://controller.invalid",
+		"LANG": "controller-locale", "TMPDIR": "/controller/tmp", "KEEP": "inherited",
+		"GH_CONFIG_DIR": "/controller/gh", "XDG_CONFIG_HOME": "/controller/config",
+		"LD_PRELOAD": "/controller/preload", "DYLD_INSERT_LIBRARIES": "/controller/preload",
+		"ACTIONS_RUNNER_INPUT_OLD": "secret", "RUNNER_ALLOW_RUNASROOT": "1",
+		"actions_runner_input_help": "true", "Actions_Runner_Input_Help": "true",
+		"actions_runner_input_jitconfig": "inherited-jit",
+	} {
+		t.Setenv(key, value)
+	}
+	path := "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+	if runtime.GOOS == "darwin" {
+		path = "/opt/homebrew/bin:/opt/homebrew/sbin:" + path
+	}
+	for _, account := range []executionUser{
+		{Name: "controller", Home: "/home/controller"},
+		{Name: "runner", Home: "/home/runner"},
+	} {
+		for _, jit := range []string{"", "jit-only"} {
+			t.Run(account.Name+"/"+jit, func(t *testing.T) {
+				environment := runnerEnvironment(c, account, jit)
+				want := []string{
+					"PATH=" + path, "HOME=" + account.Home,
+					"USER=" + account.Name, "LOGNAME=" + account.Name,
+				}
+				if jit != "" {
+					want = append(want, "ACTIONS_RUNNER_INPUT_JITCONFIG="+jit)
+				}
+				slices.Sort(environment)
+				slices.Sort(want)
+				if !slices.Equal(environment, want) {
+					t.Fatalf("got %q, want %q", environment, want)
+				}
+			})
+		}
+	}
+}
+
+func TestRunnerEnvironmentOverrides(t *testing.T) {
+	c := testConfig(t)
 	other := c.Targets[0]
 	other.ID, other.ScaleSetName = "other", "other"
 	other.Credential.TokenEnv = "OTHER_MANAGEMENT_TOKEN"
 	c.Targets = append(c.Targets, other)
-	c.Runner.Env = map[string]string{"PATH": "/tools/bin", "LANG": "C.UTF-8"}
+	c.Runner.Env = map[string]string{
+		"PATH": "/tools/bin", "LANG": "C.UTF-8",
+		"HTTPS_PROXY": "http://proxy.invalid", "KEEP": "explicit",
+	}
+	if err := c.Validate(); err != nil {
+		t.Fatal(err)
+	}
 	account := executionUser{Name: "runner", UID: 1001, Home: "/home/runner"}
-	environment := runnerEnvironment(c, account, []string{
-		"GH_TOKEN=management", "GITHUB_TOKEN=management", "GHALET_TEST_TOKEN=management",
-		"OTHER_MANAGEMENT_TOKEN=other-management",
-		"PATH=/old", "HOME=/controller", "USER=controller", "LOGNAME=controller",
-		"KEEP=value", "ACTIONS_RUNNER_INPUT_OLD=secret", "RUNNER_ALLOW_RUNASROOT=1",
-		"actions_runner_input_help=true", "Actions_Runner_Input_Help=true",
-		"actions_runner_input_jitconfig=inherited-jit",
-	}, "jit-only")
-	all := "\n" + strings.Join(environment, "\n") + "\n"
-	for _, forbidden := range []string{"management", "/controller", "ACTIONS_RUNNER_INPUT_OLD", "RUNNER_ALLOW_RUNASROOT"} {
-		if strings.Contains(all, forbidden) {
-			t.Fatalf("forbidden inherited environment: %s", all)
-		}
+	environment := runnerEnvironment(c, account, "jit-only")
+	want := []string{
+		"PATH=/tools/bin", "LANG=C.UTF-8", "HTTPS_PROXY=http://proxy.invalid", "KEEP=explicit",
+		"HOME=/home/runner", "USER=runner", "LOGNAME=runner", "ACTIONS_RUNNER_INPUT_JITCONFIG=jit-only",
+	}
+	slices.Sort(environment)
+	slices.Sort(want)
+	if !slices.Equal(environment, want) {
+		t.Fatalf("got %q, want %q", environment, want)
 	}
 	c.Runner.Env["OTHER_MANAGEMENT_TOKEN"] = "must-not-be-copied"
 	if err := c.Validate(); err == nil {
 		t.Fatal("runner.env accepted another target's management credential")
-	}
-	for _, expected := range []string{"PATH=/tools/bin", "HOME=/home/runner", "USER=runner", "LOGNAME=runner", "KEEP=value", "ACTIONS_RUNNER_INPUT_JITCONFIG=jit-only"} {
-		if !strings.Contains(all, "\n"+expected+"\n") {
-			t.Fatalf("missing %s", expected)
-		}
-	}
-	for _, entry := range environment {
-		key, _, _ := strings.Cut(entry, "=")
-		if strings.HasPrefix(strings.ToUpper(key), "ACTIONS_RUNNER_INPUT_") && entry != "ACTIONS_RUNNER_INPUT_JITCONFIG=jit-only" {
-			t.Fatal("inherited runner input survived filtering", entry)
-		}
 	}
 }
 

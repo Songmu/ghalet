@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"os/user"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"sort"
 	"strconv"
@@ -74,19 +75,19 @@ func processAttributes(account executionUser) *syscall.SysProcAttr {
 	return attr
 }
 
-func runnerEnvironment(c *Config, account executionUser, inherited []string, jit string) []string {
-	values := map[string]string{}
-	for _, entry := range inherited {
-		key, value, ok := strings.Cut(entry, "=")
-		if ok && !c.secretEnv(key) && !strings.HasPrefix(strings.ToUpper(key), "ACTIONS_RUNNER_INPUT_") && key != "RUNNER_ALLOW_RUNASROOT" {
-			values[key] = value
-		}
+func runnerEnvironment(c *Config, account executionUser, jit string) []string {
+	path := "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+	if runtime.GOOS == "darwin" {
+		path = "/opt/homebrew/bin:/opt/homebrew/sbin:" + path
 	}
+	values := map[string]string{"PATH": path}
 	for key, value := range c.Runner.Env {
 		values[key] = value
 	}
 	values["HOME"], values["USER"], values["LOGNAME"] = account.Home, account.Name, account.Name
-	values["ACTIONS_RUNNER_INPUT_JITCONFIG"] = jit
+	if jit != "" {
+		values["ACTIONS_RUNNER_INPUT_JITCONFIG"] = jit
+	}
 	var result []string
 	for key, value := range values {
 		result = append(result, key+"="+value)

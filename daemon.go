@@ -825,7 +825,7 @@ func (d *daemon) prepare(ctx context.Context, target *targetRuntime, run *active
 		}
 	}
 	check := exec.CommandContext(ctx, "/bin/sh", "-c", `test -d "$HOME" && test -w "$1" && test -x "$2"`, "ghalet-access", state.Workspace, filepath.Join(state.RunnerDir, "bin", "Runner.Listener"))
-	check.Dir, check.Env, check.SysProcAttr = state.RunnerDir, runnerEnvironment(d.config, d.user, os.Environ(), ""), processAttributes(d.user)
+	check.Dir, check.Env, check.SysProcAttr = state.RunnerDir, runnerEnvironment(d.config, d.user, ""), processAttributes(d.user)
 	if err := check.Run(); err != nil {
 		return fmt.Errorf("execution user cannot access HOME, workspace or runner: %w", err)
 	}
@@ -934,7 +934,7 @@ func (d *daemon) launch(run *activeRun, jit string) (retErr error) {
 			logInput.Close()
 		}
 	}()
-	command.Dir, command.Env, command.SysProcAttr = state.RunnerDir, runnerEnvironment(d.config, d.user, os.Environ(), jit), processAttributes(d.user)
+	command.Dir, command.Env, command.SysProcAttr = state.RunnerDir, runnerEnvironment(d.config, d.user, jit), processAttributes(d.user)
 	command.Stdout, command.Stderr = logOutput, logOutput
 	if err := command.Start(); err != nil {
 		writer.close()

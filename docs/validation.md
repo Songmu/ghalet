@@ -54,8 +54,9 @@ non-root subprocesses. They cover:
 | Repository/organization shorthand resolves to GitHub.com without bypassing validation | URL normalization, invalid shorthand, aliases and mixed shorthand/full-URL duplicate registration tests |
 | Version queries never enter daemon startup regardless of common-flag placement | Mixed pre/post-command flags, valid/missing config and untouched execution-directory regressions |
 | Day durations reject mixed units; enterprise scope rejection is case-insensitive | Duration and scope URL regression tables |
-| Target-local PAT/gh/App settings, protected files, environment filtering and JSONL secret redaction | Credential, shared App key/per-target installation, gh subprocess and cross-target environment tests |
-| Runner input environment overrides are blocked case-insensitively | Uppercase/lowercase/mixed-case config rejection and inherited-environment filtering regressions |
+| Target-local PAT/gh/App settings, protected files and JSONL secret redaction | Credential, shared App key/per-target installation, gh subprocess and cross-target environment tests |
+| Runner environments do not inherit controller variables | Exact minimal-environment checks with poisoned parent variables, same/different user identities, fixed PATH, optional JIT input and explicit environment overrides |
+| Runner input environment overrides are blocked case-insensitively | Uppercase/lowercase/mixed-case config rejection and non-inheritance regressions |
 | Multiline secrets are masked without cross-line buffering | Split-write LF/CRLF live/archive regressions, final partial lines and shared-component/JIT reference release |
 | Overlapping secrets are masked independently of registration order | Original-input union masking for prefixes, partial/chained/self overlaps, structured logs and split-write live/archive capture |
 | Explicit registration/group lookup, reuse and update disablement | Fake API request/counter tests |
@@ -104,8 +105,9 @@ GHALET_TEST_OFFICIAL_RUNNER=1 \
 ```
 
 This downloads the official pinned archive, verifies its release digest,
-starts `Runner.Listener run` with invalid JIT input and verifies that the
-encoded input is masked in output/diagnostic logs. It does **not** register a
+starts `Runner.Listener run` with a minimal environment and invalid JIT input,
+and verifies that the encoded input is masked in output/diagnostic logs.
+It does **not** register a
 runner, execute a job or prove that a valid JIT secret is absent from a live
 job's environment. OS runtime prerequisites and outbound HTTPS are required.
 
