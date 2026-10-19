@@ -223,6 +223,8 @@ support redaction and readiness detection across write boundaries.
 Known management and JIT values are redacted. Nonblank lines of multiline
 values, including App private keys, are also masked independently, with
 shared components retained until their last registration is released.
+Matches are located in the original text; overlapping matches are masked
+together regardless of registration order.
 The official runner is responsible for masking job secrets in its own logs.
 No mechanism can mask arbitrary secrets deliberately transformed or printed
 by a trusted workflow.

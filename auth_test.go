@@ -55,6 +55,62 @@ func TestProtectedCredentials(t *testing.T) {
 	}
 }
 
+func TestOverlappingSecretRedaction(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		secrets []string
+		input   string
+		want    string
+	}{
+		{"prefix", []string{"shared-secret", "shared-secret-private-suffix"}, "before shared-secret-private-suffix after", "before *** after"},
+		{"partial overlap", []string{"abc", "bcd"}, "abcd", "***"},
+		{"overlap chain", []string{"abc", "cde", "efg"}, "abcdefgh", "***h"},
+		{"nested", []string{"inner", "outer-inner-end"}, "outer-inner-end", "***"},
+		{"self overlap", []string{"aaa"}, "aaaaa", "***"},
+		{"separated", []string{"abc", "bcd"}, "abcd / abcd", "*** / ***"},
+		{"adjacent", []string{"abc", "def"}, "abcdef", "******"},
+		{"multiline component", []string{"header\nshared-secret", "shared-secret-private-suffix"}, "shared-secret-private-suffix", "***"},
+		{"replacement marker", []string{"sensitive", "*"}, "sensitive", "***"},
+		{"no match", []string{"absent"}, "unchanged", "unchanged"},
+		{"empty input", []string{"secret"}, "", ""},
+		{"empty secret", []string{""}, "unchanged", "unchanged"},
+	} {
+		for _, reverse := range []bool{false, true} {
+			order := "forward"
+			if reverse {
+				order = "reverse"
+			}
+			t.Run(tc.name+"/"+order, func(t *testing.T) {
+				secret := &secrets{}
+				for i := range tc.secrets {
+					index := i
+					if reverse {
+						index = len(tc.secrets) - 1 - i
+					}
+					secret.add(tc.secrets[index])
+				}
+				if got := secret.redact(tc.input); got != tc.want {
+					t.Fatalf("redaction: got %q, want %q", got, tc.want)
+				}
+				var output bytes.Buffer
+				logger := slog.New(slog.NewJSONHandler(&output, &slog.HandlerOptions{ReplaceAttr: secret.replaceAttr}))
+				logger.Info(tc.input, "value", tc.input, "error", errors.New(tc.input))
+				var record struct {
+					Message string `json:"msg"`
+					Value   string `json:"value"`
+					Error   string `json:"error"`
+				}
+				if err := json.Unmarshal(output.Bytes(), &record); err != nil {
+					t.Fatal(err)
+				}
+				if record.Message != tc.want || record.Value != tc.want || record.Error != tc.want {
+					t.Fatal("structured log redaction differs from direct masking", record)
+				}
+			})
+		}
+	}
+}
+
 func TestMultilineSecretReferenceCounts(t *testing.T) {
 	secret := &secrets{}
 	first := "shared-line\r\nfirst-line\r\nshared-line\r\n"

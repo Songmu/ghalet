@@ -258,6 +258,11 @@ func TestLogLineLimitsApplyToLiveOutputAndArchives(t *testing.T) {
 			want:   "***\n***\n***\n***\nnext\n",
 		},
 		{
+			name:   "overlapping secrets",
+			chunks: []string{"shared-", "secret-private-", "suffix\nabc", "d\nabc", "d"},
+			want:   "***\n***\n***",
+		},
+		{
 			name:   "CRLF multiline secret with final partial line",
 			chunks: []string{"-----BEGIN PRIVATE KEY-----\r", "\nprivate-key-line-", "one\r\nprivate-key-line-two\r\n-----END PRIVATE KEY-----"},
 			want:   "***\r\n***\r\n***\r\n***",
@@ -273,6 +278,10 @@ func TestLogLineLimitsApplyToLiveOutputAndArchives(t *testing.T) {
 				secret := &secrets{}
 				secret.add("secret-value")
 				secret.add("whole-line-secret\n")
+				secret.add("shared-secret")
+				secret.add("shared-secret-private-suffix")
+				secret.add("abc")
+				secret.add("bcd")
 				secret.add("-----BEGIN PRIVATE KEY-----\r\nprivate-key-line-one\r\nprivate-key-line-two\r\n-----END PRIVATE KEY-----")
 				if live {
 					file, err := os.Create(path)

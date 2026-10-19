@@ -63,10 +63,42 @@ func (s *secrets) add(value string) {
 func (s *secrets) redact(value string) string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	// Bound match storage by input size, even with many overlapping matches.
+	var ends []int
 	for _, secret := range s.values {
-		value = strings.ReplaceAll(value, secret, "***")
+		for offset := 0; offset < len(value); {
+			match := strings.Index(value[offset:], secret)
+			if match < 0 {
+				break
+			}
+			start := offset + match
+			if ends == nil {
+				ends = make([]int, len(value))
+			}
+			ends[start] = max(ends[start], start+len(secret))
+			offset = start + 1
+		}
 	}
-	return value
+	if ends == nil {
+		return value
+	}
+	var output strings.Builder
+	last := 0
+	for start := 0; start < len(value); start++ {
+		end := ends[start]
+		if end == 0 {
+			continue
+		}
+		output.WriteString(value[last:start])
+		for next := start + 1; next < end; next++ {
+			end = max(end, ends[next])
+		}
+		output.WriteString("***")
+		last = end
+		start = end - 1
+	}
+	output.WriteString(value[last:])
+	return output.String()
 }
 
 func (s *secrets) addJIT(value string) []string {
