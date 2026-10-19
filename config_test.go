@@ -78,8 +78,11 @@ func TestConfigDefaultsAndRelativePaths(t *testing.T) {
 func TestConfigRejectsInvalidInput(t *testing.T) {
 	cases := map[string]string{
 		"unknown key":          testYAML + "unknown: true\n",
+		"nested unknown key":   strings.Replace(testYAML, "minRunners: 0", "minRunners: 0\n      unknown: true", 1),
 		"duplicate YAML key":   testYAML + "apiVersion: ghalet/v1alpha1\n",
+		"nested duplicate key": strings.Replace(testYAML, "minRunners: 0", "minRunners: 0\n      minRunners: 1", 1),
 		"multiple documents":   testYAML + "---\napiVersion: ghalet/v1alpha1\n",
+		"empty extra document": testYAML + "---\n",
 		"wrong version":        strings.Replace(testYAML, "ghalet/v1alpha1", "ghalet/v2", 1),
 		"unfixed runner":       strings.Replace(testYAML, `"2.338.0"`, "latest", 1),
 		"missing credential":   strings.Replace(testYAML, "credentialRef: personal", "credentialRef: missing", 1),
@@ -107,6 +110,35 @@ func TestConfigRejectsInvalidInput(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			if _, err := LoadConfig(writeConfig(t, input)); err == nil {
 				t.Fatal("invalid config was accepted")
+			}
+		})
+	}
+}
+
+func TestConfigDurationDecoding(t *testing.T) {
+	for _, tc := range []struct {
+		input string
+		want  time.Duration
+	}{
+		{"7d", 7 * 24 * time.Hour},
+		{`"1.5d"`, 36 * time.Hour},
+		{"'90m'", 90 * time.Minute},
+		{"1h30m", 90 * time.Minute},
+	} {
+		t.Run(tc.input, func(t *testing.T) {
+			c, err := LoadConfig(writeConfig(t, testYAML+"cleanup:\n  logRetention: "+tc.input+"\n"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if c.Cleanup.LogRetention != Duration(tc.want) {
+				t.Fatalf("got %v, want %v", time.Duration(c.Cleanup.LogRetention), tc.want)
+			}
+		})
+	}
+	for _, input := range []string{"0s", "-1d", "invalid", "2562048d", "2562048h", "true", "[7d]", "{days: 7}"} {
+		t.Run(input, func(t *testing.T) {
+			if _, err := LoadConfig(writeConfig(t, testYAML+"cleanup:\n  logRetention: "+input+"\n")); err == nil {
+				t.Fatal("invalid duration was accepted")
 			}
 		})
 	}

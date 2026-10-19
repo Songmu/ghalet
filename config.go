@@ -3,7 +3,6 @@ package ghalet
 import (
 	"errors"
 	"fmt"
-	"io"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -11,13 +10,17 @@ import (
 	"strings"
 	"time"
 
-	"go.yaml.in/yaml/v3"
+	"github.com/goccy/go-yaml"
+	"github.com/goccy/go-yaml/parser"
 )
 
 type Duration time.Duration
 
-func (d *Duration) UnmarshalYAML(n *yaml.Node) error {
-	value := n.Value
+func (d *Duration) UnmarshalYAML(unmarshal func(any) error) error {
+	var value string
+	if err := unmarshal(&value); err != nil {
+		return err
+	}
 	if strings.HasSuffix(value, "d") {
 		value = strings.TrimSuffix(value, "d") + "h"
 		parsed, err := time.ParseDuration(value)
@@ -117,11 +120,17 @@ func LoadConfig(path string) (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	file, err := os.Open(path)
+	content, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("open config: %w", err)
 	}
-	defer file.Close()
+	file, err := parser.ParseBytes(content, 0)
+	if err != nil {
+		return nil, fmt.Errorf("decode config: %w", err)
+	}
+	if len(file.Docs) != 1 || file.Docs[0].Body == nil {
+		return nil, errors.New("config must contain exactly one YAML document")
+	}
 	base := filepath.Dir(path)
 	c := &Config{
 		Path: path, Capacity: CapacityConfig{MaxRunners: 2},
@@ -131,14 +140,8 @@ func LoadConfig(path string) (*Config, error) {
 		},
 		Cleanup: CleanupConfig{PreserveLogs: true, LogRetention: Duration(7 * 24 * time.Hour), LogRoot: "logs"},
 	}
-	decoder := yaml.NewDecoder(file)
-	decoder.KnownFields(true)
-	if err := decoder.Decode(c); err != nil {
+	if err := yaml.NodeToValue(file.Docs[0].Body, c, yaml.Strict()); err != nil {
 		return nil, fmt.Errorf("decode config: %w", err)
-	}
-	var extra any
-	if err := decoder.Decode(&extra); err != io.EOF {
-		return nil, errors.New("config must contain exactly one YAML document")
 	}
 	resolve := func(path string) string {
 		if !filepath.IsAbs(path) {

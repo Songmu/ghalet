@@ -5,10 +5,10 @@ import (
 	"errors"
 	"sync"
 	"testing"
+	"uuid"
 
 	"github.com/actions/scaleset"
 	"github.com/actions/scaleset/listener"
-	"github.com/google/uuid"
 )
 
 type fakeSession struct {
@@ -58,7 +58,7 @@ func (f *fakeSession) AcquireJobs(_ context.Context, ids []int64) ([]int64, erro
 }
 
 func (f *fakeSession) Session() scaleset.RunnerScaleSetSession {
-	return scaleset.RunnerScaleSetSession{SessionID: uuid.New(), Statistics: &scaleset.RunnerScaleSetStatistic{}}
+	return scaleset.RunnerScaleSetSession{SessionID: [16]byte(uuid.New()), Statistics: &scaleset.RunnerScaleSetStatistic{}}
 }
 
 func availableMessage(id, count int) *scaleset.RunnerScaleSetMessage {
