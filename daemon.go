@@ -16,7 +16,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Songmu/ghalet/fshelper"
 	"github.com/Songmu/ghalet/logreduct"
+	"github.com/Songmu/ghalet/runnerdist"
 	"github.com/actions/scaleset"
 	"github.com/actions/scaleset/listener"
 )
@@ -127,7 +129,7 @@ type daemon struct {
 	secrets       *logreduct.Redactor
 	store         stateStore
 	user          executionUser
-	distribution  *runnerDistribution
+	distribution  *runnerdist.Manager
 	targets       map[string]*targetRuntime
 	order         []string
 	runs          map[string]*activeRun
@@ -162,7 +164,7 @@ func newDaemon(c *Config) (*daemon, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	d := &daemon{
 		config: c, user: account, secrets: secret,
-		store: stateStore{c.Runner.WorkRoot}, distribution: newDistribution(),
+		store: stateStore{c.Runner.WorkRoot}, distribution: runnerdist.New(preparationTimeout),
 		targets: map[string]*targetRuntime{}, runs: map[string]*activeRun{}, events: make(chan runEvent, 1024),
 		ctx: ctx, cancel: cancel, confirmations: map[string]destroyPlan{},
 		guardRunners: runtime.GOOS == "darwin",
@@ -782,7 +784,7 @@ func (d *daemon) reserve(target *targetRuntime) error {
 		return err
 	}
 	dir := filepath.Join(d.config.Runner.WorkRoot, target.Config.ID, id)
-	if err := safeDirectory(filepath.Dir(dir), 0711); err != nil {
+	if err := fshelper.EnsureDirectory(filepath.Dir(dir), 0711); err != nil {
 		return err
 	}
 	if err := os.Mkdir(dir, 0711); err != nil {
@@ -829,10 +831,13 @@ func (d *daemon) reserve(target *targetRuntime) error {
 func (d *daemon) prepare(ctx context.Context, target *targetRuntime, run *activeRun) error {
 	state := run.State
 	start := time.Now()
-	if err := d.distribution.prepare(ctx, d.config, state.RunnerDir); err != nil {
+	if err := d.distribution.Prepare(ctx, runnerdist.Config{
+		Version: d.config.Runner.Version, CacheRoot: d.config.Runner.CacheRoot,
+		DistributionRoot: d.config.Runner.DistributionRoot,
+	}, state.RunnerDir); err != nil {
 		return fmt.Errorf("prepare runner: %w", err)
 	}
-	if err := safeDirectory(state.Workspace, 0700); err != nil {
+	if err := fshelper.EnsureDirectory(state.Workspace, 0700); err != nil {
 		return err
 	}
 	if os.Geteuid() == 0 {

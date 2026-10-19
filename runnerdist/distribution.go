@@ -1,4 +1,5 @@
-package ghalet
+// Package runnerdist downloads, verifies, caches, and extracts GitHub Actions runner distributions.
+package runnerdist
 
 import (
 	"archive/tar"
@@ -16,16 +17,30 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
+
+	"github.com/Songmu/ghalet/fshelper"
 )
 
-type runnerDistribution struct {
+// Config identifies the runner release and the directories used to cache its
+// archive and official SHA-256 digest.
+type Config struct {
+	Version          string
+	CacheRoot        string
+	DistributionRoot string
+}
+
+// Manager serializes runner preparation and reuses verified cached archives.
+// A Manager must be created with New and may be used concurrently.
+type Manager struct {
 	gate    chan struct{}
 	client  *http.Client
 	apiBase string
 }
 
-func newDistribution() *runnerDistribution {
-	return &runnerDistribution{gate: make(chan struct{}, 1), client: &http.Client{Timeout: preparationTimeout}, apiBase: "https://api.github.com"}
+// New creates a Manager with the given timeout for each HTTP request.
+func New(timeout time.Duration) *Manager {
+	return &Manager{gate: make(chan struct{}, 1), client: &http.Client{Timeout: timeout}, apiBase: "https://api.github.com"}
 }
 
 func runnerPlatform(goos, arch string) (string, error) {
@@ -50,7 +65,10 @@ func runnerPlatform(goos, arch string) (string, error) {
 	return goos + "-" + arch, nil
 }
 
-func (d *runnerDistribution) prepare(ctx context.Context, c *Config, dest string) error {
+// Prepare verifies the cached runner archive, downloading it and its official
+// digest when needed, and extracts it into dest. Waiting for another preparation
+// and HTTP requests honor ctx; extraction checks ctx between archive entries.
+func (d *Manager) Prepare(ctx context.Context, c Config, dest string) error {
 	select {
 	case d.gate <- struct{}{}:
 		defer func() { <-d.gate }()
@@ -64,25 +82,25 @@ func (d *runnerDistribution) prepare(ctx context.Context, c *Config, dest string
 	if err != nil {
 		return err
 	}
-	name := "actions-runner-" + platform + "-" + c.Runner.Version + ".tar.gz"
-	for _, dir := range []string{c.Runner.CacheRoot, c.Runner.DistributionRoot} {
-		if err := safeDirectory(dir, 0700); err != nil {
+	name := "actions-runner-" + platform + "-" + c.Version + ".tar.gz"
+	for _, dir := range []string{c.CacheRoot, c.DistributionRoot} {
+		if err := fshelper.EnsureDirectory(dir, 0700); err != nil {
 			return err
 		}
 	}
-	archive := filepath.Join(c.Runner.CacheRoot, name)
-	checksumFile := filepath.Join(c.Runner.DistributionRoot, name+".sha256")
+	archive := filepath.Join(c.CacheRoot, name)
+	checksumFile := filepath.Join(c.DistributionRoot, name+".sha256")
 	checksum, err := os.ReadFile(checksumFile)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
 	expected := strings.TrimSpace(string(checksum))
 	if expected == "" {
-		expected, err = d.releaseDigest(ctx, c.Runner.Version, name)
+		expected, err = d.releaseDigest(ctx, c.Version, name)
 		if err != nil {
 			return err
 		}
-		if err := atomicFile(checksumFile, []byte(expected+"\n"), 0600); err != nil {
+		if err := fshelper.WriteFileAtomic(checksumFile, []byte(expected+"\n"), 0600); err != nil {
 			return err
 		}
 	}
@@ -93,7 +111,7 @@ func (d *runnerDistribution) prepare(ctx context.Context, c *Config, dest string
 		return errors.New("invalid official SHA-256 digest")
 	}
 	if _, err := os.Stat(archive); errors.Is(err, os.ErrNotExist) {
-		url := "https://github.com/actions/runner/releases/download/v" + c.Runner.Version + "/" + name
+		url := "https://github.com/actions/runner/releases/download/v" + c.Version + "/" + name
 		if err := d.download(ctx, url, archive); err != nil {
 			return err
 		}
@@ -111,7 +129,7 @@ func (d *runnerDistribution) prepare(ctx context.Context, c *Config, dest string
 	return extractRunner(ctx, archive, dest)
 }
 
-func (d *runnerDistribution) releaseDigest(ctx context.Context, version, name string) (string, error) {
+func (d *Manager) releaseDigest(ctx context.Context, version, name string) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, d.apiBase+"/repos/actions/runner/releases/tags/v"+version, nil)
 	if err != nil {
 		return "", err
@@ -143,31 +161,7 @@ func (d *runnerDistribution) releaseDigest(ctx context.Context, version, name st
 	return "", fmt.Errorf("release %s has no official SHA-256 digest for %s", version, name)
 }
 
-func atomicFile(dest string, data []byte, mode os.FileMode) error {
-	f, err := os.CreateTemp(filepath.Dir(dest), ".download-*")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(f.Name())
-	if err := f.Chmod(mode); err != nil {
-		f.Close()
-		return err
-	}
-	if _, err := f.Write(data); err != nil {
-		f.Close()
-		return err
-	}
-	if err := f.Sync(); err != nil {
-		f.Close()
-		return err
-	}
-	if err := f.Close(); err != nil {
-		return err
-	}
-	return os.Rename(f.Name(), dest)
-}
-
-func (d *runnerDistribution) download(ctx context.Context, url, dest string) error {
+func (d *Manager) download(ctx context.Context, url, dest string) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return err
@@ -215,7 +209,7 @@ func fileDigest(path string) (string, error) {
 }
 
 func extractRunner(ctx context.Context, archive, dest string) error {
-	if err := safeDirectory(dest, 0700); err != nil {
+	if err := fshelper.EnsureDirectory(dest, 0700); err != nil {
 		return err
 	}
 	root, err := os.OpenRoot(dest)

@@ -13,6 +13,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/Songmu/ghalet/fshelper"
 )
 
 func waitGuardFile(t *testing.T, path string) []byte {
@@ -39,7 +41,7 @@ func TestRunnerGuardKillsGroupWhenControllerIsKilled(t *testing.T) {
 	if err := d.store.save(state); err != nil {
 		t.Fatal(err)
 	}
-	if err := safeDirectory(filepath.Join(state.RunnerDir, "bin"), 0700); err != nil {
+	if err := fshelper.EnsureDirectory(filepath.Join(state.RunnerDir, "bin"), 0700); err != nil {
 		t.Fatal(err)
 	}
 	ready := filepath.Join(state.RunnerDir, "child-ready")

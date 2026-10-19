@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Songmu/ghalet/fshelper"
 	"github.com/Songmu/ghalet/logreduct"
 )
 
@@ -97,7 +98,7 @@ func archiveLogs(c *Config, state *RunState, secret *logreduct.Redactor) error {
 		return nil
 	}
 	base := filepath.Join(c.Cleanup.LogRoot, "runs")
-	if err := safeDirectory(base, 0700); err != nil {
+	if err := fshelper.EnsureDirectory(base, 0700); err != nil {
 		return err
 	}
 	final := filepath.Join(base, state.RunID)
@@ -177,7 +178,7 @@ func archiveLogs(c *Config, state *RunState, secret *logreduct.Redactor) error {
 	if err != nil {
 		return err
 	}
-	if err := atomicFile(filepath.Join(stage, "metadata.json"), data, 0600); err != nil {
+	if err := fshelper.WriteFileAtomic(filepath.Join(stage, "metadata.json"), data, 0600); err != nil {
 		return err
 	}
 	if err := syncLogArchive(stage); err != nil {
@@ -227,7 +228,7 @@ func syncLogArchive(path string) error {
 
 func expireLogs(ctx context.Context, c *Config, dryRun bool) ([]OperationResult, error) {
 	base := filepath.Join(c.Cleanup.LogRoot, "runs")
-	if err := existingDirectory(base); err != nil {
+	if err := fshelper.CheckDirectory(base); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil, nil
 		}

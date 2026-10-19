@@ -1,4 +1,4 @@
-package ghalet
+package runnerdist
 
 import (
 	"archive/tar"
@@ -13,6 +13,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/Songmu/ghalet/fshelper"
 )
 
 type archiveEntry struct {
@@ -21,6 +23,25 @@ type archiveEntry struct {
 	link string
 	kind byte
 	mode int64
+}
+
+func testDirectory(t *testing.T) string {
+	t.Helper()
+	path, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func testConfig(t *testing.T) Config {
+	t.Helper()
+	root := testDirectory(t)
+	return Config{
+		Version:          "2.338.0",
+		CacheRoot:        filepath.Join(root, "downloads"),
+		DistributionRoot: filepath.Join(root, "runners"),
+	}
 }
 
 func writeArchive(t *testing.T, path string, entries []archiveEntry) {
@@ -62,10 +83,10 @@ func writeArchive(t *testing.T, path string, entries []archiveEntry) {
 	}
 }
 
-func seedDistribution(t *testing.T, c *Config, script string) {
+func seedDistribution(t *testing.T, c Config, script string) {
 	t.Helper()
-	for _, dir := range []string{c.Runner.CacheRoot, c.Runner.DistributionRoot} {
-		if err := safeDirectory(dir, 0700); err != nil {
+	for _, dir := range []string{c.CacheRoot, c.DistributionRoot} {
+		if err := fshelper.EnsureDirectory(dir, 0700); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -73,14 +94,14 @@ func seedDistribution(t *testing.T, c *Config, script string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	name := "actions-runner-" + platform + "-" + c.Runner.Version + ".tar.gz"
-	archive := filepath.Join(c.Runner.CacheRoot, name)
+	name := "actions-runner-" + platform + "-" + c.Version + ".tar.gz"
+	archive := filepath.Join(c.CacheRoot, name)
 	writeArchive(t, archive, []archiveEntry{{name: "bin/Runner.Listener", body: script}})
 	digest, err := fileDigest(archive)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(c.Runner.DistributionRoot, name+".sha256"), []byte(digest+"\n"), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(c.DistributionRoot, name+".sha256"), []byte(digest+"\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -88,10 +109,10 @@ func seedDistribution(t *testing.T, c *Config, script string) {
 func TestVerifiedDistributionAndIndependentExecutions(t *testing.T) {
 	c := testConfig(t)
 	seedDistribution(t, c, "#!/bin/sh\nexit 0\n")
-	distribution := newDistribution()
+	distribution := New(10 * time.Minute)
 	for _, run := range []string{"first", "second"} {
 		dest := filepath.Join(testDirectory(t), run)
-		if err := distribution.prepare(t.Context(), c, dest); err != nil {
+		if err := distribution.Prepare(t.Context(), c, dest); err != nil {
 			t.Fatal(err)
 		}
 		if err := os.WriteFile(filepath.Join(dest, "bin/Runner.Listener"), []byte("job modification"), 0700); err != nil {
@@ -99,10 +120,17 @@ func TestVerifiedDistributionAndIndependentExecutions(t *testing.T) {
 		}
 	}
 	platform, _ := runnerPlatform(runtime.GOOS, runtime.GOARCH)
-	archive := filepath.Join(c.Runner.CacheRoot, "actions-runner-"+platform+"-"+c.Runner.Version+".tar.gz")
+	archive := filepath.Join(c.CacheRoot, "actions-runner-"+platform+"-"+c.Version+".tar.gz")
 	os.WriteFile(archive, []byte("corrupt"), 0600)
-	if err := distribution.prepare(t.Context(), c, filepath.Join(testDirectory(t), "third")); err == nil || !strings.Contains(err.Error(), "checksum mismatch") {
+	if err := distribution.Prepare(t.Context(), c, filepath.Join(testDirectory(t), "third")); err == nil || !strings.Contains(err.Error(), "checksum mismatch") {
 		t.Fatal("corrupt cache was accepted or silently replaced:", err)
+	}
+}
+
+func TestNewPreservesHTTPTimeout(t *testing.T) {
+	timeout := 10 * time.Minute
+	if got := New(timeout).client.Timeout; got != timeout {
+		t.Fatalf("HTTP timeout %s, want %s", got, timeout)
 	}
 }
 
@@ -132,7 +160,7 @@ func TestOfficialReleaseDigestAndCanceledPreparation(t *testing.T) {
 		json.NewEncoder(w).Encode(map[string]any{"assets": []any{map[string]any{"name": "runner.tar.gz", "digest": "sha256:" + strings.Repeat("a", 64)}}})
 	}))
 	defer server.Close()
-	distribution := newDistribution()
+	distribution := New(10 * time.Minute)
 	distribution.apiBase = server.URL
 	digest, err := distribution.releaseDigest(t.Context(), "2.338.0", "runner.tar.gz")
 	if err != nil || digest != strings.Repeat("a", 64) {
@@ -144,7 +172,7 @@ func TestOfficialReleaseDigestAndCanceledPreparation(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	c := testConfig(t)
-	if err := distribution.prepare(ctx, c, filepath.Join(testDirectory(t), "runner")); err == nil {
+	if err := distribution.Prepare(ctx, c, filepath.Join(testDirectory(t), "runner")); err == nil {
 		t.Fatal("canceled preparation continued")
 	}
 }
@@ -170,12 +198,12 @@ func TestRunnerPlatforms(t *testing.T) {
 }
 
 func TestPreparationWaitingForCacheCanBeCanceled(t *testing.T) {
-	d := newDistribution()
+	d := New(10 * time.Minute)
 	d.gate <- struct{}{}
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Millisecond)
 	defer cancel()
 	start := time.Now()
-	if err := d.prepare(ctx, testConfig(t), filepath.Join(testDirectory(t), "runner")); err == nil {
+	if err := d.Prepare(ctx, testConfig(t), filepath.Join(testDirectory(t), "runner")); err == nil {
 		t.Fatal("canceled cache wait succeeded")
 	}
 	if time.Since(start) > time.Second {

@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/Songmu/ghalet/logreduct"
+	"github.com/Songmu/ghalet/runnerdist"
 )
 
 type lockedBuffer struct {
@@ -45,7 +46,10 @@ func TestOfficialRunnerJITInputSmoke(t *testing.T) {
 	dest := filepath.Join(testDirectory(t), "runner")
 	ctx, cancel := context.WithTimeout(t.Context(), preparationTimeout)
 	defer cancel()
-	if err := d.distribution.prepare(ctx, d.config, dest); err != nil {
+	if err := d.distribution.Prepare(ctx, runnerdist.Config{
+		Version: d.config.Runner.Version, CacheRoot: d.config.Runner.CacheRoot,
+		DistributionRoot: d.config.Runner.DistributionRoot,
+	}, dest); err != nil {
 		t.Fatal(err)
 	}
 	// A syntactically invalid config exercises the standard secret input and

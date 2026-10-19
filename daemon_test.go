@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Songmu/ghalet/fshelper"
 	"github.com/actions/scaleset"
 )
 
@@ -562,7 +563,7 @@ func TestRecoveryKeepsUnmatchedAndCorruptStateConservative(t *testing.T) {
 	d.store.save(state)
 	brokenID, _ := newID()
 	broken := filepath.Join(d.config.Runner.WorkRoot, "build", brokenID)
-	safeDirectory(broken, 0700)
+	fshelper.EnsureDirectory(broken, 0700)
 	os.WriteFile(filepath.Join(broken, "state.json"), []byte("{"), 0600)
 	if err := d.recover(t.Context()); err != nil {
 		t.Fatal(err)
@@ -638,7 +639,7 @@ func testRecoveredRunner(t *testing.T, missingCompletion bool) {
 	d, api := testDaemon(t)
 	state := testState(t, d.config)
 	d.store.save(state)
-	safeDirectory(filepath.Join(state.RunnerDir, "bin"), 0700)
+	fshelper.EnsureDirectory(filepath.Join(state.RunnerDir, "bin"), 0700)
 	os.WriteFile(filepath.Join(state.RunnerDir, "bin", "Runner.Listener"), []byte("#!/bin/sh\nsleep 30\n"), 0700)
 	dataPath := filepath.Join(filepath.Dir(state.RunnerDir), "state.json")
 	command := exec.Command(os.Args[0], "-test.run=^TestReparentedProcessHelper$")

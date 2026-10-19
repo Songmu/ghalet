@@ -1,15 +1,21 @@
 package ghalet
 
 import (
+	"archive/tar"
+	"compress/gzip"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"testing"
 
+	"github.com/Songmu/ghalet/fshelper"
 	"github.com/Songmu/ghalet/logreduct"
 	"github.com/actions/scaleset"
 )
@@ -48,6 +54,53 @@ func testConfig(t *testing.T) *Config {
 		t.Fatal(err)
 	}
 	return c
+}
+
+func seedDistribution(t *testing.T, c *Config, script string) {
+	t.Helper()
+	for _, dir := range []string{c.Runner.CacheRoot, c.Runner.DistributionRoot} {
+		if err := fshelper.EnsureDirectory(dir, 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	goos, arch := runtime.GOOS, runtime.GOARCH
+	if goos == "darwin" {
+		goos = "osx"
+	}
+	if arch == "amd64" {
+		arch = "x64"
+	}
+	name := "actions-runner-" + goos + "-" + arch + "-" + c.Runner.Version + ".tar.gz"
+	archive := filepath.Join(c.Runner.CacheRoot, name)
+	file, err := os.Create(archive)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+	hash := sha256.New()
+	compressed := gzip.NewWriter(io.MultiWriter(file, hash))
+	writer := tar.NewWriter(compressed)
+	if err := writer.WriteHeader(&tar.Header{
+		Name: "bin/Runner.Listener", Typeflag: tar.TypeReg, Mode: 0700, Size: int64(len(script)),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.WriteString(writer, script); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := compressed.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	digest := hex.EncodeToString(hash.Sum(nil))
+	if err := os.WriteFile(filepath.Join(c.Runner.DistributionRoot, name+".sha256"), []byte(digest+"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
 }
 
 type fakeScaleAPI struct {
@@ -186,7 +239,7 @@ func testDaemon(t *testing.T) (*daemon, *fakeScaleAPI) {
 		d.cancel()
 		d.workers.Wait()
 	})
-	if err := safeDirectory(c.Runner.WorkRoot, 0711); err != nil {
+	if err := fshelper.EnsureDirectory(c.Runner.WorkRoot, 0711); err != nil {
 		t.Fatal(err)
 	}
 	api := newFakeAPI()

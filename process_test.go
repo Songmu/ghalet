@@ -12,6 +12,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/Songmu/ghalet/fshelper"
 )
 
 func TestEmptyProcessSnapshotRetainsForkedDescendant(t *testing.T) {
@@ -179,7 +181,7 @@ func TestRunnerPathPreservesConsecutiveSpaces(t *testing.T) {
 	d, _ := testDaemon(t)
 	d.config.Runner.WorkRoot = filepath.Join(testDirectory(t), "work  root")
 	d.store = stateStore{root: d.config.Runner.WorkRoot}
-	if err := safeDirectory(d.config.Runner.WorkRoot, 0711); err != nil {
+	if err := fshelper.EnsureDirectory(d.config.Runner.WorkRoot, 0711); err != nil {
 		t.Fatal(err)
 	}
 	cleanupProcesses(t, d)

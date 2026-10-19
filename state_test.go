@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/Songmu/ghalet/fshelper"
 )
 
 func TestStateSizeLimitPreservesReadableRecord(t *testing.T) {
@@ -116,7 +118,7 @@ func TestStateAtomicRoundTripAndLastFileCleanup(t *testing.T) {
 	if info.Mode().Perm() != 0600 {
 		t.Fatal("state permissions are not private")
 	}
-	if err := safeDirectory(state.RunnerDir, 0700); err != nil {
+	if err := fshelper.EnsureDirectory(state.RunnerDir, 0700); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(state.RunnerDir, "artifact"), []byte("work"), 0600); err != nil {
@@ -141,7 +143,7 @@ func TestStateSaveRequiresDurableDirectoryAncestry(t *testing.T) {
 	ancestor := filepath.Join(testDirectory(t), "restricted")
 	c.Runner.WorkRoot = filepath.Join(ancestor, "runs")
 	state := testState(t, c)
-	if err := safeDirectory(c.Runner.WorkRoot, 0711); err != nil {
+	if err := fshelper.EnsureDirectory(c.Runner.WorkRoot, 0711); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Chmod(ancestor, 0111); err != nil {
@@ -199,7 +201,7 @@ func TestStateRejectsEscapingPathsAndSymlinks(t *testing.T) {
 	}
 	state = testState(t, c)
 	external := testDirectory(t)
-	if err := safeDirectory(c.Runner.WorkRoot, 0711); err != nil {
+	if err := fshelper.EnsureDirectory(c.Runner.WorkRoot, 0711); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Symlink(external, filepath.Join(c.Runner.WorkRoot, "build")); err != nil {
