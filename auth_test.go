@@ -55,6 +55,45 @@ func TestProtectedCredentials(t *testing.T) {
 	}
 }
 
+func TestMultilineSecretReferenceCounts(t *testing.T) {
+	secret := &secrets{}
+	first := "shared-line\r\nfirst-line\r\nshared-line\r\n"
+	second := "shared-line\nsecond-line"
+	secret.add(first)
+	secret.add(first)
+	secret.add(second)
+	secret.add("first-line")
+	secret.release([]string{first})
+	if got := secret.redact("shared-line first-line second-line"); got != "*** *** ***" {
+		t.Fatal("releasing one reference exposed shared components", got)
+	}
+	secret.release([]string{first})
+	if got := secret.redact("shared-line first-line second-line"); got != "*** *** ***" {
+		t.Fatal("releasing a multiline secret exposed independently registered components", got)
+	}
+	secret.release([]string{second})
+	if got := secret.redact("shared-line first-line second-line"); got != "shared-line *** second-line" {
+		t.Fatal("multiline components were not released independently", got)
+	}
+	secret.release([]string{"first-line"})
+	if len(secret.values) != 0 || len(secret.refs) != 0 {
+		t.Fatal("released multiline secrets retained registered components")
+	}
+
+	raw, err := json.Marshal(map[string]string{"credential": base64.StdEncoding.EncodeToString([]byte(first))})
+	if err != nil {
+		t.Fatal(err)
+	}
+	values := secret.addJIT(base64.StdEncoding.EncodeToString(raw))
+	if got := secret.redact("shared-line first-line"); got != "*** ***" {
+		t.Fatal("decoded multiline JIT secret was not registered", got)
+	}
+	secret.release(values)
+	if len(secret.values) != 0 || len(secret.refs) != 0 {
+		t.Fatal("JIT release retained multiline components")
+	}
+}
+
 func TestSharedAppKeyUsesScopeInstallations(t *testing.T) {
 	c := testConfig(t)
 	c.Credentials["app"] = Credential{Type: "github-app", ClientID: "app-client", PrivateKeyFile: "/protected/app.pem"}

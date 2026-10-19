@@ -252,6 +252,16 @@ func TestLogLineLimitsApplyToLiveOutputAndArchives(t *testing.T) {
 			chunks: []string{"whole-line-", "secret\n", "next\n"},
 			want:   "***next\n",
 		},
+		{
+			name:   "multiline secret",
+			chunks: []string{"-----BEGIN PRIVATE ", "KEY-----\nprivate-", "key-line-one\nprivate-key-line-", "two\n-----END PRIVATE KEY-----\nnext\n"},
+			want:   "***\n***\n***\n***\nnext\n",
+		},
+		{
+			name:   "CRLF multiline secret with final partial line",
+			chunks: []string{"-----BEGIN PRIVATE KEY-----\r", "\nprivate-key-line-", "one\r\nprivate-key-line-two\r\n-----END PRIVATE KEY-----"},
+			want:   "***\r\n***\r\n***\r\n***",
+		},
 	} {
 		for _, live := range []bool{true, false} {
 			mode := "archive"
@@ -263,6 +273,7 @@ func TestLogLineLimitsApplyToLiveOutputAndArchives(t *testing.T) {
 				secret := &secrets{}
 				secret.add("secret-value")
 				secret.add("whole-line-secret\n")
+				secret.add("-----BEGIN PRIVATE KEY-----\r\nprivate-key-line-one\r\nprivate-key-line-two\r\n-----END PRIVATE KEY-----")
 				if live {
 					file, err := os.Create(path)
 					if err != nil {

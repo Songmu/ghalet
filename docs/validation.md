@@ -48,6 +48,7 @@ non-root subprocesses. They cover:
 | Strict declarative config, defaults and config-relative paths | Config/CLI invalid-input tables |
 | Day durations reject mixed units; enterprise scope rejection is case-insensitive | Duration and scope URL regression tables |
 | Named PAT/gh/App settings, protected files, environment filtering and JSONL secret redaction | Credential, gh subprocess and environment tests |
+| Multiline secrets are masked without cross-line buffering | Split-write LF/CRLF live/archive regressions, final partial lines and shared-component/JIT reference release |
 | Explicit registration/group lookup, reuse and update disablement | Fake API request/counter tests |
 | Digest validation, independent extraction, bad-cache refusal and traversal rejection | Archive/digest/HTTP fixtures |
 | SDK acknowledgment/redelivery and shared acquisition reservations | Official Listener + scripted session tests |

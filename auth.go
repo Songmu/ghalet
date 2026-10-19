@@ -27,6 +27,22 @@ type secrets struct {
 	refs   map[string]int
 }
 
+func secretComponents(value string) []string {
+	if value == "" {
+		return nil
+	}
+	values := []string{value}
+	if strings.Contains(value, "\n") {
+		for line := range strings.SplitSeq(value, "\n") {
+			line = strings.TrimSuffix(line, "\r")
+			if strings.TrimSpace(line) != "" {
+				values = append(values, line)
+			}
+		}
+	}
+	return values
+}
+
 func (s *secrets) add(value string) {
 	if value == "" {
 		return
@@ -36,10 +52,12 @@ func (s *secrets) add(value string) {
 	if s.refs == nil {
 		s.refs = map[string]int{}
 	}
-	if s.refs[value] == 0 {
-		s.values = append(s.values, value)
+	for _, component := range secretComponents(value) {
+		if s.refs[component] == 0 {
+			s.values = append(s.values, component)
+		}
+		s.refs[component]++
 	}
-	s.refs[value]++
 }
 
 func (s *secrets) redact(value string) string {
@@ -79,17 +97,19 @@ func (s *secrets) release(values []string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, value := range values {
-		if s.refs[value] > 1 {
-			s.refs[value]--
-			continue
-		}
-		delete(s.refs, value)
-		for i, old := range s.values {
-			if old == value {
-				copy(s.values[i:], s.values[i+1:])
-				s.values[len(s.values)-1] = ""
-				s.values = s.values[:len(s.values)-1]
-				break
+		for _, component := range secretComponents(value) {
+			if s.refs[component] > 1 {
+				s.refs[component]--
+				continue
+			}
+			delete(s.refs, component)
+			for i, old := range s.values {
+				if old == component {
+					copy(s.values[i:], s.values[i+1:])
+					s.values[len(s.values)-1] = ""
+					s.values = s.values[:len(s.values)-1]
+					break
+				}
 			}
 		}
 	}
