@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/Songmu/ghalet/logreduct"
 )
 
 func TestArchiveBeforeDeletionAndIdempotentRetry(t *testing.T) {
@@ -22,7 +24,7 @@ func TestArchiveBeforeDeletionAndIdempotentRetry(t *testing.T) {
 	os.WriteFile(filepath.Join(state.RunnerDir, "_diag", "Runner.log"), []byte("diagnostic\n"), 0600)
 	os.WriteFile(filepath.Join(state.RunnerDir, "_diag", "nested", "Worker.log"), []byte("nested diagnostic\n"), 0600)
 	os.WriteFile(filepath.Join(state.RunnerDir, ".credentials"), []byte("do-not-archive"), 0600)
-	d.secrets.add("management-secret")
+	d.secrets.Add("management-secret")
 	state.ProcessDone = true
 	state.Phase = "cleaning"
 	run := &activeRun{State: state}
@@ -130,7 +132,7 @@ func TestLogRetentionOnlyExpiresCompletedArchives(t *testing.T) {
 	safeDirectory(state.RunnerDir, 0700)
 	source := filepath.Join(state.RunnerDir, "output.log")
 	os.WriteFile(source, []byte("original"), 0600)
-	if err := archiveLogs(c, state, &secrets{}); err != nil {
+	if err := archiveLogs(c, state, &logreduct.Redactor{}); err != nil {
 		t.Fatal(err)
 	}
 	dir := filepath.Join(c.Cleanup.LogRoot, "runs", state.RunID)
@@ -159,7 +161,7 @@ func TestLogRetentionRejectsSymlinkedDirectoryAncestry(t *testing.T) {
 		t.Run(location, func(t *testing.T) {
 			c := testConfig(t)
 			state := testState(t, c)
-			if err := archiveLogs(c, state, &secrets{}); err != nil {
+			if err := archiveLogs(c, state, &logreduct.Redactor{}); err != nil {
 				t.Fatal(err)
 			}
 			archive := filepath.Join(c.Cleanup.LogRoot, "runs", state.RunID)
@@ -280,14 +282,14 @@ func TestLogLineLimitsApplyToLiveOutputAndArchives(t *testing.T) {
 			}
 			t.Run(tc.name+"/"+mode, func(t *testing.T) {
 				path := filepath.Join(testDirectory(t), "output.log")
-				secret := &secrets{}
-				secret.add("secret-value")
-				secret.add("whole-line-secret\n")
-				secret.add("shared-secret")
-				secret.add("shared-secret-private-suffix")
-				secret.add("abc")
-				secret.add("bcd")
-				secret.add("-----BEGIN PRIVATE KEY-----\r\nprivate-key-line-one\r\nprivate-key-line-two\r\n-----END PRIVATE KEY-----")
+				secret := &logreduct.Redactor{}
+				secret.Add("secret-value")
+				secret.Add("whole-line-secret\n")
+				secret.Add("shared-secret")
+				secret.Add("shared-secret-private-suffix")
+				secret.Add("abc")
+				secret.Add("bcd")
+				secret.Add("-----BEGIN PRIVATE KEY-----\r\nprivate-key-line-one\r\nprivate-key-line-two\r\n-----END PRIVATE KEY-----")
 				if live {
 					file, err := os.Create(path)
 					if err != nil {
@@ -333,8 +335,8 @@ func TestRunnerOutputRedactsSplitSecretsAndDetectsReadiness(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	secret := &secrets{}
-	secret.add("secret-value")
+	secret := &logreduct.Redactor{}
+	secret.Add("secret-value")
 	ready := 0
 	writer := &runnerOutput{file: file, secrets: secret, ready: func() { ready++ }}
 	for _, value := range []string{"sec", "ret-value\nListening for ", "Jobs\nListening for Jobs\nsec", "ret-value"} {

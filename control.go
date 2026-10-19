@@ -116,14 +116,14 @@ func (s *controlServer) serve(d *daemon) {
 		connection, err := s.listener.Accept()
 		if err != nil {
 			if !errors.Is(err, net.ErrClosed) {
-				slog.Error("Control socket accept failed", "error", d.secrets.redact(err.Error()))
+				slog.Error("Control socket accept failed", "error", d.secrets.Redact(err.Error()))
 			}
 			return
 		}
 		go func() {
 			defer connection.Close()
 			if err := connection.SetReadDeadline(time.Now().Add(commandTimeout)); err != nil {
-				slog.Error("Control socket deadline failed", "error", d.secrets.redact(err.Error()))
+				slog.Error("Control socket deadline failed", "error", d.secrets.Redact(err.Error()))
 				return
 			}
 			var request controlRequest
@@ -135,11 +135,11 @@ func (s *controlServer) serve(d *daemon) {
 			}
 			response := d.handle(d.ctx, request)
 			if err := connection.SetWriteDeadline(time.Now().Add(commandTimeout)); err != nil {
-				slog.Error("Control socket write deadline failed", "error", d.secrets.redact(err.Error()))
+				slog.Error("Control socket write deadline failed", "error", d.secrets.Redact(err.Error()))
 				return
 			}
 			if err := json.NewEncoder(connection).Encode(response); err != nil {
-				slog.Error("Control response failed", "error", d.secrets.redact(err.Error()))
+				slog.Error("Control response failed", "error", d.secrets.Redact(err.Error()))
 			}
 		}()
 	}
@@ -188,7 +188,7 @@ func (d *daemon) handle(ctx context.Context, request controlRequest) controlResp
 		defer d.mu.Unlock()
 		plan, err := d.planDestroy(ctx, request)
 		if err != nil {
-			return controlResponse{Error: d.secrets.redact(err.Error())}
+			return controlResponse{Error: d.secrets.Redact(err.Error())}
 		}
 		return controlResponse{Plan: &plan}
 	case "destroy":
@@ -262,7 +262,7 @@ func (d *daemon) gc(ctx context.Context, dryRun bool) controlResponse {
 				if err := d.save(run); err != nil {
 					result.Error = err.Error()
 				} else if err := d.cleanup(run); err != nil {
-					result.Error = d.secrets.redact(err.Error())
+					result.Error = d.secrets.Redact(err.Error())
 				}
 			}
 		}
@@ -341,7 +341,7 @@ func (d *daemon) destroy(ctx context.Context, confirmation string) controlRespon
 	if err != nil {
 		cancel()
 		d.mu.Unlock()
-		return controlResponse{Error: d.secrets.redact(err.Error())}
+		return controlResponse{Error: d.secrets.Redact(err.Error())}
 	}
 	set, err := registration(callCtx, client, config, false)
 	cancel()
@@ -373,7 +373,7 @@ func (d *daemon) destroy(ctx context.Context, confirmation string) controlRespon
 	}
 	if err := d.adoptForDestroy(ctx, target, plan); err != nil {
 		d.mu.Unlock()
-		return controlResponse{Error: d.secrets.redact(err.Error())}
+		return controlResponse{Error: d.secrets.Redact(err.Error())}
 	}
 	if d.targets[target.Config.ID] == nil {
 		d.targets[target.Config.ID] = target
@@ -434,7 +434,7 @@ func (d *daemon) destroy(ctx context.Context, confirmation string) controlRespon
 		return controlResponse{Error: "registration changed or work remained after session close; confirm again"}
 	}
 	if err := client.DeleteRunnerScaleSet(callCtx, plan.ScaleSetID); err != nil {
-		return controlResponse{Error: d.secrets.redact(err.Error())}
+		return controlResponse{Error: d.secrets.Redact(err.Error())}
 	}
 	target.Set = nil
 	return controlResponse{Results: []OperationResult{{Action: "deleted explicitly approved scale set " + plan.ScaleSet}}}
@@ -504,7 +504,7 @@ func (d *daemon) adoptForDestroy(ctx context.Context, target *targetRuntime, pla
 		if err := d.save(run); err != nil {
 			for _, item := range pending {
 				item.run.Uncertain = true
-				item.run.State.Error = "destruction adoption did not finish: " + d.secrets.redact(err.Error())
+				item.run.State.Error = "destruction adoption did not finish: " + d.secrets.Redact(err.Error())
 			}
 			return err
 		}
