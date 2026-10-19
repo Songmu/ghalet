@@ -1,9 +1,8 @@
 package ghalet
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -316,12 +315,11 @@ func TestControlAddressAndRunningSnapshotSurviveConfigEdit(t *testing.T) {
 	go server.serve(d)
 	original := socketPath(d.config.Path)
 	os.WriteFile(d.config.Path, []byte("this is no longer valid YAML\nworkRoot: /somewhere/else"), 0600)
-	var output, stderr bytes.Buffer
-	if err := Control(t.Context(), d.config.Path, ControlOptions{Command: "status"}, &output, &stderr); err != nil {
+	status, err := GetStatus(t.Context(), d.config.Path)
+	if err != nil {
 		t.Fatal("status tried to reload edited config", err)
 	}
-	var response controlResponse
-	if err := json.Unmarshal(output.Bytes(), &response); err != nil || response.Status.Config != d.config.Path || original != socketPath(d.config.Path) {
+	if status == nil || status.Config != d.config.Path || original != socketPath(d.config.Path) {
 		t.Fatal("running daemon address or snapshot changed")
 	}
 	if lock, err := lockControl(d.config.Path); err == nil {
@@ -345,12 +343,20 @@ func TestStatusAndDoctorExitCodesAndPartialGC(t *testing.T) {
 	t.Cleanup(func() { server.close(); os.Remove(server.path + ".lock") })
 	go server.serve(d)
 	for _, command := range []string{"status", "doctor", "gc"} {
-		var output, stderr bytes.Buffer
-		err := Control(t.Context(), d.config.Path, ControlOptions{Command: command}, &output, &stderr)
-		if (command == "status" && err != nil) || (command != "status" && err == nil) {
-			t.Fatalf("incorrect %s exit behavior: %v, %s", command, err, output.String())
+		var err error
+		var results []OperationResult
+		switch command {
+		case "status":
+			_, err = GetStatus(t.Context(), d.config.Path)
+		case "doctor":
+			_, err = Doctor(t.Context(), d.config.Path)
+		case "gc":
+			results, err = GC(t.Context(), d.config.Path, false)
 		}
-		if command == "gc" && !strings.Contains(output.String(), "corrupt state") {
+		if (command == "status" && err != nil) || (command != "status" && err == nil) {
+			t.Fatalf("incorrect %s exit behavior: %v", command, err)
+		}
+		if command == "gc" && (len(results) == 0 || results[0].Error != "corrupt state") {
 			t.Fatal("partial gc did not report individual failure")
 		}
 	}
@@ -360,15 +366,6 @@ func TestStatusAndDoctorExitCodesAndPartialGC(t *testing.T) {
 }
 
 func TestDestroyRequiresExplicitInteractiveApproval(t *testing.T) {
-	plan := &destroyPlan{Target: "build", URL: "https://github.com/owner/repository", ScaleSet: "build", ScaleSetID: 10}
-	for _, answer := range []string{"no\n", "y\n", "\n", "YES\n", ""} {
-		if err := confirmDestroy(plan, strings.NewReader(answer), &bytes.Buffer{}); err == nil {
-			t.Fatalf("answer %q approved destruction", answer)
-		}
-	}
-	if err := confirmDestroy(plan, strings.NewReader("yes\n"), &bytes.Buffer{}); err != nil {
-		t.Fatal(err)
-	}
 	d, api := testDaemon(t)
 	if response := d.destroy(t.Context(), "unapproved"); response.Error == "" || api.deleteCalls != 0 {
 		t.Fatal("destruction accepted absent or persisted approval")
@@ -401,10 +398,82 @@ func TestDisconnectedControlCannotBypassWorkRootLock(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer lock.close()
-	var output bytes.Buffer
-	err = Control(t.Context(), c.Path, ControlOptions{Command: "gc"}, &output, &output)
+	_, err = GC(t.Context(), c.Path, false)
 	if err == nil || !strings.Contains(err.Error(), "refusing direct operation") {
 		t.Fatal("disconnected socket bypassed live workRoot lock", err)
+	}
+}
+
+func TestDestroyAPIRequiresApproval(t *testing.T) {
+	for _, approval := range []string{"missing", "declined", "approved"} {
+		t.Run(approval, func(t *testing.T) {
+			d, api := testDaemon(t)
+			useFakeManagement(d, api)
+			server, err := listenControl(d.config.Path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { server.close(); os.Remove(server.path + ".lock") })
+			go server.serve(d)
+			rejected := errors.New("not approved")
+			var confirm func(DestroyPlan) error
+			if approval != "missing" {
+				confirm = func(plan DestroyPlan) error {
+					if plan.Target != "build" || plan.ScaleSet != "build" || plan.ScaleSetID != api.set.ID {
+						t.Errorf("incorrect confirmation plan: %+v", plan)
+					}
+					if approval == "declined" {
+						return rejected
+					}
+					return nil
+				}
+			}
+			results, err := Destroy(t.Context(), d.config.Path, DestroyOptions{Target: "build", ScaleSet: "build"}, confirm)
+			if approval == "approved" {
+				if err != nil || api.deleteCalls != 1 || len(results.Results) != 1 {
+					t.Fatal("approved deletion failed", results, err)
+				}
+			} else if err == nil || api.deleteCalls != 0 {
+				t.Fatal("unapproved deletion succeeded", results, err)
+			} else if approval == "declined" && !errors.Is(err, rejected) {
+				t.Fatal("confirmation error was lost", err)
+			}
+		})
+	}
+}
+
+func TestDestroyAPIPreservesIncompleteDrainSnapshot(t *testing.T) {
+	d, api := testDaemon(t)
+	useFakeManagement(d, api)
+	d.targets["build"].Fault = "credentials expired"
+	server, err := listenControl(d.config.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { server.close(); os.Remove(server.path + ".lock") })
+	go server.serve(d)
+	result, err := Destroy(t.Context(), d.config.Path, DestroyOptions{Target: "build", ScaleSet: "build"},
+		func(DestroyPlan) error { return nil })
+	if err == nil || result.Status == nil || len(result.Status.Problems) == 0 || api.deleteCalls != 0 {
+		t.Fatal("incomplete drain lost diagnostics or deleted the registration", result, err)
+	}
+}
+
+func TestDrainAPISelectsTarget(t *testing.T) {
+	d, _ := testDaemon(t)
+	useFakeManagement(d, &fakeScaleAPI{})
+	server, err := listenControl(d.config.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { server.close(); os.Remove(server.path + ".lock") })
+	go server.serve(d)
+	if _, err := Drain(t.Context(), d.config.Path, "missing"); err == nil {
+		t.Fatal("unknown target was accepted")
+	}
+	status, err := Drain(t.Context(), d.config.Path, "build")
+	if err != nil || status == nil || len(status.Targets) != 1 || !status.Targets[0].Draining {
+		t.Fatal("selected target was not drained", status, err)
 	}
 }
 

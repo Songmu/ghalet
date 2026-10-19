@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"os"
 	"path/filepath"
@@ -115,14 +116,14 @@ func (s *controlServer) serve(d *daemon) {
 		connection, err := s.listener.Accept()
 		if err != nil {
 			if !errors.Is(err, net.ErrClosed) {
-				d.log.Error("Control socket accept failed", "error", err)
+				slog.Error("Control socket accept failed", "error", d.secrets.redact(err.Error()))
 			}
 			return
 		}
 		go func() {
 			defer connection.Close()
 			if err := connection.SetReadDeadline(time.Now().Add(commandTimeout)); err != nil {
-				d.log.Error("Control socket deadline failed", "error", err)
+				slog.Error("Control socket deadline failed", "error", d.secrets.redact(err.Error()))
 				return
 			}
 			var request controlRequest
@@ -134,11 +135,11 @@ func (s *controlServer) serve(d *daemon) {
 			}
 			response := d.handle(d.ctx, request)
 			if err := connection.SetWriteDeadline(time.Now().Add(commandTimeout)); err != nil {
-				d.log.Error("Control socket write deadline failed", "error", err)
+				slog.Error("Control socket write deadline failed", "error", d.secrets.redact(err.Error()))
 				return
 			}
 			if err := json.NewEncoder(connection).Encode(response); err != nil {
-				d.log.Error("Control response failed", "error", err)
+				slog.Error("Control response failed", "error", d.secrets.redact(err.Error()))
 			}
 		}()
 	}

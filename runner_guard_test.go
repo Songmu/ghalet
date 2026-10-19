@@ -156,7 +156,7 @@ func TestRunnerGuardControllerHelper(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	d, err := newDaemon(config, os.Stdout)
+	d, err := newDaemon(config)
 	if err != nil {
 		t.Fatal(err)
 	}

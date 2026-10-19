@@ -41,6 +41,102 @@ func TestCredentialsAndSecretRedaction(t *testing.T) {
 	}
 }
 
+func TestGlobalLoggerRedactsSecrets(t *testing.T) {
+	var output bytes.Buffer
+	original := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&output, &slog.HandlerOptions{ReplaceAttr: RedactLogAttr})))
+	defer slog.SetDefault(original)
+	values := []string{"management-secret", "jit-secret"}
+	for _, value := range values {
+		logSecrets.add(value)
+	}
+	defer logSecrets.release(values)
+	slog.With("credential", "management-secret").WithGroup("execution").Info("jit-secret",
+		slog.Group("details", "error", errors.New("jit-secret"), "token", "management-secret"))
+	if strings.Contains(output.String(), "management-secret") || strings.Contains(output.String(), "jit-secret") ||
+		!json.Valid(bytes.TrimSpace(output.Bytes())) {
+		t.Fatal("configured logger leaked a secret or invalid JSON", output.String())
+	}
+	if !strings.Contains(output.String(), `"credential":"***"`) || !strings.Contains(output.String(), `"execution":`) {
+		t.Fatal("logger lost structured attributes", output.String())
+	}
+}
+
+func TestGlobalLogRedactionTracksJITLifetime(t *testing.T) {
+	var output bytes.Buffer
+	original := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&output, &slog.HandlerOptions{ReplaceAttr: RedactLogAttr})))
+	defer slog.SetDefault(original)
+	value := base64.StdEncoding.EncodeToString([]byte("global-log-jit-lifetime-secret"))
+	values := logSecrets.addJIT(value)
+	slog.Info("Runner failed", "jit", value)
+	redacted := output.String()
+	logSecrets.release(values)
+	if strings.Contains(redacted, value) || !strings.Contains(redacted, `"jit":"***"`) {
+		t.Fatal("new JIT secret was not redacted", redacted)
+	}
+	output.Reset()
+	slog.Info("Runner cleaned", "jit", value)
+	if !strings.Contains(output.String(), value) {
+		t.Fatal("released JIT secret remained in the registry", output.String())
+	}
+}
+
+func TestDirectAPILogRedactionWithOrdinaryHandler(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("daemon entrypoints require a non-root execution user")
+	}
+	const credential = "direct-api-management-secret"
+	t.Setenv("GH_TOKEN", credential)
+	for _, command := range []string{"run", "gc", "destroy"} {
+		t.Run(command, func(t *testing.T) {
+			data := strings.Replace(readFixture(t, "config/base.yaml"), "tokenEnv: GHALET_TEST_TOKEN", "tokenFile: missing-"+credential, 1)
+			data = strings.Replace(data, "id: build", "id: "+credential, 1)
+			path := writeConfig(t, data)
+			config, err := LoadConfig(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { os.Remove(socketPath(path) + ".lock") })
+			var output bytes.Buffer
+			original := slog.Default()
+			slog.SetDefault(slog.New(slog.NewJSONHandler(&output, nil)))
+			defer slog.SetDefault(original)
+			defer logSecrets.release([]string{credential})
+			ctx, cancel := context.WithCancel(t.Context())
+			cancel()
+			switch command {
+			case "run":
+				err = RunDaemon(ctx, config)
+			case "gc":
+				_, err = GC(ctx, path, true)
+			case "destroy":
+				_, err = Destroy(ctx, path, DestroyOptions{Target: credential, ScaleSet: "build"}, func(DestroyPlan) error {
+					t.Error("failed initialization requested deletion approval")
+					return errors.New("not approved")
+				})
+			}
+			if err == nil {
+				t.Fatal("canceled operation with a missing credential file succeeded")
+			}
+			if strings.Contains(output.String(), credential) {
+				t.Fatal("direct API logging exposed a registered credential", output.String())
+			}
+			var record struct {
+				Event    string `json:"event"`
+				TargetID string `json:"targetId"`
+				Error    string `json:"error"`
+			}
+			if err := json.Unmarshal(output.Bytes(), &record); err != nil {
+				t.Fatal("expected a registration failure log", err, output.String())
+			}
+			if record.Event != "target.failed" || record.TargetID != "***" || !strings.Contains(record.Error, "missing-***") {
+				t.Fatal("redaction lost the failure diagnostics", record)
+			}
+		})
+	}
+}
+
 func TestProtectedCredentials(t *testing.T) {
 	for _, tc := range []struct {
 		name    string

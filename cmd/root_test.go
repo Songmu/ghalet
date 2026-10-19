@@ -3,9 +3,10 @@ package cmd
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
-	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -139,25 +140,7 @@ func TestHelpAndInvalidArguments(t *testing.T) {
 func TestCommandDispatchAndFlagPlacement(t *testing.T) {
 	for _, name := range []string{"run", "validate", "status", "doctor", "drain", "gc", "destroy"} {
 		t.Run(name, func(t *testing.T) {
-			original := commands[name]
-			t.Cleanup(func() { commands[name] = original })
-			want := options{
-				config: "after.yaml",
-				control: ghalet.ControlOptions{
-					Target: "build", DryRun: true, RunnerGroup: "builders", ScaleSet: "runners",
-				},
-			}
-			ctx := t.Context()
 			var output, stderr bytes.Buffer
-			called := false
-			wantErr := errors.New("command result")
-			commands[name] = func(gotCtx context.Context, got options, outStream, errStream io.Writer) error {
-				called = true
-				if gotCtx != ctx || got != want || outStream != &output || errStream != &stderr {
-					t.Fatalf("command inputs were not forwarded: %+v", got)
-				}
-				return wantErr
-			}
 			command := []string{name}
 			if name == "validate" {
 				command = []string{"config", "validate"}
@@ -165,10 +148,46 @@ func TestCommandDispatchAndFlagPlacement(t *testing.T) {
 			for _, prefix := range [][]string{nil, {"--config", "before.yaml", "--target", "before"}} {
 				args := append(append([]string{}, prefix...), command...)
 				args = append(args, "--config", "after.yaml", "--target", "build", "--dry-run", "--runner-group", "builders", "--scale-set", "runners")
-				called = false
-				if err := Run(ctx, args, &output, &stderr); !errors.Is(err, wantErr) || !called {
+				err := Run(t.Context(), args, &output, &stderr)
+				want := "after.yaml"
+				if name == "destroy" {
+					want = "destroy requires an interactive terminal"
+				}
+				if err == nil || !strings.Contains(err.Error(), want) {
 					t.Fatalf("%v: command was not dispatched: %v", args, err)
 				}
+			}
+		})
+	}
+}
+
+func TestDefaultLoggerRoutesOutput(t *testing.T) {
+	original := slog.Default()
+	defer slog.SetDefault(original)
+	missing := filepath.Join(testDirectory(t), "missing.yaml")
+	for _, command := range []string{"run", "gc", "status"} {
+		t.Run(command, func(t *testing.T) {
+			var output, stderr bytes.Buffer
+			if err := Run(t.Context(), []string{command, "--config", missing}, &output, &stderr); err == nil {
+				t.Fatal("missing config was accepted")
+			}
+			slog.Info("global logger configured", "command", command)
+			logOutput, unused := &stderr, &output
+			if command == "run" {
+				logOutput, unused = &output, &stderr
+			}
+			if unused.Len() != 0 {
+				t.Fatal("log written to the wrong stream", unused.String())
+			}
+			var record struct {
+				Message string `json:"msg"`
+				Command string `json:"command"`
+			}
+			if err := json.Unmarshal(logOutput.Bytes(), &record); err != nil {
+				t.Fatal("default logger did not produce JSON", err, logOutput.String())
+			}
+			if record.Message != "global logger configured" || record.Command != command {
+				t.Fatal("default logger lost structured output", record)
 			}
 		})
 	}

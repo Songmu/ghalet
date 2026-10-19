@@ -27,6 +27,15 @@ type secrets struct {
 	refs   map[string]int
 }
 
+// Logs and execution output share a process-wide registry so direct slog calls
+// see credentials registered after the default handler was configured.
+var logSecrets secrets
+
+// RedactLogAttr masks known management and runner secrets in slog handler output.
+func RedactLogAttr(groups []string, attr slog.Attr) slog.Attr {
+	return logSecrets.replaceAttr(groups, attr)
+}
+
 func secretComponents(value string) []string {
 	if value == "" {
 		return nil
@@ -148,6 +157,15 @@ func (s *secrets) release(values []string) {
 }
 
 func (s *secrets) replaceAttr(_ []string, attr slog.Attr) slog.Attr {
+	attr.Value = attr.Value.Resolve()
+	if attr.Value.Kind() == slog.KindGroup {
+		attrs := attr.Value.Group()
+		redacted := make([]slog.Attr, len(attrs))
+		for i, child := range attrs {
+			redacted[i] = s.replaceAttr(nil, child)
+		}
+		attr.Value = slog.GroupValue(redacted...)
+	}
 	if attr.Value.Kind() == slog.KindString {
 		attr.Value = slog.StringValue(s.redact(attr.Value.String()))
 	} else if attr.Value.Kind() == slog.KindAny {

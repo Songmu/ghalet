@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sync"
@@ -173,7 +174,10 @@ func testDaemon(t *testing.T) (*daemon, *fakeScaleAPI) {
 		t.Skip("process lifecycle tests require a non-root execution user")
 	}
 	c := testConfig(t)
-	d, err := newDaemon(c, io.Discard)
+	original := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(io.Discard, &slog.HandlerOptions{ReplaceAttr: RedactLogAttr})))
+	t.Cleanup(func() { slog.SetDefault(original) })
+	d, err := newDaemon(c)
 	if err != nil {
 		t.Fatal(err)
 	}
