@@ -81,6 +81,83 @@ func TestExplicitDestroyCanReverifyAnOldTargetWithoutPersistingApproval(t *testi
 	}
 }
 
+func TestFailedDestructionDoesNotPublishSyntheticTarget(t *testing.T) {
+	for _, unavailableStatistics := range []bool{false, true} {
+		t.Run(map[bool]string{false: "invalid execution user", true: "missing statistics"}[unavailableStatistics], func(t *testing.T) {
+			d, api := testDaemon(t)
+			useFakeManagement(d, api)
+			delete(d.targets, "build")
+			d.order = nil
+			good := testState(t, d.config)
+			bad := testState(t, d.config)
+			if unavailableStatistics {
+				api.set.Statistics = nil
+			} else {
+				api.set.Statistics.TotalAssignedJobs = 2
+				bad.UID++
+			}
+			for _, state := range []*RunState{good, bad} {
+				if err := d.store.save(state); err != nil {
+					t.Fatal(err)
+				}
+				d.runs[state.RunID] = &activeRun{State: state, Uncertain: true}
+			}
+			plan, err := d.planDestroy(t.Context(), controlRequest{Scope: "repository", ScaleSet: "build"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if response := d.destroy(t.Context(), plan.Confirmation); response.Error == "" {
+				t.Fatal("unverified destruction succeeded")
+			}
+			d.reconcile()
+			if len(d.targets) != 0 || len(d.order) != 0 || len(d.runs) != 2 || api.nextID != 100 || api.deleteCalls != 0 {
+				t.Fatal("failed destruction left a schedulable synthetic target")
+			}
+			for _, run := range d.runs {
+				if run.Target != nil || !run.Uncertain || run.State.ProcessDone || run.Preparing {
+					t.Fatal("failed validation partially adopted retained executions")
+				}
+			}
+		})
+	}
+}
+
+func TestFailedAdoptionSaveKeepsEveryExecutionUncertain(t *testing.T) {
+	d, _ := testDaemon(t)
+	var runs []*activeRun
+	for range 2 {
+		state := testState(t, d.config)
+		if err := d.store.save(state); err != nil {
+			t.Fatal(err)
+		}
+		run := &activeRun{State: state, Uncertain: true}
+		d.runs[state.RunID] = run
+		runs = append(runs, run)
+	}
+	blocked := filepath.Dir(runs[1].State.RunnerDir)
+	if err := os.Chmod(blocked, 0500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chmod(blocked, 0711); err != nil {
+			t.Error(err)
+		}
+	})
+	plan := destroyPlan{URL: runs[0].State.ScopeURL, ScaleSet: "build", ScaleSetID: 10, GroupID: 1}
+	if err := d.adoptForDestroy(t.Context(), d.targets["build"], plan); err == nil {
+		t.Fatal("failed adoption save was ignored")
+	}
+	d.reconcile()
+	if len(d.runs) != 2 || d.occupied() != 2 {
+		t.Fatal("partial adoption released executions or capacity")
+	}
+	for _, run := range runs {
+		if !run.Uncertain || !strings.Contains(run.State.Error, "adoption did not finish") {
+			t.Fatal("partial adoption left an execution eligible for automatic cleanup")
+		}
+	}
+}
+
 func TestControlAddressAndRunningSnapshotSurviveConfigEdit(t *testing.T) {
 	d, _ := testDaemon(t)
 	server, err := listenControl(d.config.Path)
@@ -224,7 +301,12 @@ func TestGCWaitsForOutputCollectionBeforeArchiving(t *testing.T) {
 	if err := os.WriteFile(source, []byte("complete output test-jit-secret\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
+	run.OutputReady = true
 	close(run.WaitDone)
+	if response := d.gc(t.Context(), false); response.Error != "" || d.runs[state.RunID] == nil || state.ProcessDone {
+		t.Fatal("gc cleaned output before observing the runner exit", response.Error)
+	}
+	d.processEvent(runEvent{id: state.RunID, kind: "exit"})
 	if response := d.gc(t.Context(), false); response.Error != "" || d.runs[state.RunID] != nil {
 		t.Fatal("gc did not resume after output collection", response.Error)
 	}
@@ -248,7 +330,7 @@ func TestGCReportsOutputCollectionFailureWithoutDeletingLogs(t *testing.T) {
 	if err := os.WriteFile(source, []byte("retained output"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	run := &activeRun{State: state, WaitDone: make(chan struct{}), OutputError: errTestAPI}
+	run := &activeRun{State: state, WaitDone: make(chan struct{}), Exited: true, OutputError: errTestAPI}
 	close(run.WaitDone)
 	d.runs[state.RunID] = run
 	response := d.gc(t.Context(), false)

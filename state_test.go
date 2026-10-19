@@ -2,6 +2,7 @@ package ghalet
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -49,6 +50,37 @@ func TestStateAtomicRoundTripAndLastFileCleanup(t *testing.T) {
 	}
 	if _, err := os.Stat(homeSentinel); err != nil {
 		t.Fatal("cleanup followed a symlink outside its execution")
+	}
+}
+
+func TestStateSaveRequiresDurableDirectoryAncestry(t *testing.T) {
+	c := testConfig(t)
+	ancestor := filepath.Join(testDirectory(t), "restricted")
+	c.Runner.WorkRoot = filepath.Join(ancestor, "runs")
+	state := testState(t, c)
+	if err := safeDirectory(c.Runner.WorkRoot, 0711); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(ancestor, 0111); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chmod(ancestor, 0711); err != nil {
+			t.Error(err)
+		}
+	})
+	store := stateStore{c.Runner.WorkRoot}
+	if err := store.save(state); !errors.Is(err, os.ErrPermission) {
+		t.Fatal("state save reported success without syncing an ancestor", err)
+	}
+	if _, err := os.Stat(filepath.Join(filepath.Dir(state.RunnerDir), "state.json")); err != nil {
+		t.Fatal("test did not reach the post-rename durability boundary", err)
+	}
+	if err := os.Chmod(ancestor, 0711); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.save(state); err != nil {
+		t.Fatal("state save did not resume after restoring ancestor access", err)
 	}
 }
 

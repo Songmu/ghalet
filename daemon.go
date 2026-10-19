@@ -44,14 +44,21 @@ type activeRun struct {
 	Cancel          context.CancelFunc
 	Exited          bool
 	ExitError       string
+	ExitResult      *runExit
 	Uncertain       bool
 	CleanupTried    bool
 	WaitDone        chan struct{}
 	OutputError     error
+	OutputReady     bool
 	Stopping        bool
 	Target          *targetRuntime
 	InspectFailures int
 	JITSecrets      []string
+}
+
+type runExit struct {
+	err      error
+	stopping bool
 }
 
 func (r *activeRun) outputCollected() bool {
@@ -423,10 +430,10 @@ func (s *targetScaler) Scale(ctx context.Context, message *scaleset.RunnerScaleS
 			if err != nil {
 				// The server may have accepted the request before the response
 				// was lost. Keep the reservation until authoritative statistics.
-				target.Pending = len(requests)
+				target.Pending += len(requests)
 				return err
 			}
-			target.Pending = len(acquired)
+			target.Pending += len(acquired)
 		}
 	}
 	target.LastMessage, target.HasMessage = message.MessageID, true
@@ -523,24 +530,37 @@ func (d *daemon) processEvent(event runEvent) {
 		d.save(run)
 	case "exit":
 		run.Exited = true
-		if !run.Stopping && ((!run.State.Ready && !run.State.Busy) || event.err != nil) {
-			if target := d.runTarget(run); target != nil && !target.Forced {
-				exitErr := event.err
-				if exitErr == nil {
-					exitErr = errors.New("runner exited before readiness")
-				}
-				d.startFailure(target, exitErr)
-			}
-		} else if !run.Stopping && event.err == nil && run.State.Ready {
-			if target := d.runTarget(run); target != nil {
-				target.Failures = 0
-			}
-		}
+		run.ExitResult = &runExit{err: event.err, stopping: run.Stopping}
 		if event.err != nil {
 			run.ExitError = d.secrets.redact(event.err.Error())
 			d.log.Warn("Runner process exited", "event", "runner.exited", "runId", event.id, "error", event.err)
 		} else {
 			d.log.Info("Runner process exited (not a workflow result)", "event", "runner.exited", "runId", event.id)
+		}
+		d.finishExit(run)
+	}
+}
+
+func (d *daemon) finishExit(run *activeRun) {
+	if run.ExitResult == nil || !run.outputCollected() {
+		return
+	}
+	result := run.ExitResult
+	run.ExitResult = nil
+	if run.OutputReady {
+		run.State.Ready = true
+	}
+	if !result.stopping && ((!run.State.Ready && !run.State.Busy) || result.err != nil) {
+		if target := d.runTarget(run); target != nil && !target.Forced {
+			err := result.err
+			if err == nil {
+				err = errors.New("runner exited before readiness")
+			}
+			d.startFailure(target, err)
+		}
+	} else if !result.stopping && result.err == nil && run.State.Ready {
+		if target := d.runTarget(run); target != nil {
+			target.Failures = 0
 		}
 	}
 }
@@ -863,6 +883,7 @@ func (d *daemon) launch(run *activeRun, jit string) (retErr error) {
 		return err
 	}
 	writer := &runnerOutput{file: logFile, secrets: d.secrets, ready: func() {
+		run.OutputReady = true
 		select {
 		case d.events <- runEvent{id: state.RunID, kind: "ready"}:
 		case <-d.ctx.Done():
@@ -1015,6 +1036,7 @@ func (d *daemon) stop(run *activeRun, forced bool) error {
 			return errors.New("process stopped but runner output collection has not completed")
 		}
 	}
+	d.finishExit(run)
 	run.State.ProcessDone, run.State.Phase = true, "cleaning"
 	if err := d.save(run); err != nil {
 		return err
@@ -1030,6 +1052,10 @@ func (d *daemon) cleanup(run *activeRun) error {
 	if !run.outputCollected() {
 		return errors.New("runner output collection has not completed")
 	}
+	if run.WaitDone != nil && !run.Exited && !run.Stopping {
+		return errors.New("runner exit observation has not completed")
+	}
+	d.finishExit(run)
 	fail := func(err error) error {
 		run.State.Error = d.secrets.redact(err.Error())
 		d.save(run)

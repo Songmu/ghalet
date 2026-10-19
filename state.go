@@ -59,6 +59,14 @@ func newID() (string, error) {
 }
 
 func safeDirectory(path string, mode os.FileMode) error {
+	return managedDirectory(path, mode, true)
+}
+
+func existingDirectory(path string) error {
+	return managedDirectory(path, 0, false)
+}
+
+func managedDirectory(path string, mode os.FileMode, create bool) error {
 	if !filepath.IsAbs(path) || path == "/" {
 		return fmt.Errorf("unsafe directory %s", path)
 	}
@@ -66,7 +74,7 @@ func safeDirectory(path string, mode os.FileMode) error {
 	for _, part := range strings.Split(strings.TrimPrefix(filepath.Clean(path), "/"), "/") {
 		current = filepath.Join(current, part)
 		info, err := os.Lstat(current)
-		if errors.Is(err, os.ErrNotExist) {
+		if create && errors.Is(err, os.ErrNotExist) {
 			if err := os.Mkdir(current, mode); err != nil && !errors.Is(err, os.ErrExist) {
 				return err
 			}
@@ -83,6 +91,21 @@ func safeDirectory(path string, mode os.FileMode) error {
 		}
 	}
 	return nil
+}
+
+func syncDirectoryChain(path string) error {
+	for dir := path; ; dir = filepath.Dir(dir) {
+		file, err := os.Open(dir)
+		if err != nil {
+			return err
+		}
+		if err := errors.Join(file.Sync(), file.Close()); err != nil {
+			return err
+		}
+		if dir == filepath.Dir(dir) {
+			return nil
+		}
+	}
 }
 
 func (s stateStore) directory(state *RunState) (string, error) {
@@ -132,12 +155,7 @@ func (s stateStore) save(state *RunState) error {
 	if err := os.Rename(name, filepath.Join(dir, "state.json")); err != nil {
 		return err
 	}
-	parent, err := os.Open(dir)
-	if err != nil {
-		return err
-	}
-	defer parent.Close()
-	return parent.Sync()
+	return syncDirectoryChain(dir)
 }
 
 type recoveredState struct {

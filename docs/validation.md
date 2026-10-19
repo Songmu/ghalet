@@ -50,6 +50,7 @@ non-root subprocesses. They cover:
 | Explicit registration/group lookup, reuse and update disablement | Fake API request/counter tests |
 | Digest validation, independent extraction, bad-cache refusal and traversal rejection | Archive/digest/HTTP fixtures |
 | SDK acknowledgment/redelivery and shared acquisition reservations | Official Listener + scripted session tests |
+| Reservations accumulate across statistics-free messages, including ambiguous acquisitions | Successive-message acquisition regressions with authoritative-statistics reset |
 | One job per directory, cleanup/log archives, no idle supply at minimum zero | Real process lifecycle tests |
 | Shared capacity, warm-slot yield, busy protection and deletion refusal races | Multi-target real process tests |
 | Accepted backlog during drain, startup deadline and forced drain reporting | Lifecycle timeout tests |
@@ -57,9 +58,13 @@ non-root subprocesses. They cover:
 | Monitoring after the original process parent exits | Subprocess helper exits; another controller recovers and stops the surviving group |
 | Uncertain runners do not block shutdown; recovered busy runs release capacity after confirmed exit | Shutdown and missed-completion recovery regressions |
 | Runner exit is observed independently of descendant-held output pipes | Real subprocess/FIFO test with an observed descendant and a final unterminated log line |
+| Readiness-dependent exit classification waits for collected output | Deterministic exit-before-readiness tests, including real failures and intentional stops |
 | Completed target drains do not become forced after their deadline | Drain followed by delayed reconciliation and confirmed destruction |
 | File-only cleanup and archive failures, retry and log retention | Fault injection and retained-file assertions |
 | Archive synchronization and collection completion precede source deletion | Nested diagnostic archives, failed existing-archive retries, pending-output GC and output-error tests; not a power-loss simulation |
+| State durability includes newly created directory ancestry | Unreadable-ancestor failure after state rename, followed by a successful retry; not a power-loss simulation |
+| Retention rejects symlinked ancestry without creating missing directories | Symlinks at runs/logRoot/ancestor levels, dry-run and actual retention |
+| Failed destruction cannot publish a provisioning target or partially adopt executions | Invalid-user, missing-statistics and adoption-save failure regressions |
 | Config edits preserve control address and running snapshot | Unix socket CLI tests |
 | Partial GC, status/doctor exit behavior and confirmation refusal | Control/CLI tests |
 

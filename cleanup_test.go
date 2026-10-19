@@ -2,6 +2,7 @@ package ghalet
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -144,6 +145,67 @@ func TestLogRetentionOnlyExpiresCompletedArchives(t *testing.T) {
 	}
 	if _, err := os.Stat(source); err != nil {
 		t.Fatal("retention deleted unarchived execution logs")
+	}
+}
+
+func TestLogRetentionRejectsSymlinkedDirectoryAncestry(t *testing.T) {
+	for _, location := range []string{"runs", "logRoot", "ancestor"} {
+		t.Run(location, func(t *testing.T) {
+			c := testConfig(t)
+			state := testState(t, c)
+			if err := archiveLogs(c, state, &secrets{}); err != nil {
+				t.Fatal(err)
+			}
+			archive := filepath.Join(c.Cleanup.LogRoot, "runs", state.RunID)
+			data, err := json.Marshal(archivedRun{
+				RunID: state.RunID, TargetID: state.TargetID, ArchivedAt: time.Now().Add(-30 * 24 * time.Hour),
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(archive, "metadata.json"), data, 0600); err != nil {
+				t.Fatal(err)
+			}
+			view := testDirectory(t)
+			link := filepath.Join(view, "linked")
+			source := c.Cleanup.LogRoot
+			switch location {
+			case "runs":
+				source = filepath.Join(source, "runs")
+				c.Cleanup.LogRoot = view
+				link = filepath.Join(view, "runs")
+			case "logRoot":
+				c.Cleanup.LogRoot = link
+			case "ancestor":
+				source = filepath.Dir(source)
+				c.Cleanup.LogRoot = filepath.Join(link, "logs")
+			}
+			if err := os.Symlink(source, link); err != nil {
+				t.Fatal(err)
+			}
+			for _, dryRun := range []bool{true, false} {
+				if _, err := expireLogs(t.Context(), c, dryRun); err == nil {
+					t.Fatal("retention accepted a symlinked managed directory")
+				}
+				if _, err := os.Stat(archive); err != nil {
+					t.Fatal("retention removed an archive outside its safe directory chain", err)
+				}
+			}
+		})
+	}
+}
+
+func TestLogRetentionDoesNotCreateMissingDirectories(t *testing.T) {
+	c := testConfig(t)
+	parent := filepath.Join(testDirectory(t), "missing")
+	c.Cleanup.LogRoot = filepath.Join(parent, "logs")
+	for _, dryRun := range []bool{true, false} {
+		if results, err := expireLogs(t.Context(), c, dryRun); err != nil || len(results) != 0 {
+			t.Fatal("missing retention directory was not a no-op", results, err)
+		}
+	}
+	if _, err := os.Stat(parent); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("retention created missing directories", err)
 	}
 }
 

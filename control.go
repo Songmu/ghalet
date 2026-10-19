@@ -255,8 +255,8 @@ func (d *daemon) gc(ctx context.Context, dryRun bool) controlResponse {
 				result.Error = err.Error()
 			} else if alive {
 				result.Action = "retain active execution"
-			} else if !run.outputCollected() {
-				result.Action = "retain execution awaiting output collection"
+			} else if !run.outputCollected() || (run.WaitDone != nil && !run.Exited && !run.Stopping) {
+				result.Action = "retain execution awaiting output collection or exit observation"
 			} else if !dryRun {
 				state.ProcessDone, state.Phase = true, "cleaning"
 				if err := d.save(run); err != nil {
@@ -346,6 +346,10 @@ func (d *daemon) destroy(ctx context.Context, confirmation string) controlRespon
 		d.mu.Unlock()
 		return controlResponse{Error: "unrecognized or corrupt local executions prevent safe destruction; inspect doctor and resolve them first"}
 	}
+	if set.Statistics == nil {
+		d.mu.Unlock()
+		return controlResponse{Error: "scale set statistics are unavailable; registration retained"}
+	}
 	var target *targetRuntime
 	for _, candidate := range d.targets {
 		if candidate.Set != nil && candidate.Set.ID == plan.ScaleSetID &&
@@ -360,19 +364,14 @@ func (d *daemon) destroy(ctx context.Context, confirmation string) controlRespon
 			ID: id, ScopeRef: plan.Scope, RunnerGroup: plan.RunnerGroup, ScaleSetName: plan.ScaleSet,
 			Scaling: ScalingConfig{MaxRunners: d.config.Capacity.MaxRunners},
 		}, Client: client, Set: set}
-		if set.Statistics != nil {
-			target.Assigned = set.Statistics.TotalAssignedJobs
-		}
-		d.targets[id] = target
-		d.order = append(d.order, id)
 	}
 	if err := d.adoptForDestroy(ctx, target, plan); err != nil {
 		d.mu.Unlock()
 		return controlResponse{Error: d.secrets.redact(err.Error())}
 	}
-	if set.Statistics == nil {
-		d.mu.Unlock()
-		return controlResponse{Error: "scale set statistics are unavailable; registration retained"}
+	if d.targets[target.Config.ID] == nil {
+		d.targets[target.Config.ID] = target
+		d.order = append(d.order, target.Config.ID)
 	}
 	target.Assigned = max(target.Assigned, set.Statistics.TotalAssignedJobs)
 	d.beginDrain(target)
@@ -440,6 +439,12 @@ func (d *daemon) adoptForDestroy(ctx context.Context, target *targetRuntime, pla
 	if err != nil {
 		return err
 	}
+	type adoption struct {
+		run     *activeRun
+		alive   bool
+		members []ProcessIdentity
+	}
+	var pending []adoption
 	for _, run := range d.runs {
 		state := run.State
 		if state.ScopeURL == plan.URL && state.ScaleSetID == plan.ScaleSetID &&
@@ -474,15 +479,24 @@ func (d *daemon) adoptForDestroy(ctx context.Context, target *targetRuntime, pla
 				return fmt.Errorf("cannot verify retained runner %s at GitHub; registration retained", state.RunID)
 			}
 		}
+		pending = append(pending, adoption{run: run, alive: alive, members: members})
+	}
+	for _, candidate := range pending {
+		run := candidate.run
+		state := run.State
 		// This association is memory-only. A restart must require a fresh
 		// explicit target and confirmation rather than resuming destruction.
 		run.Target, run.Uncertain, run.State.Error = target, false, ""
-		state.Members = members
-		if !alive {
+		state.Members = candidate.members
+		if !candidate.alive {
 			state.ProcessDone, state.Phase = true, "cleaning"
 			run.Exited = true
 		}
 		if err := d.save(run); err != nil {
+			for _, item := range pending {
+				item.run.Uncertain = true
+				item.run.State.Error = "destruction adoption did not finish: " + d.secrets.redact(err.Error())
+			}
 			return err
 		}
 	}

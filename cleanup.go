@@ -210,27 +210,18 @@ func syncLogArchive(path string) error {
 			return err
 		}
 	}
-	// A newly created logRoot may itself have newly created ancestors.
-	for parent := filepath.Dir(path); ; parent = filepath.Dir(parent) {
-		dir, err := os.Open(parent)
-		if err != nil {
-			return err
-		}
-		if err := errors.Join(dir.Sync(), dir.Close()); err != nil {
-			return err
-		}
-		if parent == filepath.Dir(parent) {
-			return nil
-		}
-	}
+	return syncDirectoryChain(filepath.Dir(path))
 }
 
 func expireLogs(ctx context.Context, c *Config, dryRun bool) ([]OperationResult, error) {
 	base := filepath.Join(c.Cleanup.LogRoot, "runs")
-	entries, err := os.ReadDir(base)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil, nil
+	if err := existingDirectory(base); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, err
 	}
+	entries, err := os.ReadDir(base)
 	if err != nil {
 		return nil, err
 	}

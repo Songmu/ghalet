@@ -364,6 +364,57 @@ func TestRunnerExitStopsObservedDescendantsBeforeCollectingOutput(t *testing.T) 
 	}
 }
 
+func TestExitClassificationWaitsForCollectedReadiness(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		ready       bool
+		exitErr     error
+		stopping    bool
+		wantFailure bool
+	}{
+		{name: "late readiness", ready: true},
+		{name: "no readiness", wantFailure: true},
+		{name: "failed after readiness", ready: true, exitErr: errTestAPI, wantFailure: true},
+		{name: "intentional stop", stopping: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d, _ := testDaemon(t)
+			target := d.targets["build"]
+			target.Failures = maxAttempts - 1
+			state := testState(t, d.config)
+			state.Phase = "registered"
+			if err := d.store.save(state); err != nil {
+				t.Fatal(err)
+			}
+			run := &activeRun{State: state, WaitDone: make(chan struct{}), Stopping: tc.stopping}
+			d.runs[state.RunID] = run
+			d.processEvent(runEvent{id: state.RunID, kind: "exit", err: tc.exitErr})
+			if !run.Exited || run.ExitResult == nil || target.Failures != maxAttempts-1 || target.Fault != "" {
+				t.Fatal("direct exit was not observed or was classified before output collection")
+			}
+			run.OutputReady = tc.ready
+			close(run.WaitDone)
+			d.reconcile()
+			if d.runs[state.RunID] != nil || run.ExitResult != nil {
+				t.Fatal("collected exit did not finish classification and cleanup")
+			}
+			wantFailures := 0
+			if tc.wantFailure {
+				wantFailures = maxAttempts
+			} else if tc.stopping {
+				wantFailures = maxAttempts - 1
+			}
+			if target.Failures != wantFailures || (target.Fault != "") != tc.wantFailure {
+				t.Fatal("incorrect readiness-dependent exit classification", target.Failures, target.Fault)
+			}
+			d.processEvent(runEvent{id: state.RunID, kind: "ready"})
+			if target.Failures != wantFailures {
+				t.Fatal("late ready event changed an already classified result")
+			}
+		})
+	}
+}
+
 func TestCompletedTargetDrainDoesNotExpire(t *testing.T) {
 	d, api := testDaemon(t)
 	useFakeManagement(d, api)

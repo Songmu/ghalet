@@ -99,6 +99,37 @@ func TestAcquisitionReservesSharedCapacityAndReplayIsIdempotent(t *testing.T) {
 	}
 }
 
+func TestAcquisitionAccumulatesReservationsWithoutStatistics(t *testing.T) {
+	for _, failure := range []int{0, 1, 2} {
+		t.Run(map[int]string{0: "success", 1: "first ambiguous", 2: "second ambiguous"}[failure], func(t *testing.T) {
+			d, _ := testDaemon(t)
+			target := d.targets["build"]
+			session := &fakeSession{}
+			scaler := &targetScaler{daemon: d, target: target, session: session}
+			for id := 1; id <= 3; id++ {
+				session.acquireErr = nil
+				if id == failure {
+					session.acquireErr = errTestAPI
+				}
+				message := availableMessage(id, 1)
+				message.Statistics = nil
+				err := scaler.Scale(t.Context(), message)
+				if (err != nil) != (id == failure) {
+					t.Fatal("unexpected acquisition result", err)
+				}
+				if target.Pending != min(id, 2) || len(session.acquired) != min(id, 2) {
+					t.Fatal("successive messages replaced reservations or exceeded capacity", target.Pending, session.acquired)
+				}
+			}
+			message := availableMessage(4, 0)
+			message.Statistics.TotalAssignedJobs = 2
+			if err := scaler.Scale(t.Context(), message); err != nil || target.Pending != 0 || target.Assigned != 2 {
+				t.Fatal("authoritative statistics did not replace accumulated reservations", err)
+			}
+		})
+	}
+}
+
 func TestDrainRejectsNewAcquisitionsButKeepsAuthoritativeAssignedWork(t *testing.T) {
 	d, _ := testDaemon(t)
 	target := d.targets["build"]
