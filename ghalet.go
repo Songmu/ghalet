@@ -5,93 +5,40 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"flag"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
-	"os/signal"
 	"strings"
-	"syscall"
 	"time"
 )
 
-const cmdName = "ghalet"
+// ControlOptions selects a management operation and its target.
+type ControlOptions struct {
+	Command     string
+	Target      string
+	DryRun      bool
+	RunnerGroup string
+	ScaleSet    string
+}
 
-// Run executes the ghalet command.
-func Run(ctx context.Context, argv []string, outStream, errStream io.Writer) error {
-	fs := flag.NewFlagSet(cmdName, flag.ContinueOnError)
-	fs.SetOutput(errStream)
-	versionFlag := fs.Bool("version", false, "display version")
-	configFlag := fs.String("config", "", "configuration path (default ~/.config/ghalet/config.yaml)")
-	// Accept common flags both before and after the command.
-	command := ""
-	if len(argv) > 0 && !strings.HasPrefix(argv[0], "-") {
-		command, argv = argv[0], argv[1:]
+// Control executes a management operation through the daemon, falling back to
+// locked offline execution for gc and destroy when the daemon is unavailable.
+func Control(ctx context.Context, path string, options ControlOptions, outStream, errStream io.Writer) error {
+	command := options.Command
+	switch command {
+	case "status", "doctor", "drain", "gc", "destroy":
+	default:
+		return fmt.Errorf("unsupported control command %q", command)
 	}
-	if command == "config" {
-		if len(argv) == 0 || argv[0] != "validate" {
-			return errors.New("usage: ghalet config validate [--config path]")
-		}
-		command, argv = "validate", argv[1:]
-	}
-	target := fs.String("target", "", "target id (required for destroy; default all targets for drain)")
-	dryRun := fs.Bool("dry-run", false, "show garbage collection without modifying files")
-	group := fs.String("runner-group", "", "existing organization runner group")
-	set := fs.String("scale-set", "", "explicit scale set name to destroy")
-	fs.Usage = func() {
-		fmt.Fprintln(errStream, "Usage: ghalet <run|config validate|status|doctor|drain|gc|destroy> [options]")
-		fs.PrintDefaults()
-	}
-	if err := fs.Parse(argv); err != nil {
-		return err
-	}
-	if *versionFlag {
-		return printVersion(outStream)
-	}
-	if command == "" && fs.NArg() > 0 {
-		command = fs.Arg(0)
-		remaining := fs.Args()[1:]
-		if command == "config" && len(remaining) > 0 && remaining[0] == "validate" {
-			command, remaining = "validate", remaining[1:]
-		}
-		if err := fs.Parse(remaining); err != nil {
-			return err
-		}
-	}
-	if *versionFlag {
-		return printVersion(outStream)
-	}
-	if fs.NArg() != 0 {
-		return fmt.Errorf("unexpected arguments: %s", strings.Join(fs.Args(), " "))
-	}
-	path, err := configPath(*configFlag)
+	path, err := configPath(path)
 	if err != nil {
 		return err
-	}
-	switch command {
-	case "run", "validate", "status", "doctor", "drain", "gc", "destroy":
-	default:
-		fs.Usage()
-		return errors.New("a supported command is required")
 	}
 	if _, err := os.Stat(path); err != nil {
 		return fmt.Errorf("selected config: %w", err)
 	}
-	if command == "validate" || command == "run" {
-		config, err := LoadConfig(path)
-		if err != nil {
-			return err
-		}
-		if command == "validate" {
-			_, err := fmt.Fprintln(outStream, "Configuration is valid.")
-			return err
-		}
-		ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
-		defer stop()
-		return runDaemon(ctx, config, outStream)
-	}
-	request := controlRequest{Command: command, Target: *target, DryRun: *dryRun, RunnerGroup: *group, ScaleSet: *set}
+	request := controlRequest{Command: command, Target: options.Target, DryRun: options.DryRun, RunnerGroup: options.RunnerGroup, ScaleSet: options.ScaleSet}
 	if command == "destroy" {
 		request.Command = "destroy-plan"
 		terminal := exec.Command("/bin/sh", "-c", "test -t 0")
@@ -210,7 +157,8 @@ func printResponse(out io.Writer, response controlResponse) error {
 	return nil
 }
 
-func runDaemon(ctx context.Context, config *Config, out io.Writer) error {
+// RunDaemon runs the daemon until ctx is canceled and its runners are drained.
+func RunDaemon(ctx context.Context, config *Config, out io.Writer) error {
 	lock, err := lockWorkRoot(config.Runner.WorkRoot)
 	if err != nil {
 		return err
@@ -232,9 +180,4 @@ func runDaemon(ctx context.Context, config *Config, out io.Writer) error {
 	go server.serve(d)
 	d.log.Info("Daemon ready", "event", "daemon.ready", "config", config.Path, "capacity", config.Capacity.MaxRunners)
 	return d.serve(ctx)
-}
-
-func printVersion(out io.Writer) error {
-	_, err := fmt.Fprintf(out, "%s v%s (rev:%s)\n", cmdName, version, revision)
-	return err
 }

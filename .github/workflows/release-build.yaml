@@ -32,7 +32,7 @@ jobs:
         package-version: ${{ github.ref_name }}
         os: linux,darwin
         packages: ./cmd/ghalet
-        build-ldflags: -s -w -X github.com/Songmu/ghalet.revision=${{ steps.build.outputs.revision }}
+        build-ldflags: -s -w -X github.com/Songmu/ghalet.Revision=${{ steps.build.outputs.revision }}
         checksum: true
     - name: attest build provenance
       uses: actions/attest@v4.2.2

@@ -1,5 +1,7 @@
 package ghalet
 
-const version = "0.0.0"
+// Version is the application version.
+const Version = "0.0.0"
 
-var revision = "HEAD"
+// Revision is the source revision, set at build time.
+var Revision = "HEAD"

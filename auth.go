@@ -179,7 +179,7 @@ func readProtected(path string) (string, error) {
 func newScaleClient(ctx context.Context, target Target, secret *secrets) (*scaleset.Client, error) {
 	credential := target.Credential
 	options := []scaleset.HTTPOption{scaleset.WithTimeout(apiTimeout), scaleset.WithRetryMax(0)}
-	info := scaleset.SystemInfo{System: "ghalet", Version: version, CommitSHA: revision}
+	info := scaleset.SystemInfo{System: "ghalet", Version: Version, CommitSHA: Revision}
 	if credential.Type == "github-app" {
 		key, err := readProtected(credential.PrivateKeyFile)
 		if err != nil {

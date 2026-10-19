@@ -98,7 +98,7 @@ func TestGitHubEphemeralLifecycle(t *testing.T) {
 	c.Runner.DrainTimeout = Duration(15 * time.Second)
 	var logs lockedBuffer
 	finished := make(chan error, 1)
-	go func() { finished <- runDaemon(ctx, c, &logs) }()
+	go func() { finished <- RunDaemon(ctx, c, &logs) }()
 	defer func() {
 		cancel()
 		select {
