@@ -11,15 +11,63 @@ ghalet
 [license]: https://github.com/Songmu/ghalet/blob/main/LICENSE
 [PkgGoDev]: https://pkg.go.dev/github.com/Songmu/ghalet
 
-ghalet short description
+ghalet runs ephemeral GitHub Actions Runner Scale Sets as native Linux/macOS
+processes. It scales several repository/organization targets within a shared
+host capacity, without Kubernetes, Docker, or a VM per job.
 
 ## Synopsis
 
-```go
-// simple usage here
+```sh
+mkdir -p ~/.config/ghalet
+cp examples/config.yaml ~/.config/ghalet/config.yaml
+# Edit the repository URL, scale set name and pinned runner version.
+gh auth login
+ghalet config validate
+ghalet run
 ```
 
-## Description
+Use the configured scale set name in a trusted workflow:
+
+```yaml
+jobs:
+  build:
+    runs-on: macmini
+    steps:
+      - run: uname -a
+```
+
+In another terminal:
+
+```sh
+ghalet status
+ghalet doctor
+ghalet drain --target project
+ghalet gc --dry-run
+```
+
+## Behavior and trust
+
+Each job receives a new JIT runner, runner directory and workspace. The
+execution user, HOME, host tools and caches are shared. **This is not job
+isolation: do not run untrusted fork PRs or hostile code.** Root jobs and
+Docker-dependent workflows are unsupported.
+
+The default host capacity is two. Targets support minimum idle runners and
+per-target limits; real assigned jobs take precedence over idle warm pools.
+Normal termination drains accepted work. Crashes recover from small atomic
+state files and kernel process identities, retaining uncertain executions
+rather than guessing which process to kill.
+
+Runner archives are automatically downloaded for the pinned version and
+verified against official SHA-256 digests. Daemon stdout is JSONL; optional
+runner logs are archived before execution cleanup. Configuration changes and
+faulted targets require a normal stop/restart. Scale sets remain registered
+until an explicit, interactively confirmed `destroy`.
+
+See [operations](docs/operations.md) for authentication, configuration,
+recovery, command exit codes and systemd/launchd/Lima examples.
+See [validation](docs/validation.md) for automated coverage and the explicit
+opt-in live acceptance tests and their limits.
 
 ## Installation
 
@@ -38,6 +86,12 @@ ghalet short description
 ```
 
 ## Development
+
+```sh
+go test -race ./...
+go vet ./...
+go build ./cmd/ghalet
+```
 
 After changing GitHub Actions dependencies, run `gh actions-lock` and commit
 `.github/workflows/actions.lock` with the workflow changes. Install the tool

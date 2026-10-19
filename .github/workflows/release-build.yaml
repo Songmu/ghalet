@@ -30,7 +30,7 @@ jobs:
       uses: Songmu/goxz@v0.13.0
       with:
         package-version: ${{ github.ref_name }}
-        os: linux,darwin,windows
+        os: linux,darwin
         packages: ./cmd/ghalet
         build-ldflags: -s -w -X github.com/Songmu/ghalet.revision=${{ steps.build.outputs.revision }}
         checksum: true
