@@ -514,14 +514,14 @@ func TestGCWaitsForOutputCollectionBeforeArchiving(t *testing.T) {
 	if err := os.WriteFile(source, []byte("partial output"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	run := &activeRun{State: state, WaitDone: make(chan struct{}), JITSecrets: d.secrets.addJIT("test-jit-secret")}
+	run := &activeRun{State: state, WaitDone: make(chan struct{}), JITSecrets: d.secrets.AddJIT("test-jit-secret")}
 	d.runs[state.RunID] = run
 	for _, dryRun := range []bool{true, false} {
 		response := d.gc(t.Context(), dryRun)
 		if response.Error != "" || len(response.Results) != 1 || !strings.Contains(response.Results[0].Action, "awaiting output collection") {
 			t.Fatal("gc did not retain an execution with pending output", response)
 		}
-		if state.ProcessDone || run.CleanupTried || d.runs[state.RunID] == nil || d.secrets.redact("test-jit-secret") == "test-jit-secret" {
+		if state.ProcessDone || run.CleanupTried || d.runs[state.RunID] == nil || d.secrets.Redact("test-jit-secret") == "test-jit-secret" {
 			t.Fatal("gc released execution state or redaction secrets before output completion")
 		}
 		if _, err := os.Stat(source); err != nil {

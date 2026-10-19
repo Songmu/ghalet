@@ -14,12 +14,13 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Songmu/ghalet/logreduct"
 	"github.com/actions/scaleset"
 )
 
 func TestCredentialsAndSecretRedaction(t *testing.T) {
 	c := testConfig(t)
-	secret := &secrets{}
+	secret := &logreduct.Redactor{}
 	t.Setenv("GHALET_TEST_TOKEN", "management-secret")
 	client, err := newScaleClient(t.Context(), c.Targets[0], secret)
 	if err != nil || client == nil {
@@ -27,9 +28,9 @@ func TestCredentialsAndSecretRedaction(t *testing.T) {
 	}
 	raw, _ := json.Marshal(map[string]string{".credentials": base64.StdEncoding.EncodeToString([]byte("runner-credential"))})
 	jit := base64.StdEncoding.EncodeToString(raw)
-	secret.addJIT(jit)
+	secret.AddJIT(jit)
 	var output bytes.Buffer
-	logger := slog.New(slog.NewJSONHandler(&output, &slog.HandlerOptions{ReplaceAttr: secret.replaceAttr}))
+	logger := slog.New(slog.NewJSONHandler(&output, &slog.HandlerOptions{ReplaceAttr: secret.ReplaceAttr}))
 	logger.Info("management-secret\nmultiline", "jit", jit, "error", errors.New("runner-credential"))
 	if strings.Contains(output.String(), "management-secret") || strings.Contains(output.String(), jit) ||
 		strings.Contains(output.String(), "runner-credential") || bytes.Count(output.Bytes(), []byte("\n")) != 1 || !json.Valid(bytes.TrimSpace(output.Bytes())) {
@@ -44,13 +45,13 @@ func TestCredentialsAndSecretRedaction(t *testing.T) {
 func TestGlobalLoggerRedactsSecrets(t *testing.T) {
 	var output bytes.Buffer
 	original := slog.Default()
-	slog.SetDefault(slog.New(slog.NewJSONHandler(&output, &slog.HandlerOptions{ReplaceAttr: RedactLogAttr})))
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&output, &slog.HandlerOptions{ReplaceAttr: logreduct.Default.ReplaceAttr})))
 	defer slog.SetDefault(original)
 	values := []string{"management-secret", "jit-secret"}
 	for _, value := range values {
-		logSecrets.add(value)
+		logreduct.Default.Add(value)
 	}
-	defer logSecrets.release(values)
+	defer logreduct.Default.Release(values)
 	slog.With("credential", "management-secret").WithGroup("execution").Info("jit-secret",
 		slog.Group("details", "error", errors.New("jit-secret"), "token", "management-secret"))
 	if strings.Contains(output.String(), "management-secret") || strings.Contains(output.String(), "jit-secret") ||
@@ -65,13 +66,13 @@ func TestGlobalLoggerRedactsSecrets(t *testing.T) {
 func TestGlobalLogRedactionTracksJITLifetime(t *testing.T) {
 	var output bytes.Buffer
 	original := slog.Default()
-	slog.SetDefault(slog.New(slog.NewJSONHandler(&output, &slog.HandlerOptions{ReplaceAttr: RedactLogAttr})))
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&output, &slog.HandlerOptions{ReplaceAttr: logreduct.Default.ReplaceAttr})))
 	defer slog.SetDefault(original)
 	value := base64.StdEncoding.EncodeToString([]byte("global-log-jit-lifetime-secret"))
-	values := logSecrets.addJIT(value)
+	values := logreduct.Default.AddJIT(value)
 	slog.Info("Runner failed", "jit", value)
 	redacted := output.String()
-	logSecrets.release(values)
+	logreduct.Default.Release(values)
 	if strings.Contains(redacted, value) || !strings.Contains(redacted, `"jit":"***"`) {
 		t.Fatal("new JIT secret was not redacted", redacted)
 	}
@@ -102,7 +103,7 @@ func TestDirectAPILogRedactionWithOrdinaryHandler(t *testing.T) {
 			original := slog.Default()
 			slog.SetDefault(slog.New(slog.NewJSONHandler(&output, nil)))
 			defer slog.SetDefault(original)
-			defer logSecrets.release([]string{credential})
+			defer logreduct.Default.Release([]string{credential})
 			ctx, cancel := context.WithCancel(t.Context())
 			cancel()
 			switch command {
@@ -160,101 +161,6 @@ func TestProtectedCredentials(t *testing.T) {
 	}
 }
 
-func TestOverlappingSecretRedaction(t *testing.T) {
-	for _, tc := range []struct {
-		name    string
-		secrets []string
-		input   string
-		want    string
-	}{
-		{"prefix", []string{"shared-secret", "shared-secret-private-suffix"}, "before shared-secret-private-suffix after", "before *** after"},
-		{"partial overlap", []string{"abc", "bcd"}, "abcd", "***"},
-		{"overlap chain", []string{"abc", "cde", "efg"}, "abcdefgh", "***h"},
-		{"nested", []string{"inner", "outer-inner-end"}, "outer-inner-end", "***"},
-		{"self overlap", []string{"aaa"}, "aaaaa", "***"},
-		{"separated", []string{"abc", "bcd"}, "abcd / abcd", "*** / ***"},
-		{"adjacent", []string{"abc", "def"}, "abcdef", "******"},
-		{"multiline component", []string{"header\nshared-secret", "shared-secret-private-suffix"}, "shared-secret-private-suffix", "***"},
-		{"replacement marker", []string{"sensitive", "*"}, "sensitive", "***"},
-		{"no match", []string{"absent"}, "unchanged", "unchanged"},
-		{"empty input", []string{"secret"}, "", ""},
-		{"empty secret", []string{""}, "unchanged", "unchanged"},
-	} {
-		for _, reverse := range []bool{false, true} {
-			order := "forward"
-			if reverse {
-				order = "reverse"
-			}
-			t.Run(tc.name+"/"+order, func(t *testing.T) {
-				secret := &secrets{}
-				for i := range tc.secrets {
-					index := i
-					if reverse {
-						index = len(tc.secrets) - 1 - i
-					}
-					secret.add(tc.secrets[index])
-				}
-				if got := secret.redact(tc.input); got != tc.want {
-					t.Fatalf("redaction: got %q, want %q", got, tc.want)
-				}
-				var output bytes.Buffer
-				logger := slog.New(slog.NewJSONHandler(&output, &slog.HandlerOptions{ReplaceAttr: secret.replaceAttr}))
-				logger.Info(tc.input, "value", tc.input, "error", errors.New(tc.input))
-				var record struct {
-					Message string `json:"msg"`
-					Value   string `json:"value"`
-					Error   string `json:"error"`
-				}
-				if err := json.Unmarshal(output.Bytes(), &record); err != nil {
-					t.Fatal(err)
-				}
-				if record.Message != tc.want || record.Value != tc.want || record.Error != tc.want {
-					t.Fatal("structured log redaction differs from direct masking", record)
-				}
-			})
-		}
-	}
-}
-
-func TestMultilineSecretReferenceCounts(t *testing.T) {
-	secret := &secrets{}
-	first := "shared-line\r\nfirst-line\r\nshared-line\r\n"
-	second := "shared-line\nsecond-line"
-	secret.add(first)
-	secret.add(first)
-	secret.add(second)
-	secret.add("first-line")
-	secret.release([]string{first})
-	if got := secret.redact("shared-line first-line second-line"); got != "*** *** ***" {
-		t.Fatal("releasing one reference exposed shared components", got)
-	}
-	secret.release([]string{first})
-	if got := secret.redact("shared-line first-line second-line"); got != "*** *** ***" {
-		t.Fatal("releasing a multiline secret exposed independently registered components", got)
-	}
-	secret.release([]string{second})
-	if got := secret.redact("shared-line first-line second-line"); got != "shared-line *** second-line" {
-		t.Fatal("multiline components were not released independently", got)
-	}
-	secret.release([]string{"first-line"})
-	if len(secret.values) != 0 || len(secret.refs) != 0 {
-		t.Fatal("released multiline secrets retained registered components")
-	}
-
-	raw, err := json.Marshal(map[string]string{"credential": base64.StdEncoding.EncodeToString([]byte(first))})
-	if err != nil {
-		t.Fatal(err)
-	}
-	values := secret.addJIT(base64.StdEncoding.EncodeToString(raw))
-	if got := secret.redact("shared-line first-line"); got != "*** ***" {
-		t.Fatal("decoded multiline JIT secret was not registered", got)
-	}
-	secret.release(values)
-	if len(secret.values) != 0 || len(secret.refs) != 0 {
-		t.Fatal("JIT release retained multiline components")
-	}
-}
-
 func TestSharedAppKeyUsesTargetInstallations(t *testing.T) {
 	c := testConfig(t)
 	first := c.Targets[0]
@@ -283,11 +189,11 @@ func TestGhAuthenticationUsesHostAndFiniteCommand(t *testing.T) {
 	}
 	t.Setenv("PATH", dir+":"+os.Getenv("PATH"))
 	c.Targets[0].Credential = Credential{Type: "gh"}
-	secret := &secrets{}
+	secret := &logreduct.Redactor{}
 	if _, err := newScaleClient(t.Context(), c.Targets[0], secret); err != nil {
 		t.Fatal(err)
 	}
-	if secret.redact("fake-gh-secret") != "***" {
+	if secret.Redact("fake-gh-secret") != "***" {
 		t.Fatal("gh token not registered for redaction")
 	}
 	os.WriteFile(path, []byte("#!/bin/sh\nprintf sensitive-stderr >&2\nexit 1\n"), 0700)

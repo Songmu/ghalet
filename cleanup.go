@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/Songmu/ghalet/logreduct"
 )
 
 const maxLogLineBytes = 64 * 1024
@@ -22,7 +24,7 @@ type runnerOutput struct {
 	file     *os.File
 	buffer   []byte
 	dropping bool
-	secrets  *secrets
+	secrets  *logreduct.Redactor
 	ready    func()
 }
 
@@ -40,7 +42,7 @@ func (w *runnerOutput) Write(data []byte) (int, error) {
 			if len(part) > maxLogLineBytes-len(w.buffer) {
 				w.buffer = w.buffer[:0]
 				w.dropping = true
-				if _, err := io.WriteString(w.file, w.secrets.redact(omittedLogLine)); err != nil {
+				if _, err := io.WriteString(w.file, w.secrets.Redact(omittedLogLine)); err != nil {
 					return 0, err
 				}
 			} else {
@@ -56,7 +58,7 @@ func (w *runnerOutput) Write(data []byte) (int, error) {
 				w.ready()
 				w.ready = nil
 			}
-			if _, err := io.WriteString(w.file, w.secrets.redact(line+"\n")); err != nil {
+			if _, err := io.WriteString(w.file, w.secrets.Redact(line+"\n")); err != nil {
 				return 0, err
 			}
 		}
@@ -69,11 +71,11 @@ func (w *runnerOutput) Write(data []byte) (int, error) {
 func (w *runnerOutput) close() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	_, writeErr := io.WriteString(w.file, w.secrets.redact(string(w.buffer)))
+	_, writeErr := io.WriteString(w.file, w.secrets.Redact(string(w.buffer)))
 	return errors.Join(writeErr, w.file.Sync(), w.file.Close())
 }
 
-func copyRedacted(input io.Reader, dest string, secret *secrets) error {
+func copyRedacted(input io.Reader, dest string, secret *logreduct.Redactor) error {
 	output, err := os.OpenFile(dest, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
 	if err != nil {
 		return err
@@ -90,7 +92,7 @@ type archivedRun struct {
 	ArchivedAt time.Time `json:"archivedAt"`
 }
 
-func archiveLogs(c *Config, state *RunState, secret *secrets) error {
+func archiveLogs(c *Config, state *RunState, secret *logreduct.Redactor) error {
 	if !c.Cleanup.PreserveLogs {
 		return nil
 	}

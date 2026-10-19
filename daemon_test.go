@@ -440,7 +440,7 @@ func TestRunnerExitStopsObservedDescendantsBeforeCollectingOutput(t *testing.T) 
 		t.Fatal(err)
 	}
 	d.mu.Unlock()
-	d.secrets.add("final-secret")
+	d.secrets.Add("final-secret")
 	gate, err := os.OpenFile(release, os.O_WRONLY|syscall.O_NONBLOCK, 0600)
 	if err != nil {
 		t.Fatal(err)

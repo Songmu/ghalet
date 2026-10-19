@@ -242,6 +242,6 @@ func RunDaemon(ctx context.Context, config *Config) error {
 		return err
 	}
 	go server.serve(d)
-	slog.Info("Daemon ready", "event", "daemon.ready", "config", d.secrets.redact(config.Path), "capacity", config.Capacity.MaxRunners)
+	slog.Info("Daemon ready", "event", "daemon.ready", "config", d.secrets.Redact(config.Path), "capacity", config.Capacity.MaxRunners)
 	return d.serve(ctx)
 }

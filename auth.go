@@ -2,17 +2,14 @@ package ghalet
 
 import (
 	"context"
-	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"os"
 	"os/exec"
 	"strings"
-	"sync"
 	"time"
 
+	"github.com/Songmu/ghalet/logreduct"
 	"github.com/actions/scaleset"
 )
 
@@ -20,161 +17,6 @@ const apiTimeout = 45 * time.Second
 const preparationTimeout = 10 * time.Minute
 const commandTimeout = 15 * time.Second
 const maxAttempts = 4
-
-type secrets struct {
-	mu     sync.RWMutex
-	values []string
-	refs   map[string]int
-}
-
-// Logs and execution output share a process-wide registry so direct slog calls
-// see credentials registered after the default handler was configured.
-var logSecrets secrets
-
-// RedactLogAttr masks known management and runner secrets in slog handler output.
-func RedactLogAttr(groups []string, attr slog.Attr) slog.Attr {
-	return logSecrets.replaceAttr(groups, attr)
-}
-
-func secretComponents(value string) []string {
-	if value == "" {
-		return nil
-	}
-	values := []string{value}
-	if strings.Contains(value, "\n") {
-		for line := range strings.SplitSeq(value, "\n") {
-			line = strings.TrimSuffix(line, "\r")
-			if strings.TrimSpace(line) != "" {
-				values = append(values, line)
-			}
-		}
-	}
-	return values
-}
-
-func (s *secrets) add(value string) {
-	if value == "" {
-		return
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.refs == nil {
-		s.refs = map[string]int{}
-	}
-	for _, component := range secretComponents(value) {
-		if s.refs[component] == 0 {
-			s.values = append(s.values, component)
-		}
-		s.refs[component]++
-	}
-}
-
-func (s *secrets) redact(value string) string {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	// Bound match storage by input size, even with many overlapping matches.
-	var ends []int
-	for _, secret := range s.values {
-		for offset := 0; offset < len(value); {
-			match := strings.Index(value[offset:], secret)
-			if match < 0 {
-				break
-			}
-			start := offset + match
-			if ends == nil {
-				ends = make([]int, len(value))
-			}
-			ends[start] = max(ends[start], start+len(secret))
-			offset = start + 1
-		}
-	}
-	if ends == nil {
-		return value
-	}
-	var output strings.Builder
-	last := 0
-	for start := 0; start < len(value); start++ {
-		end := ends[start]
-		if end == 0 {
-			continue
-		}
-		output.WriteString(value[last:start])
-		for next := start + 1; next < end; next++ {
-			end = max(end, ends[next])
-		}
-		output.WriteString("***")
-		last = end
-		start = end - 1
-	}
-	output.WriteString(value[last:])
-	return output.String()
-}
-
-func (s *secrets) addJIT(value string) []string {
-	values := []string{value}
-	defer func() {
-		for _, value := range values {
-			s.add(value)
-		}
-	}()
-	raw, err := base64.StdEncoding.DecodeString(value)
-	if err != nil {
-		return values
-	}
-	values = append(values, string(raw))
-	var fields map[string]string
-	if json.Unmarshal(raw, &fields) == nil {
-		for _, field := range fields {
-			values = append(values, field)
-			if decoded, err := base64.StdEncoding.DecodeString(field); err == nil {
-				values = append(values, string(decoded))
-			}
-		}
-	}
-	return values
-}
-
-func (s *secrets) release(values []string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for _, value := range values {
-		for _, component := range secretComponents(value) {
-			if s.refs[component] > 1 {
-				s.refs[component]--
-				continue
-			}
-			delete(s.refs, component)
-			for i, old := range s.values {
-				if old == component {
-					copy(s.values[i:], s.values[i+1:])
-					s.values[len(s.values)-1] = ""
-					s.values = s.values[:len(s.values)-1]
-					break
-				}
-			}
-		}
-	}
-}
-
-func (s *secrets) replaceAttr(_ []string, attr slog.Attr) slog.Attr {
-	attr.Value = attr.Value.Resolve()
-	if attr.Value.Kind() == slog.KindGroup {
-		attrs := attr.Value.Group()
-		redacted := make([]slog.Attr, len(attrs))
-		for i, child := range attrs {
-			redacted[i] = s.replaceAttr(nil, child)
-		}
-		attr.Value = slog.GroupValue(redacted...)
-	}
-	if attr.Value.Kind() == slog.KindString {
-		attr.Value = slog.StringValue(s.redact(attr.Value.String()))
-	} else if attr.Value.Kind() == slog.KindAny {
-		if err, ok := attr.Value.Any().(error); ok {
-			attr.Value = slog.StringValue(s.redact(err.Error()))
-		}
-	}
-	return attr
-}
 
 func readProtected(path string) (string, error) {
 	info, err := os.Stat(path)
@@ -194,7 +36,7 @@ func readProtected(path string) (string, error) {
 	return strings.TrimSpace(string(data)), nil
 }
 
-func newScaleClient(ctx context.Context, target Target, secret *secrets) (*scaleset.Client, error) {
+func newScaleClient(ctx context.Context, target Target, secret *logreduct.Redactor) (*scaleset.Client, error) {
 	credential := target.Credential
 	options := []scaleset.HTTPOption{scaleset.WithTimeout(apiTimeout), scaleset.WithRetryMax(0)}
 	info := scaleset.SystemInfo{System: "ghalet", Version: Version, CommitSHA: Revision}
@@ -203,7 +45,7 @@ func newScaleClient(ctx context.Context, target Target, secret *secrets) (*scale
 		if err != nil {
 			return nil, fmt.Errorf("target %s: %w", target.ID, err)
 		}
-		secret.add(key)
+		secret.Add(key)
 		return scaleset.NewClientWithGitHubApp(scaleset.ClientWithGitHubAppConfig{
 			GitHubConfigURL: target.URL, SystemInfo: info,
 			GitHubAppAuth: scaleset.GitHubAppAuth{
@@ -245,7 +87,7 @@ func newScaleClient(ctx context.Context, target Target, secret *secrets) (*scale
 	if token == "" {
 		return nil, fmt.Errorf("target %s: empty management token", target.ID)
 	}
-	secret.add(token)
+	secret.Add(token)
 	return scaleset.NewClientWithPersonalAccessToken(scaleset.NewClientWithPersonalAccessTokenConfig{
 		GitHubConfigURL: target.URL, PersonalAccessToken: token, SystemInfo: info,
 	}, options...)

@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/Songmu/ghalet"
+	"github.com/Songmu/ghalet/logreduct"
 )
 
 func testDirectory(t *testing.T) string {
@@ -190,5 +191,28 @@ func TestDefaultLoggerRoutesOutput(t *testing.T) {
 				t.Fatal("default logger lost structured output", record)
 			}
 		})
+	}
+}
+
+func TestDefaultLoggerUsesSharedRedactor(t *testing.T) {
+	original := slog.Default()
+	defer slog.SetDefault(original)
+	var output, stderr bytes.Buffer
+	missing := filepath.Join(testDirectory(t), "missing.yaml")
+	if err := Run(t.Context(), []string{"status", "--config", missing}, &output, &stderr); err == nil {
+		t.Fatal("missing config was accepted")
+	}
+	const secret = "cli-late-registered-secret"
+	logreduct.Default.Add(secret)
+	defer logreduct.Default.Release([]string{secret})
+	slog.Info("credential", "token", secret)
+	var record struct {
+		Token string `json:"token"`
+	}
+	if err := json.Unmarshal(stderr.Bytes(), &record); err != nil {
+		t.Fatal("default logger did not produce JSON", err, stderr.String())
+	}
+	if record.Token != "***" || strings.Contains(stderr.String(), secret) {
+		t.Fatal("default logger did not use the shared redactor", stderr.String())
 	}
 }

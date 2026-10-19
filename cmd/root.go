@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/Songmu/ghalet"
+	"github.com/Songmu/ghalet/logreduct"
 )
 
 const cmdName = "ghalet"
@@ -66,7 +67,7 @@ func Run(ctx context.Context, argv []string, outStream, errStream io.Writer) err
 		logStream = outStream
 	}
 	slog.SetDefault(slog.New(slog.NewJSONHandler(logStream, &slog.HandlerOptions{
-		ReplaceAttr: ghalet.RedactLogAttr,
+		ReplaceAttr: logreduct.Default.ReplaceAttr,
 	})))
 	commands := map[string]func() error{
 		"run":      func() error { return run(ctx, *config) },
