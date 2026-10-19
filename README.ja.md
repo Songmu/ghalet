@@ -146,7 +146,7 @@ Scale Set の登録は、対話で明示的に承認した `destroy` を行う�
 
 - [運用ガイド](docs/operations.ja.md): 認証、設定、実行環境、復旧、ログ、
   systemd / launchd / Lima での常駐化。
-- [検証ガイド](docs/validation.ja.md): 自動テストの範囲、明示的に実行する実環境での
+- [検証ガイド](docs/validation.ja.md): 自動テストの実行方法、明示的に実行する実環境での
   受け入れテスト、検証で保証できないこと。
 - [設定サンプル](examples/config.yaml)と[設定スキーマ](schema.yaml)。
 

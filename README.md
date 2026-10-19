@@ -150,7 +150,7 @@ until an explicit, interactively confirmed `destroy`.
 
 - [Operations](docs/operations.md): authentication, configuration, execution
   environment, recovery, logs and systemd/launchd/Lima deployment.
-- [Validation](docs/validation.md): automated coverage, opt-in live
+- [Validation](docs/validation.md): automated tests, opt-in live
   acceptance tests and what those tests do not establish.
 - [Example configuration](examples/config.yaml) and [configuration schema](schema.yaml).
 
