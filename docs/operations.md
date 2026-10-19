@@ -283,7 +283,14 @@ state files remain readable; their legacy `scopeRef` does not select credentials
 or determine registration identity.
 
 With `preserveLogs: true`, `output.log` and `_diag/**/*.log` are archived to
-`cleanup.logRoot/runs/RUN_ID` before removing the execution. Credentials and
+`cleanup.logRoot/runs/RUN_ID` before removing the execution. `cleanup.logRoot`
+defaults to `$XDG_STATE_HOME/ghalet/logs`, or
+`~/.local/state/ghalet/logs` when `XDG_STATE_HOME` is unset, empty, or relative.
+An explicit `cleanup.logRoot` overrides this default; relative values are
+still resolved against the selected config's directory. Existing archives
+in the old config-relative `logs` directory are not moved or expired
+automatically; move them while the daemon is stopped, or set
+`cleanup.logRoot: logs` to keep using that directory. Credentials and
 workspace contents are not archived. Failed archives preserve the original
 logs and state. Once processes are confirmed stopped, file-only cleanup
 failures do not hold execution capacity; `gc` or the next startup retries

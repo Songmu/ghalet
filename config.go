@@ -146,6 +146,18 @@ func LoadConfig(path string) (*Config, error) {
 		return nil, errors.New("config must contain exactly one YAML document")
 	}
 	base := filepath.Dir(path)
+	stateHome := os.Getenv("XDG_STATE_HOME")
+	var logRootErr error
+	if !filepath.IsAbs(stateHome) {
+		stateHome, logRootErr = os.UserHomeDir()
+		if logRootErr == nil {
+			stateHome = filepath.Join(stateHome, ".local", "state")
+		}
+	}
+	logRoot := ""
+	if logRootErr == nil {
+		logRoot = filepath.Join(stateHome, "ghalet", "logs")
+	}
 	c := &Config{
 		Path: path, Capacity: CapacityConfig{MaxRunners: 2},
 		Runner: RunnerConfig{
@@ -153,10 +165,16 @@ func LoadConfig(path string) (*Config, error) {
 			StartupTimeout: Duration(2 * time.Minute), DrainTimeout: Duration(10 * time.Minute),
 			WorkRoot: "runs", DistributionRoot: "runners", CacheRoot: "downloads",
 		},
-		Cleanup: CleanupConfig{PreserveLogs: true, LogRetention: Duration(7 * 24 * time.Hour), LogRoot: "logs"},
+		Cleanup: CleanupConfig{
+			PreserveLogs: true, LogRetention: Duration(7 * 24 * time.Hour),
+			LogRoot: logRoot,
+		},
 	}
 	if err := yaml.NodeToValue(file.Docs[0].Body, c, yaml.Strict()); err != nil {
 		return nil, fmt.Errorf("decode config: %w", err)
+	}
+	if c.Cleanup.LogRoot == "" && logRootErr != nil {
+		return nil, fmt.Errorf("resolve default log directory: %w", logRootErr)
 	}
 	resolve := func(path string) string {
 		if !filepath.IsAbs(path) {
