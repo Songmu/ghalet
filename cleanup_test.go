@@ -3,6 +3,7 @@ package ghalet
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -206,6 +207,93 @@ func TestLogRetentionDoesNotCreateMissingDirectories(t *testing.T) {
 	}
 	if _, err := os.Stat(parent); !errors.Is(err, os.ErrNotExist) {
 		t.Fatal("retention created missing directories", err)
+	}
+}
+
+func TestLogLineLimitsApplyToLiveOutputAndArchives(t *testing.T) {
+	longChunks := make([]string, 4096)
+	for i := range longChunks {
+		longChunks[i] = strings.Repeat("x", 1024)
+	}
+	for _, tc := range []struct {
+		name   string
+		chunks []string
+		want   string
+		ready  int
+	}{
+		{
+			name:   "exact limit",
+			chunks: []string{strings.Repeat("x", maxLogLineBytes-len("secret-value")), "sec", "ret-value\n"},
+			want:   strings.Repeat("x", maxLogLineBytes-len("secret-value")) + "***\n",
+		},
+		{
+			name:   "single large write",
+			chunks: []string{strings.Repeat("x", 4*1024*1024)},
+			want:   omittedLogLine,
+		},
+		{
+			name:   "incremental unterminated line",
+			chunks: longChunks,
+			want:   omittedLogLine,
+		},
+		{
+			name:   "secret across omission boundary and resume",
+			chunks: []string{strings.Repeat("x", maxLogLineBytes-3) + "sec", "ret-value", "\nsec", "ret-value\nListening for ", "Jobs\nsec", "ret-value"},
+			want:   omittedLogLine + "***\nListening for Jobs\n***",
+			ready:  1,
+		},
+		{
+			name:   "oversized readiness line",
+			chunks: []string{"Listening for Jobs", strings.Repeat("x", maxLogLineBytes), "\n"},
+			want:   omittedLogLine,
+		},
+	} {
+		for _, live := range []bool{true, false} {
+			mode := "archive"
+			if live {
+				mode = "live"
+			}
+			t.Run(tc.name+"/"+mode, func(t *testing.T) {
+				path := filepath.Join(testDirectory(t), "output.log")
+				secret := &secrets{}
+				secret.add("secret-value")
+				if live {
+					file, err := os.Create(path)
+					if err != nil {
+						t.Fatal(err)
+					}
+					t.Cleanup(func() { file.Close() })
+					ready := 0
+					writer := &runnerOutput{file: file, secrets: secret, ready: func() { ready++ }}
+					for _, chunk := range tc.chunks {
+						if n, err := writer.Write([]byte(chunk)); err != nil || n != len(chunk) {
+							t.Fatal("bounded output write failed", n, err)
+						}
+						if len(writer.buffer) > maxLogLineBytes {
+							t.Fatal("unterminated output exceeded its buffer limit", len(writer.buffer))
+						}
+					}
+					if err := writer.close(); err != nil {
+						t.Fatal(err)
+					}
+					if ready != tc.ready {
+						t.Fatal("readiness detection changed across chunks or accepted an omitted line", ready)
+					}
+				} else {
+					readers := make([]io.Reader, len(tc.chunks))
+					for i, chunk := range tc.chunks {
+						readers[i] = strings.NewReader(chunk)
+					}
+					if err := copyRedacted(io.MultiReader(readers...), path, secret); err != nil {
+						t.Fatal(err)
+					}
+				}
+				data, err := os.ReadFile(path)
+				if err != nil || string(data) != tc.want {
+					t.Fatalf("unexpected bounded/redacted output: got %d bytes, want %d (%v)", len(data), len(tc.want), err)
+				}
+			})
+		}
 	}
 }
 

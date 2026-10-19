@@ -471,6 +471,9 @@ func (d *daemon) adoptForDestroy(ctx context.Context, target *targetRuntime, pla
 		if err != nil {
 			return fmt.Errorf("cannot drain retained execution %s: %w", state.RunID, err)
 		}
+		if !alive && run.WaitDone != nil && (!run.Exited || !run.outputCollected()) {
+			return fmt.Errorf("retained execution %s is awaiting local exit observation or output collection", state.RunID)
+		}
 		if alive {
 			callCtx, cancel := context.WithTimeout(ctx, apiTimeout)
 			runner, err := target.Client.GetRunner(callCtx, state.RunnerID)

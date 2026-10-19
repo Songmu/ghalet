@@ -212,6 +212,14 @@ them. `logRetention` expires only complete saved archives (also checked
 hourly). There is no disk quota, disk-pressure monitor or automatic external
 log shipping.
 
+Live output capture and diagnostic-log archival limit each line to 64 KiB
+(excluding the newline). An oversized line is omitted in full and replaced
+with `[ghalet: log line over 64 KiB omitted]`; capture resumes at the next
+newline. This deliberately favors bounded daemon memory over preserving
+arbitrarily large log lines. No prefix is emitted, so a secret spanning the
+limit cannot leak through a partially retained line. Ordinary lines still
+support redaction and readiness detection across write boundaries.
+
 Known management and JIT values are redacted; the official runner is
 responsible for masking job secrets in its own logs. No mechanism can mask
 arbitrary secrets deliberately transformed or printed by a trusted workflow.

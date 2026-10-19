@@ -199,6 +199,79 @@ func TestFailedAdoptionSaveKeepsEveryExecutionUncertain(t *testing.T) {
 	}
 }
 
+func TestDestroyAdoptionWaitsForLocalObservers(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		exited    bool
+		collected bool
+	}{
+		{name: "both pending"},
+		{name: "output pending", exited: true},
+		{name: "exit pending", collected: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d, api := testDaemon(t)
+			useFakeManagement(d, api)
+			state := testState(t, d.config)
+			state.Phase = "registered"
+			if err := d.store.save(state); err != nil {
+				t.Fatal(err)
+			}
+			run := &activeRun{State: state, Uncertain: true, Exited: tc.exited, WaitDone: make(chan struct{})}
+			if tc.collected {
+				close(run.WaitDone)
+			}
+			d.runs[state.RunID] = run
+			plan, err := d.planDestroy(t.Context(), controlRequest{Scope: "repository", ScaleSet: "build"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			response := d.destroy(t.Context(), plan.Confirmation)
+			if response.Error == "" || !strings.Contains(response.Error, "awaiting local") ||
+				api.deleteCalls != 0 || !run.Uncertain || run.Target != nil || state.ProcessDone ||
+				run.Exited != tc.exited || run.CleanupTried {
+				t.Fatal("destruction bypassed pending observers or partially adopted the execution", response)
+			}
+			d.reconcile()
+			if d.drained("build") {
+				t.Fatal("uncertain execution drained with an observer still pending")
+			}
+			if !tc.collected {
+				close(run.WaitDone)
+			}
+			if !tc.exited {
+				run.Stopping = true
+				d.processEvent(runEvent{id: state.RunID, kind: "exit"})
+			}
+			adoption := destroyPlan{URL: state.ScopeURL, ScaleSet: state.ScaleSetName, ScaleSetID: state.ScaleSetID, GroupID: state.GroupID}
+			if err := d.adoptForDestroy(t.Context(), d.targets["build"], adoption); err != nil {
+				t.Fatal("finished observers prevented explicit adoption", err)
+			}
+			if run.Uncertain || !run.Exited || !state.ProcessDone || run.CleanupTried {
+				t.Fatal("completed adoption skipped the required cleanup attempt")
+			}
+			if err := d.cleanup(run); err != nil || !d.drained("build") {
+				t.Fatal("cleanup did not complete after both observers finished", err)
+			}
+		})
+	}
+}
+
+func TestCleanupDoesNotCountPendingObserversAsAttempt(t *testing.T) {
+	d, _ := testDaemon(t)
+	state := testState(t, d.config)
+	state.ProcessDone = true
+	run := &activeRun{State: state, WaitDone: make(chan struct{})}
+	d.runs[state.RunID] = run
+	if err := d.cleanup(run); err == nil || run.CleanupTried || d.drained("build") {
+		t.Fatal("pending output counted as a cleanup attempt", err)
+	}
+	close(run.WaitDone)
+	if err := d.cleanup(run); err == nil || run.CleanupTried || d.drained("build") {
+		t.Fatal("pending exit observation counted as a cleanup attempt", err)
+	}
+}
+
 func TestControlAddressAndRunningSnapshotSurviveConfigEdit(t *testing.T) {
 	d, _ := testDaemon(t)
 	server, err := listenControl(d.config.Path)

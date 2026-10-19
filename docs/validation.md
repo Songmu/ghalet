@@ -56,6 +56,7 @@ non-root subprocesses. They cover:
 | Shared capacity, warm-slot yield, busy protection and deletion refusal races | Multi-target real process tests |
 | Accepted backlog during drain, startup deadline and forced drain reporting | Lifecycle timeout tests |
 | Atomic state, OS locking, malformed/unknown/PID-reused state | Filesystem and identity tests |
+| Invalid nonzero process IDs never authorize cleanup | Negative/reserved PID checks and malformed-record recovery/GC retention |
 | Process commands retain consecutive spaces; exited PIDs are absent rather than unverifiable | Real managed-path drain and reaped-PID kernel lookup regressions |
 | Monitoring after the original process parent exits | Subprocess helper exits; another controller recovers and stops the surviving group |
 | Shutdown waits for uncertain groups and local exit/output observation without signaling unverified processes | Live-process shutdown, uncertain-group disappearance and delayed-observer regressions |
@@ -67,11 +68,13 @@ non-root subprocesses. They cover:
 | Readiness-dependent exit classification waits for collected output | Deterministic exit-before-readiness tests, including real failures and intentional stops |
 | Completed target drains do not become forced after their deadline | Drain followed by delayed reconciliation and confirmed destruction |
 | File-only cleanup and archive failures, retry and log retention | Fault injection and retained-file assertions |
+| Log processing is bounded by omitting lines over 64 KiB in full | Live/archive large single-write and chunked unterminated lines, boundary secrets, split readiness and capture resumption |
 | Archive synchronization and collection completion precede source deletion | Nested diagnostic archives, failed existing-archive retries, pending-output GC and output-error tests; not a power-loss simulation |
 | State durability includes newly created directory ancestry | Unreadable-ancestor failure after state rename, followed by a successful retry; not a power-loss simulation |
 | Retention rejects symlinked ancestry without creating missing directories | Symlinks at runs/logRoot/ancestor levels, dry-run and actual retention |
 | Failed destruction cannot publish a provisioning target or partially adopt executions | Invalid-user, missing-statistics and adoption-save failure regressions |
 | Adopted executions report cleanup errors under their runtime target and block deletion | Old-target archive failure followed by an explicitly confirmed destruction attempt |
+| Destruction adoption never invents local exit/output completion | Pending-exit/output rejection, unchanged uncertainty, resumed adoption after both observers finish and cleanup-attempt gating |
 | Config edits preserve control address and running snapshot | Unix socket CLI tests |
 | Partial GC, status/doctor exit behavior and confirmation refusal | Control/CLI tests |
 

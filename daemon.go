@@ -1082,7 +1082,6 @@ func (d *daemon) stop(run *activeRun, forced bool) error {
 }
 
 func (d *daemon) cleanup(run *activeRun) error {
-	run.CleanupTried = true
 	if !run.State.ProcessDone || run.Uncertain {
 		return errors.New("cannot clean an unverified execution")
 	}
@@ -1093,6 +1092,7 @@ func (d *daemon) cleanup(run *activeRun) error {
 		return errors.New("runner exit observation has not completed")
 	}
 	d.finishExit(run)
+	run.CleanupTried = true
 	fail := func(err error) error {
 		run.State.Error = d.secrets.redact(err.Error())
 		d.save(run)

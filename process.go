@@ -167,7 +167,7 @@ func inspectGroup(state *RunState, table map[int]processEntry) (bool, []ProcessI
 		}
 		return false, nil, errors.New("launch boundary has no recorded process identity; manual inspection required")
 	}
-	if state.Process.PGID != state.Process.PID || state.Process.UID != state.UID {
+	if state.Process.PID < 2 || state.Process.PGID != state.Process.PID || state.Process.UID != state.UID {
 		return false, nil, errors.New("state has an invalid process group or execution UID")
 	}
 	leader, exists := table[state.Process.PID]

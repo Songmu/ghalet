@@ -175,6 +175,13 @@ func TestLaunchedProcessRequiresCompleteIdentity(t *testing.T) {
 func TestProcessIdentitySafety(t *testing.T) {
 	state := &RunState{UID: 501, RunnerDir: "/managed/runner", Phase: "busy",
 		Process: ProcessIdentity{PID: 1234, PGID: 1234, UID: 501, Started: "original-start"}}
+	for _, pid := range []int{-1234, -1, 1} {
+		malformed := *state
+		malformed.Process.PID, malformed.Process.PGID = pid, pid
+		if _, _, err := inspectGroup(&malformed, nil); err == nil {
+			t.Fatal("invalid recorded PID was accepted as an absent group", pid)
+		}
+	}
 	leader := processEntry{ProcessIdentity: state.Process, Command: "/managed/runner/bin/Runner.Listener run"}
 	alive, members, err := inspectGroup(state, map[int]processEntry{1234: leader})
 	if err != nil || !alive || len(members) != 1 {
@@ -203,5 +210,29 @@ func TestProcessIdentitySafety(t *testing.T) {
 	state.Phase = "starting"
 	if _, _, err := inspectGroup(state, nil); err == nil {
 		t.Fatal("unrecorded launch boundary treated as safely stopped")
+	}
+}
+
+func TestRecoveryRetainsMalformedProcessIDs(t *testing.T) {
+	d, _ := testDaemon(t)
+	state := testState(t, d.config)
+	state.Phase = "busy"
+	state.Process = ProcessIdentity{PID: -1234, PGID: -1234, UID: state.UID, Started: "invalid"}
+	if err := d.store.save(state); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.recover(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	run := d.runs[state.RunID]
+	d.reconcile()
+	if run == nil || !run.Uncertain || run.State.ProcessDone || d.occupied() != 1 || d.drained("") {
+		t.Fatal("malformed process identity was treated as safely stopped")
+	}
+	if response := d.gc(t.Context(), false); response.Error == "" {
+		t.Fatal("gc accepted a malformed process identity")
+	}
+	if _, err := os.Stat(filepath.Join(filepath.Dir(state.RunnerDir), "state.json")); err != nil {
+		t.Fatal("malformed recovery state was removed", err)
 	}
 }

@@ -1,7 +1,7 @@
 package ghalet
 
 import (
-	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -14,40 +14,63 @@ import (
 	"time"
 )
 
+const maxLogLineBytes = 64 * 1024
+const omittedLogLine = "[ghalet: log line over 64 KiB omitted]\n"
+
 type runnerOutput struct {
-	mu      sync.Mutex
-	file    *os.File
-	buffer  []byte
-	secrets *secrets
-	ready   func()
+	mu       sync.Mutex
+	file     *os.File
+	buffer   []byte
+	dropping bool
+	secrets  *secrets
+	ready    func()
 }
 
 func (w *runnerOutput) Write(data []byte) (int, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	w.buffer = append(w.buffer, data...)
-	for {
-		line, rest, ok := strings.Cut(string(w.buffer), "\n")
-		if !ok {
+	size := len(data)
+	for len(data) > 0 {
+		end := bytes.IndexByte(data, '\n')
+		part := data
+		if end >= 0 {
+			part = data[:end]
+		}
+		if !w.dropping {
+			if len(part) > maxLogLineBytes-len(w.buffer) {
+				w.buffer = w.buffer[:0]
+				w.dropping = true
+				if _, err := io.WriteString(w.file, w.secrets.redact(omittedLogLine)); err != nil {
+					return 0, err
+				}
+			} else {
+				w.buffer = append(w.buffer, part...)
+			}
+		}
+		if end < 0 {
 			break
 		}
-		if strings.Contains(line, "Listening for Jobs") && w.ready != nil {
-			w.ready()
-			w.ready = nil
+		if !w.dropping {
+			line := string(w.buffer)
+			if strings.Contains(line, "Listening for Jobs") && w.ready != nil {
+				w.ready()
+				w.ready = nil
+			}
+			if _, err := io.WriteString(w.file, w.secrets.redact(line)+"\n"); err != nil {
+				return 0, err
+			}
 		}
-		if _, err := io.WriteString(w.file, w.secrets.redact(line)+"\n"); err != nil {
-			return 0, err
-		}
-		w.buffer = []byte(rest)
+		w.buffer, w.dropping = w.buffer[:0], false
+		data = data[end+1:]
 	}
-	return len(data), nil
+	return size, nil
 }
 
 func (w *runnerOutput) close() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	_, writeErr := io.WriteString(w.file, w.secrets.redact(string(w.buffer)))
-	return errors.Join(writeErr, w.file.Close())
+	return errors.Join(writeErr, w.file.Sync(), w.file.Close())
 }
 
 func copyRedacted(input io.Reader, dest string, secret *secrets) error {
@@ -55,22 +78,9 @@ func copyRedacted(input io.Reader, dest string, secret *secrets) error {
 	if err != nil {
 		return err
 	}
-	reader := bufio.NewReader(input)
-	for {
-		line, readErr := reader.ReadString('\n')
-		if _, err := io.WriteString(output, secret.redact(line)); err != nil {
-			output.Close()
-			return err
-		}
-		if readErr != nil {
-			if readErr != io.EOF {
-				output.Close()
-				return readErr
-			}
-			break
-		}
-	}
-	return errors.Join(output.Sync(), output.Close())
+	writer := &runnerOutput{file: output, secrets: secret}
+	_, copyErr := io.Copy(writer, input)
+	return errors.Join(copyErr, writer.close())
 }
 
 type archivedRun struct {
