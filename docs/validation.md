@@ -1,32 +1,26 @@
-# Validation and API decisions
+# Validation
 
-## Pinned interfaces
+## Protocol contracts
 
-The implementation pins `actions/scaleset` at
-`e6daac702355cdb5b880b4fbdcf6d85dcd9e48e5`
-(`v0.4.1-0.20260916214619-e6daac702355`). Its `listener.Scaler.Scale`
-callback gives the controller explicit acquisition control and authoritative
-statistics before the official Listener acknowledges a message. The v0.4.0
-tag has a different callback contract; selecting that tag is not an
-interchangeable dependency downgrade.
+The `actions/scaleset` revision in [go.mod](../go.mod) provides a
+`listener.Scaler.Scale` callback with explicit acquisition control and
+authoritative statistics before the official Listener acknowledges a
+message. The v0.4.0 tag has a different callback contract and is not an
+interchangeable downgrade.
 
-The bundled runner version is pinned in `defaultRunnerVersion`; the
-`update-runner` workflow proposes updates from official stable releases.
-The optional runner smoke test uses the configured version, defaulting to
-that bundled pin. Source inspection of `actions/runner` 2.338.0 establishes:
+Runner input/readiness handling is based on these `actions/runner` contracts
+(source references below use 2.338.0):
 
-- `CommandSettings` reads `ACTIONS_RUNNER_INPUT_*`, removes input environment
-  variables and registers secret arguments with the masker.
-- JIT is a standard secret input.
-- `Runner.Listener run` handles JIT configuration without a shell wrapper that
-  exposes it in arguments.
+- `CommandSettings` reads and removes `ACTIONS_RUNNER_INPUT_*` variables,
+  including JIT configuration, and registers secret arguments with the masker.
+- `Runner.Listener run` accepts JIT configuration without exposing it in arguments.
 - The listener prints `Listening for Jobs` after session establishment.
 
 During a live launch that stdout readiness line, or a matching SDK JobStarted
 event, ends the startup clock. Readiness is not recovered by parsing old
-logs. Restarts use persisted state and OS/API identities. The official
-`DisableUpdate` scale set setting disables runner self-update; ghalet does
-not rewrite the JIT payload.
+logs. Restarts use persisted state and OS/API identities. ghalet does not
+rewrite the JIT payload. See [runner distribution and updates](operations.md#direct-execution-and-environment)
+for version pinning, digest verification and self-update behavior.
 
 Sources:
 [SDK listener](https://github.com/actions/scaleset/blob/e6daac702355/listener/listener.go),
@@ -47,55 +41,22 @@ non-root subprocesses. They cover:
 
 | Contract | Automated evidence |
 | --- | --- |
-| Target-local config, YAML alias reuse, defaults and config-relative paths | Config/CLI tables, shared credential/scaling aliases and legacy-key rejection |
-| Per-target scaling defaults to 0 minimum and 2 maximum runners | Omitted/empty/partial scaling, explicit overrides, aliased defaults and zero-maximum rejection |
-| Global runner version defaults to a bundled numeric pin | Omitted/empty runner mapping, omitted version, explicit override and empty/latest version rejection |
-| Scale set names default to required target IDs and remain explicitly overridable | Omitted/empty names, explicit overrides, missing/empty ID rejection and default/explicit registration collision tests |
-| Repository/organization shorthand resolves to GitHub.com without bypassing validation | URL normalization, invalid shorthand, aliases and mixed shorthand/full-URL duplicate registration tests |
-| Version queries never enter daemon startup regardless of common-flag placement | Mixed pre/post-command flags, valid/missing config and untouched execution-directory regressions |
-| Day durations reject mixed units; enterprise scope rejection is case-insensitive | Duration and scope URL regression tables |
-| Target-local PAT/gh/App settings, protected files and JSONL secret redaction | Credential, shared App key/per-target installation, gh subprocess and cross-target environment tests |
-| Runner environments do not inherit controller variables | Exact minimal-environment checks with poisoned parent variables, same/different user identities, fixed PATH, optional JIT input and explicit environment overrides |
-| Runner input environment overrides are blocked case-insensitively | Uppercase/lowercase/mixed-case config rejection and non-inheritance regressions |
-| Multiline secrets are masked without cross-line buffering | Split-write LF/CRLF live/archive regressions, final partial lines and shared-component/JIT reference release |
-| Overlapping secrets are masked independently of registration order | Original-input union masking for prefixes, partial/chained/self overlaps, structured logs and split-write live/archive capture |
-| Explicit registration/group lookup, reuse and update disablement | Fake API request/counter tests |
-| Digest validation, independent extraction, bad-cache refusal and traversal rejection | Archive/digest/HTTP fixtures |
-| SDK acknowledgment/redelivery and shared acquisition reservations | Official Listener + scripted session tests |
-| Reservations accumulate across statistics-free messages, including ambiguous acquisitions | Successive-message acquisition regressions with authoritative-statistics reset |
-| One job per directory, cleanup/log archives, no idle supply at minimum zero | Real process lifecycle tests |
-| Shared capacity, warm-slot yield, busy protection and deletion refusal races | Multi-target real process tests |
-| Accepted backlog during drain, startup deadline and forced drain reporting | Lifecycle timeout tests |
-| Atomic state, OS locking, malformed/unknown/PID-reused state | Filesystem and identity tests |
-| Legacy execution state remains recoverable without named scopes | Matching registration recovery with an obsolete scopeRef; new state omits it |
-| State writes never replace a readable record with an oversized one | Large member-list rejection, exact 1 MiB read boundary and over-limit trailing-data regressions |
-| Empty and zombie-only process snapshots cannot conceal live descendants | Real forked descendants with reaped or zombie leaders and stale ps output; stop/recovery/GC retain capacity and state; native kernel checks accept genuine zombie-only groups |
-| Linux kernel group verification rejects incomplete enumerations | Vanished-PID, omitted-live-child and newly observed zombie fixtures, including a zombie leader with live worker threads |
-| Invalid nonzero process IDs never authorize cleanup | Negative/reserved PID checks and malformed-record recovery/GC retention |
-| Process commands retain consecutive spaces; exited PIDs are absent rather than unverifiable | Real managed-path drain and reaped-PID kernel lookup regressions |
-| Monitoring after the original process parent exits | Subprocess helper exits; another controller recovers and stops the surviving group |
-| Shutdown waits for uncertain groups and local exit/output observation without signaling unverified processes | Live-process shutdown, uncertain-group disappearance and delayed-observer regressions |
-| Native runner guards reclaim their own groups on controller death | Real controller SIGKILL with a TERM-resistant runner/descendant, unrelated-process survival and preserved recovery state |
-| Guards preserve actual runner exit results and prevent execution before the durable gate | Successful/failed runner exit, descriptor closure, final output, closed-gate and shared-group refusal regressions |
-| Recovered busy runs release capacity after confirmed exit | Missed-completion recovery regression |
-| Runner exit is observed independently of descendant-held output pipes | Real subprocess/FIFO test with an observed descendant and a final unterminated log line |
-| Termination persists newly verified descendants before signaling and refreshes membership during shutdown | SIGTERM-resistant subprocess tests for children created before/during termination, plus a failed-save no-signal test |
-| Readiness-dependent exit classification waits for collected output | Deterministic exit-before-readiness tests, including real failures and intentional stops |
-| Completed target drains do not become forced after their deadline | Drain followed by delayed reconciliation and confirmed destruction |
-| File-only cleanup and archive failures, retry and log retention | Fault injection and retained-file assertions |
-| Log processing is bounded by omitting lines over 64 KiB in full | Live/archive large single-write and chunked unterminated lines, boundary secrets, split readiness and capture resumption |
-| Archive synchronization and collection completion precede source deletion | Nested diagnostic archives, failed existing-archive retries, pending-output GC and output-error tests; not a power-loss simulation |
-| State durability includes newly created directory ancestry | Unreadable-ancestor failure after state rename, followed by a successful retry; not a power-loss simulation |
-| Retention rejects symlinked ancestry without creating missing directories | Symlinks at runs/logRoot/ancestor levels, dry-run and actual retention |
-| Failed destruction cannot publish a provisioning target or partially adopt executions | Invalid-user, missing-statistics and adoption-save failure regressions |
-| Adopted executions report cleanup errors under their runtime target and block deletion | Old-target archive failure followed by an explicitly confirmed destruction attempt |
-| Destruction adoption never invents local exit/output completion | Pending-exit/output rejection, unchanged uncertainty, resumed adoption after both observers finish and cleanup-attempt gating |
-| Config edits preserve control address and running snapshot | Unix socket CLI tests |
-| Partial GC, status/doctor exit behavior and confirmation refusal | Control/CLI tests |
+| Configuration and CLI | Defaults, aliases, shorthand URLs, strict/legacy-key rejection, validation order, directory safety and version-flag placement (`config_test.go`) |
+| Credentials and environment | PAT/gh/App settings, protected files, minimal runner environments and case-insensitive runner-input rejection (`auth_test.go`, `process_test.go`, `config_test.go`) |
+| Secret redaction | Multiline/overlapping values, shared-secret references, JSONL output and split-write live/archive masking (`auth_test.go`, `cleanup_test.go`) |
+| Registration and distribution | Explicit group/scale set lookup, reuse, update disablement, digests, independent extraction, corrupt caches and traversal rejection (`auth_test.go`, `distribution_test.go`) |
+| Acquisition and scheduling | Official Listener acknowledgment/redelivery, ambiguous and statistics-free reservations, shared capacity, warm-slot yield and busy/assignment-race protection (`listener_test.go`, `daemon_test.go`) |
+| Lifecycle and shutdown | Independent job directories, accepted backlog during drain, startup/deadline failures, completed drains, recovered busy runs and exit/output ordering (`daemon_test.go`) |
+| State and recovery | Atomic writes, ancestry synchronization, locks, legacy/unknown/corrupt records, PID reuse and exact 1 MiB boundaries without replacing readable state (`state_test.go`, `daemon_test.go`) |
+| Process identity and termination | Reparenting, empty/zombie/stale snapshots, Linux enumeration races and live threads, invalid PIDs, durable descendant tracking before signaling and uncertain-group retention (`process_test.go`, `identity_linux_test.go`, `daemon_test.go`) |
+| Native runner guards | Controller SIGKILL, TERM-resistant descendants, unrelated-process survival, actual runner results, durable launch gates and descriptor closure (`runner_guard_test.go`) |
+| Cleanup and logs | Archive/output completion before deletion, failure retention/retry, bounded log lines, retention and symlinked ancestry (`cleanup_test.go`) |
+| Management | Stable control addresses after config edits, partial GC, command exit behavior, confirmation refusal and transactional destruction adoption with pending observers or cleanup errors (`control_test.go`) |
 
 Real process tests skip under root rather than accidentally running root
 jobs. Run them as a non-root user. Tests never automatically delete real
-GitHub registrations or run untrusted workflows.
+GitHub registrations or run untrusted workflows. Filesystem fault injection
+does not simulate power loss.
 
 ## Optional official runner smoke test
 
@@ -163,19 +124,6 @@ semantics. In particular:
 - Template parsing and cross-compilation do not establish service drain,
   keychain access, Linux runtime, VM reboot, sleep/wake or App permissions.
 
-The initial implementation was developed with Go 1.27.2 on macOS ARM64.
-The following local checks were executed on October 19, 2026 (JST):
-race-enabled unit/subprocess tests, vet, current staticcheck and actionlint,
-native macOS ARM64 plus Linux AMD64/ARM64 and macOS AMD64 builds, both plist
-parsers, Lima template validation and the official runner 2.338.0 JIT-input
-smoke test. The latter downloaded the official macOS ARM64 archive and
-passed digest verification and encoded-input masking.
-
 The PR verification record must distinguish executed checks from the
 optional live scenarios. Do not describe those scenarios as passed unless
 they were actually executed on the stated host and GitHub registration.
-
-Automatic latest-runner tracking, extra executors, hot configuration,
-fairness/priorities and other explicitly deferred design phases are not
-implemented. There is no hidden fallback to containers, group management,
-health servers or persistent message/job databases.
