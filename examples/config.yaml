@@ -42,7 +42,7 @@ targets:
 #   workRoot: runs # Runs and recovery state.
 #   distributionRoot: runners # Pinned runner metadata.
 #   cacheRoot: downloads # Runner archives.
-#   env: {} # Job env; no credentials or runner input variables.
+#   env: {} # Explicit job env; the parent's env is not inherited.
 
 # cleanup:
 #   preserveLogs: true # Archive logs before cleanup.

@@ -100,16 +100,29 @@ execution parents are traversable but state files remain owner-only.
 Managed directory paths may not contain symlinks. On macOS use canonical
 paths such as `/private/var/...` instead of the `/var` symlink.
 
-The execution user's HOME, USER and LOGNAME are used. PATH and other
-non-management variables are inherited and `runner.env` overrides them.
-No login shell or shell initialization files are read. Standard GitHub token
-variables and explicitly configured PAT variables are stripped. Runner input
-variables are stripped case-insensitively, and `runner.env` cannot set them.
-A JIT secret is supplied only as
+Runner startup and its access check do not inherit the controller's environment.
+HOME, USER and LOGNAME are set from the execution user's account, even when
+the controller and runner use different users. PATH defaults to
+`/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin`; macOS prefixes
+`/opt/homebrew/bin:/opt/homebrew/sbin`.
+No login shell or shell initialization files are read.
+
+Use `runner.env` to explicitly add environment variables or override PATH,
+for example for user-installed tools, locales or proxies. Controller token
+variables, SSH agent sockets, tool configuration paths and other variables
+are not copied automatically. Management credentials, account identity and
+runner input variables cannot be set through `runner.env`; runner input names
+are checked case-insensitively. A JIT secret is supplied only as
 `ACTIONS_RUNNER_INPUT_JITCONFIG`, never a command-line argument or a state
 field. Do not intentionally copy management secrets into another variable.
 The runner's own files are private to its execution directory and removed
 after execution.
+
+This is environment minimization, not filesystem or keychain isolation.
+Jobs still use the execution user's real HOME and may access that user's
+saved credentials. Use a separate execution user to separate those credentials.
+The controller's environment for authentication, API calls and downloads is
+unchanged.
 
 Install build tools and the official runner's OS prerequisites on the host
 before use. Docker actions, job containers and services are unsupported.

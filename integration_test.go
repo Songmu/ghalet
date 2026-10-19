@@ -50,7 +50,7 @@ func TestOfficialRunnerJITInputSmoke(t *testing.T) {
 	jit := base64.StdEncoding.EncodeToString([]byte("ghalet-invalid-jit-smoke-marker"))
 	command := exec.CommandContext(ctx, filepath.Join(dest, "bin", "Runner.Listener"), "run")
 	command.Dir = dest
-	command.Env = runnerEnvironment(d.config, d.user, os.Environ(), jit)
+	command.Env = runnerEnvironment(d.config, d.user, jit)
 	output, err := command.CombinedOutput()
 	if err == nil {
 		t.Fatal("invalid JIT configuration unexpectedly succeeded")
