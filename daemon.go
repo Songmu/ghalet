@@ -209,7 +209,7 @@ func (d *daemon) initialize(ctx context.Context, offline bool) error {
 		})
 		if err != nil {
 			target.Fault = d.secrets.redact(err.Error())
-			slog.Error("Target registration failed", "event", "target.failed", "targetId", config.ID, "error", err)
+			slog.Error("Target registration failed", "event", "target.failed", "targetId", d.secrets.redact(config.ID), "error", target.Fault)
 		} else if target.Set == nil {
 			target.Fault = "explicit scale set is not registered"
 		} else if target.Set.Statistics != nil {
@@ -283,7 +283,7 @@ func (d *daemon) recover(ctx context.Context) error {
 		if reason != "" {
 			run.Uncertain = true
 			state.Error = reason
-			slog.Warn("Execution needs manual inspection", "event", "recovery.uncertain", "targetId", state.TargetID, "runId", state.RunID, "error", reason)
+			slog.Warn("Execution needs manual inspection", "event", "recovery.uncertain", "targetId", d.secrets.redact(state.TargetID), "runId", d.secrets.redact(state.RunID), "error", d.secrets.redact(reason))
 			continue
 		}
 		if !d.offline {
@@ -303,7 +303,7 @@ func (d *daemon) save(run *activeRun) error {
 		if target := d.runTarget(run); target != nil {
 			target.Fault = run.State.Error
 		}
-		slog.Error("State update failed; retaining capacity", "event", "state.failed", "runId", run.State.RunID, "error", err)
+		slog.Error("State update failed; retaining capacity", "event", "state.failed", "runId", d.secrets.redact(run.State.RunID), "error", d.secrets.redact(err.Error()))
 		return err
 	}
 	return nil
@@ -356,20 +356,20 @@ func (d *daemon) startListener(target *targetRuntime) {
 			closeErr := session.Close(closeCtx)
 			closeCancel()
 			if closeErr != nil {
-				slog.Error("Message session cleanup failed", "event", "listener.close_failed", "targetId", target.Config.ID, "error", closeErr)
+				slog.Error("Message session cleanup failed", "event", "listener.close_failed", "targetId", d.secrets.redact(target.Config.ID), "error", d.secrets.redact(closeErr.Error()))
 			}
 			lastErr = err
 			if ctx.Err() != nil || errors.Is(err, scaleset.BadRequestError) || errors.Is(err, scaleset.UnauthorizedError) {
 				break
 			}
-			slog.Warn("Listener failed; retrying", "event", "listener.retry", "targetId", target.Config.ID, "attempt", attempt+1, "error", err)
+			slog.Warn("Listener failed; retrying", "event", "listener.retry", "targetId", d.secrets.redact(target.Config.ID), "attempt", attempt+1, d.secrets.replaceAttr(nil, slog.Any("error", err)))
 		}
 		d.mu.Lock()
 		defer d.mu.Unlock()
 		target.ListenerDone = true
 		if ctx.Err() == nil && lastErr != nil {
 			target.Fault = d.secrets.redact(lastErr.Error())
-			slog.Error("Target stopped accepting work", "event", "target.failed", "targetId", target.Config.ID, "error", lastErr)
+			slog.Error("Target stopped accepting work", "event", "target.failed", "targetId", d.secrets.redact(target.Config.ID), "error", target.Fault)
 		}
 	})
 }
@@ -473,7 +473,7 @@ func (d *daemon) beginDrain(target *targetRuntime) {
 		if target.Listener != nil {
 			target.Listener.SetMaxRunners(0)
 		}
-		slog.Info("Target draining", "event", "target.draining", "targetId", target.Config.ID)
+		slog.Info("Target draining", "event", "target.draining", "targetId", d.secrets.redact(target.Config.ID))
 	}
 }
 
@@ -540,9 +540,9 @@ func (d *daemon) processEvent(event runEvent) {
 		run.ExitResult = &runExit{err: event.err, stopping: run.Stopping}
 		if event.err != nil {
 			run.ExitError = d.secrets.redact(event.err.Error())
-			slog.Warn("Runner process exited", "event", "runner.exited", "runId", event.id, "error", event.err)
+			slog.Warn("Runner process exited", "event", "runner.exited", "runId", d.secrets.redact(event.id), "error", run.ExitError)
 		} else {
-			slog.Info("Runner process exited (not a workflow result)", "event", "runner.exited", "runId", event.id)
+			slog.Info("Runner process exited (not a workflow result)", "event", "runner.exited", "runId", d.secrets.redact(event.id))
 		}
 		d.finishExit(run)
 	}
@@ -575,7 +575,7 @@ func (d *daemon) finishExit(run *activeRun) {
 func (d *daemon) reconcile() {
 	table, err := processTable(d.ctx)
 	if err != nil {
-		slog.Error("Process inspection failed; scheduling suspended", "event", "process.inspect_failed", "error", err)
+		slog.Error("Process inspection failed; scheduling suspended", "event", "process.inspect_failed", "error", d.secrets.redact(err.Error()))
 		return
 	}
 	for _, run := range d.runs {
@@ -635,7 +635,7 @@ func (d *daemon) reconcileRun(run *activeRun, table map[int]processEntry) {
 			return
 		}
 		run.Uncertain, state.Error = true, err.Error()
-		slog.Error("Process identity is uncertain; retaining capacity", "event", "process.uncertain", "runId", state.RunID, "error", err)
+		slog.Error("Process identity is uncertain; retaining capacity", "event", "process.uncertain", "runId", d.secrets.redact(state.RunID), "error", d.secrets.redact(err.Error()))
 		return
 	}
 	run.InspectFailures = 0
@@ -672,7 +672,7 @@ func (d *daemon) enforceDrainDeadline(target *targetRuntime) {
 		return
 	}
 	target.Forced = true
-	slog.Error("Drain deadline exceeded", "event", "drain.forced", "targetId", target.Config.ID, "unstartedJobs", max(0, target.Assigned-d.active(target.Config.ID)))
+	slog.Error("Drain deadline exceeded", "event", "drain.forced", "targetId", d.secrets.redact(target.Config.ID), "unstartedJobs", max(0, target.Assigned-d.active(target.Config.ID)))
 	for _, run := range d.runs {
 		if d.runTarget(run) != target {
 			continue
@@ -698,11 +698,11 @@ func (d *daemon) expireLogsIfDue() {
 	d.nextRetention = time.Now().Add(time.Hour)
 	results, err := expireLogs(d.ctx, d.config, false)
 	if err != nil {
-		slog.Error("Log retention failed", "event", "logs.expire_failed", "error", err)
+		slog.Error("Log retention failed", "event", "logs.expire_failed", "error", d.secrets.redact(err.Error()))
 	}
 	for _, result := range results {
 		if result.Error != "" {
-			slog.Error("Log retention failed", "event", "logs.expire_failed", "path", result.Path, "error", result.Error)
+			slog.Error("Log retention failed", "event", "logs.expire_failed", "path", d.secrets.redact(result.Path), "error", d.secrets.redact(result.Error))
 		}
 	}
 }
@@ -767,7 +767,7 @@ func (d *daemon) yieldIdle(forTarget string) {
 			if d.runTargetID(run) == id && run.canRetireIdle() {
 				if err := d.retireIdle(run); err != nil {
 					run.State.Error = d.secrets.redact(err.Error())
-					slog.Warn("Idle runner could not yield capacity", "event", "capacity.yield_failed", "runId", run.State.RunID, "error", err)
+					slog.Warn("Idle runner could not yield capacity", "event", "capacity.yield_failed", "runId", d.secrets.redact(run.State.RunID), "error", run.State.Error)
 				}
 				return
 			}
@@ -884,7 +884,7 @@ func (d *daemon) prepare(ctx context.Context, target *targetRuntime, run *active
 	if err := d.launch(run, jit.EncodedJITConfig); err != nil {
 		return err
 	}
-	slog.Info("Runner started", "event", "runner.started", "scope", state.ScopeURL, "targetId", state.TargetID, "runId", state.RunID, "durationMs", time.Since(start).Milliseconds())
+	slog.Info("Runner started", "event", "runner.started", "scope", d.secrets.redact(state.ScopeURL), "targetId", d.secrets.redact(state.TargetID), "runId", d.secrets.redact(state.RunID), "durationMs", time.Since(start).Milliseconds())
 	return nil
 }
 
@@ -1021,7 +1021,7 @@ func (d *daemon) startFailure(target *targetRuntime, err error) {
 			target.Listener.SetMaxRunners(0)
 		}
 	}
-	slog.Error("Runner preparation/start failed", "event", "runner.failed", "targetId", target.Config.ID, "attempt", target.Failures, "error", err)
+	slog.Error("Runner preparation/start failed", "event", "runner.failed", "targetId", d.secrets.redact(target.Config.ID), "attempt", target.Failures, d.secrets.replaceAttr(nil, slog.Any("error", err)))
 }
 
 func (d *daemon) unregister(run *activeRun) error {
@@ -1118,7 +1118,7 @@ func (d *daemon) cleanup(run *activeRun) error {
 	fail := func(err error) error {
 		run.State.Error = d.secrets.redact(err.Error())
 		d.save(run)
-		slog.Error("Cleanup incomplete; state and files retained", "event", "cleanup.failed", "runId", run.State.RunID, "targetId", run.State.TargetID, "error", err)
+		slog.Error("Cleanup incomplete; state and files retained", "event", "cleanup.failed", "runId", d.secrets.redact(run.State.RunID), "targetId", d.secrets.redact(run.State.TargetID), "error", d.secrets.redact(err.Error()))
 		return err
 	}
 	if run.OutputError != nil {
@@ -1135,7 +1135,7 @@ func (d *daemon) cleanup(run *activeRun) error {
 	}
 	delete(d.runs, run.State.RunID)
 	d.secrets.release(run.JITSecrets)
-	slog.Info("Execution cleaned", "event", "runner.removed", "targetId", run.State.TargetID, "runId", run.State.RunID)
+	slog.Info("Execution cleaned", "event", "runner.removed", "targetId", d.secrets.redact(run.State.TargetID), "runId", d.secrets.redact(run.State.RunID))
 	return nil
 }
 

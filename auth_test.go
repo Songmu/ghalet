@@ -82,6 +82,61 @@ func TestGlobalLogRedactionTracksJITLifetime(t *testing.T) {
 	}
 }
 
+func TestDirectAPILogRedactionWithOrdinaryHandler(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("daemon entrypoints require a non-root execution user")
+	}
+	const credential = "direct-api-management-secret"
+	t.Setenv("GH_TOKEN", credential)
+	for _, command := range []string{"run", "gc", "destroy"} {
+		t.Run(command, func(t *testing.T) {
+			data := strings.Replace(readFixture(t, "config/base.yaml"), "tokenEnv: GHALET_TEST_TOKEN", "tokenFile: missing-"+credential, 1)
+			data = strings.Replace(data, "id: build", "id: "+credential, 1)
+			path := writeConfig(t, data)
+			config, err := LoadConfig(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { os.Remove(socketPath(path) + ".lock") })
+			var output bytes.Buffer
+			original := slog.Default()
+			slog.SetDefault(slog.New(slog.NewJSONHandler(&output, nil)))
+			defer slog.SetDefault(original)
+			defer logSecrets.release([]string{credential})
+			ctx, cancel := context.WithCancel(t.Context())
+			cancel()
+			switch command {
+			case "run":
+				err = RunDaemon(ctx, config)
+			case "gc":
+				_, err = GC(ctx, path, true)
+			case "destroy":
+				_, err = Destroy(ctx, path, DestroyOptions{Target: credential, ScaleSet: "build"}, func(DestroyPlan) error {
+					t.Error("failed initialization requested deletion approval")
+					return errors.New("not approved")
+				})
+			}
+			if err == nil {
+				t.Fatal("canceled operation with a missing credential file succeeded")
+			}
+			if strings.Contains(output.String(), credential) {
+				t.Fatal("direct API logging exposed a registered credential", output.String())
+			}
+			var record struct {
+				Event    string `json:"event"`
+				TargetID string `json:"targetId"`
+				Error    string `json:"error"`
+			}
+			if err := json.Unmarshal(output.Bytes(), &record); err != nil {
+				t.Fatal("expected a registration failure log", err, output.String())
+			}
+			if record.Event != "target.failed" || record.TargetID != "***" || !strings.Contains(record.Error, "missing-***") {
+				t.Fatal("redaction lost the failure diagnostics", record)
+			}
+		})
+	}
+}
+
 func TestProtectedCredentials(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
