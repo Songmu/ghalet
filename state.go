@@ -9,8 +9,9 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
+
+	"github.com/Songmu/ghalet/fshelper"
 )
 
 const maxStateBytes = 1024 * 1024
@@ -61,41 +62,6 @@ func newID() (string, error) {
 	return hex.EncodeToString(bytes[:]), nil
 }
 
-func safeDirectory(path string, mode os.FileMode) error {
-	return managedDirectory(path, mode, true)
-}
-
-func existingDirectory(path string) error {
-	return managedDirectory(path, 0, false)
-}
-
-func managedDirectory(path string, mode os.FileMode, create bool) error {
-	if !filepath.IsAbs(path) || path == "/" {
-		return fmt.Errorf("unsafe directory %s", path)
-	}
-	current := string(filepath.Separator)
-	for _, part := range strings.Split(strings.TrimPrefix(filepath.Clean(path), "/"), "/") {
-		current = filepath.Join(current, part)
-		info, err := os.Lstat(current)
-		if create && errors.Is(err, os.ErrNotExist) {
-			if err := os.Mkdir(current, mode); err != nil && !errors.Is(err, os.ErrExist) {
-				return err
-			}
-			if err := os.Chmod(current, mode); err != nil {
-				return err
-			}
-			info, err = os.Lstat(current)
-		}
-		if err != nil {
-			return err
-		}
-		if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-			return fmt.Errorf("managed path must not contain symlinks or non-directories: %s", current)
-		}
-	}
-	return nil
-}
-
 func syncDirectoryChain(path string) error {
 	for dir := path; ; dir = filepath.Dir(dir) {
 		file, err := os.Open(dir)
@@ -130,7 +96,7 @@ func (s stateStore) save(state *RunState) error {
 	if err != nil {
 		return err
 	}
-	if err := safeDirectory(dir, 0711); err != nil {
+	if err := fshelper.EnsureDirectory(dir, 0711); err != nil {
 		return err
 	}
 	state.UpdatedAt = time.Now().UTC()
@@ -245,7 +211,7 @@ func (s stateStore) removeFiles(state *RunState) error {
 	if err != nil {
 		return err
 	}
-	if err := safeDirectory(dir, 0711); err != nil {
+	if err := fshelper.EnsureDirectory(dir, 0711); err != nil {
 		return err
 	}
 	root, err := os.OpenRoot(dir)

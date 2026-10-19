@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/Songmu/ghalet/fshelper"
 )
 
 func useFakeManagement(d *daemon, api *fakeScaleAPI) {
@@ -165,7 +167,7 @@ func TestAdoptedCleanupFailurePreventsDestroy(t *testing.T) {
 	if err := d.store.save(state); err != nil {
 		t.Fatal(err)
 	}
-	if err := safeDirectory(state.RunnerDir, 0700); err != nil {
+	if err := fshelper.EnsureDirectory(state.RunnerDir, 0700); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(d.config.Cleanup.LogRoot, []byte("not a directory"), 0600); err != nil {
@@ -507,7 +509,7 @@ func TestGCWaitsForOutputCollectionBeforeArchiving(t *testing.T) {
 	if err := d.store.save(state); err != nil {
 		t.Fatal(err)
 	}
-	if err := safeDirectory(state.RunnerDir, 0700); err != nil {
+	if err := fshelper.EnsureDirectory(state.RunnerDir, 0700); err != nil {
 		t.Fatal(err)
 	}
 	source := filepath.Join(state.RunnerDir, "output.log")
@@ -553,7 +555,7 @@ func TestGCReportsOutputCollectionFailureWithoutDeletingLogs(t *testing.T) {
 	if err := d.store.save(state); err != nil {
 		t.Fatal(err)
 	}
-	if err := safeDirectory(state.RunnerDir, 0700); err != nil {
+	if err := fshelper.EnsureDirectory(state.RunnerDir, 0700); err != nil {
 		t.Fatal(err)
 	}
 	source := filepath.Join(state.RunnerDir, "output.log")

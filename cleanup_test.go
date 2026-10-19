@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Songmu/ghalet/fshelper"
 	"github.com/Songmu/ghalet/logreduct"
 )
 
@@ -19,7 +20,7 @@ func TestArchiveBeforeDeletionAndIdempotentRetry(t *testing.T) {
 	if err := d.store.save(state); err != nil {
 		t.Fatal(err)
 	}
-	safeDirectory(filepath.Join(state.RunnerDir, "_diag", "nested"), 0700)
+	fshelper.EnsureDirectory(filepath.Join(state.RunnerDir, "_diag", "nested"), 0700)
 	os.WriteFile(filepath.Join(state.RunnerDir, "output.log"), []byte("management-secret\n"), 0600)
 	os.WriteFile(filepath.Join(state.RunnerDir, "_diag", "Runner.log"), []byte("diagnostic\n"), 0600)
 	os.WriteFile(filepath.Join(state.RunnerDir, "_diag", "nested", "Worker.log"), []byte("nested diagnostic\n"), 0600)
@@ -60,10 +61,10 @@ func TestArchiveFailurePreservesOriginalAndReleasesProcessCapacity(t *testing.T)
 	d, _ := testDaemon(t)
 	state := testState(t, d.config)
 	d.store.save(state)
-	safeDirectory(state.RunnerDir, 0700)
+	fshelper.EnsureDirectory(state.RunnerDir, 0700)
 	source := filepath.Join(state.RunnerDir, "output.log")
 	os.WriteFile(source, []byte("must-survive"), 0600)
-	safeDirectory(filepath.Dir(d.config.Cleanup.LogRoot), 0700)
+	fshelper.EnsureDirectory(filepath.Dir(d.config.Cleanup.LogRoot), 0700)
 	os.WriteFile(d.config.Cleanup.LogRoot, []byte("not a directory"), 0600)
 	state.ProcessDone, state.Phase = true, "cleaning"
 	run := &activeRun{State: state}
@@ -94,7 +95,7 @@ func TestArchiveRetryMustEstablishDurabilityBeforeDeletingOriginals(t *testing.T
 	if err := d.store.save(state); err != nil {
 		t.Fatal(err)
 	}
-	if err := safeDirectory(state.RunnerDir, 0700); err != nil {
+	if err := fshelper.EnsureDirectory(state.RunnerDir, 0700); err != nil {
 		t.Fatal(err)
 	}
 	source := filepath.Join(state.RunnerDir, "output.log")
@@ -129,7 +130,7 @@ func TestLogRetentionOnlyExpiresCompletedArchives(t *testing.T) {
 	c := testConfig(t)
 	state := testState(t, c)
 	stateStore{c.Runner.WorkRoot}.save(state)
-	safeDirectory(state.RunnerDir, 0700)
+	fshelper.EnsureDirectory(state.RunnerDir, 0700)
 	source := filepath.Join(state.RunnerDir, "output.log")
 	os.WriteFile(source, []byte("original"), 0600)
 	if err := archiveLogs(c, state, &logreduct.Redactor{}); err != nil {
