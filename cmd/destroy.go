@@ -29,7 +29,11 @@ func confirmDestroy(plan ghalet.DestroyPlan) error {
 		Message: fmt.Sprintf("Delete scale set %q (id %d) at %s, group %q? Type yes to drain and delete",
 			plan.ScaleSet, plan.ScaleSetID, plan.URL, plan.RunnerGroup),
 	}
-	if prompt.Prompt() != "yes" {
+	answer, err := prompt.PromptWithError()
+	if err != nil {
+		return fmt.Errorf("confirm destruction: %w", err)
+	}
+	if answer != "yes" {
 		return errors.New("deletion not approved; nothing was deleted")
 	}
 	return nil
