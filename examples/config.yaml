@@ -2,8 +2,7 @@ apiVersion: ghalet/v1alpha1
 # Supported configuration version.
 
 # capacity:
-#   maxRunners: 2
-# Maximum concurrent runners across all targets.
+#   maxRunners: 2 # Maximum concurrent runners across all targets.
 
 targets:
   - id: project
@@ -16,67 +15,44 @@ targets:
       type: gh
       # Authentication source. Options: gh, pat, github-app.
       # gh uses the authentication of the user starting ghalet.
-      # hostname: ""
-      # gh only; empty uses the scope's hostname.
+      # hostname: "" # gh only; empty uses the scope's hostname.
 
-    # credential:
+    # credential: # PAT alternative: replace the credential mapping above.
     #   type: pat
-    #   tokenFile: credentials/token
-    # PAT alternative: replace the credential mapping above.
-    # Use exactly one of tokenFile or tokenEnv (for example MY_GITHUB_TOKEN).
-    # Token files must be owner-only, normally chmod 600.
+    #   tokenFile: credentials/token # Use this or tokenEnv (e.g. MY_GITHUB_TOKEN); owner-only file (chmod 600).
 
-    # credential:
+    # credential: # App alternative: replace the credential mapping above and set installationId.
     #   type: github-app
     #   clientId: "<app-client-id>"
-    #   privateKeyFile: credentials/app.pem
-    # installationId: 12345
-    # App alternative: replace the credential mapping and set installationId.
-    # The private key must be owner-only; installationId is target-specific.
+    #   privateKeyFile: credentials/app.pem # Owner-only private key file (chmod 600).
+    # installationId: 12345 # Required for github-app; target-specific.
 
-    # runnerGroup: ""
-    # Organization targets only; empty selects GitHub's default runner group.
-    # scaleSet: project # Defaults to id.
-    # Scale set name and workflow runs-on label.
-    # Set explicitly to use a different name or share a name across scopes.
+    # runnerGroup: "" # Organization targets only; empty selects GitHub's default runner group.
+    # scaleSet: project # Defaults to id; scale set name and runs-on label (may be shared across scopes).
     scaling:
-      # minRunners: 0
-      # Warm runners to retain when idle.
+      # minRunners: 0 # Warm runners to retain when idle.
       maxRunners: 2
       # Per-target runner limit; shared capacity still applies.
 
-  # - id: another-project
+  # - id: another-project # Optional second target.
   #   scope: OWNER/ANOTHER-REPO
-  #   credential: *personal
+  #   credential: *personal # Reuse the &personal credential via a YAML alias.
   #   scaleSet: macmini
   #   scaling:
   #     maxRunners: 2
-  # Optional second target reusing the &personal credential via a YAML alias.
 
 runner:
   version: "2.338.0"
   # Required pinned numeric runner version; automatic updates are disabled.
-  # user: ""
-  # Empty uses the launching user. Root must select a non-root account.
-  # startupTimeout: 2m
-  # Maximum time for a new runner to become ready.
-  # drainTimeout: 10m
-  # Grace period before remaining runner processes are forcibly stopped.
-  # workRoot: runs
-  # Execution directories and recovery state.
-  # distributionRoot: runners
-  # Pinned runner distribution metadata.
-  # cacheRoot: downloads
-  # Downloaded runner archives.
-  # Relative paths are resolved from this configuration file's directory.
-  # env: {}
-  # Overrides for inherited job environment variables, e.g. {LANG: en_US.UTF-8}.
-  # Management credentials and runner input variables cannot be set here.
+  # user: "" # Empty uses the launching user. Root must select a non-root account.
+  # startupTimeout: 2m # Maximum time for a new runner to become ready.
+  # drainTimeout: 10m # Grace period before remaining runner processes are forcibly stopped.
+  # workRoot: runs # Execution directories and recovery state; relative to the config directory.
+  # distributionRoot: runners # Pinned runner distribution metadata; relative to the config directory.
+  # cacheRoot: downloads # Downloaded runner archives; relative to the config directory.
+  # env: {} # Job environment overrides, e.g. {LANG: en_US.UTF-8}; no management credentials or runner input variables.
 
 # cleanup:
-#   preserveLogs: true
-#   Archive runner logs before removing execution directories.
-#   logRetention: 7d
-#   Retention for completed log archives; durations support d, h, m and s.
-#   logRoot: logs
-#   Log archive directory, relative to this configuration file.
+#   preserveLogs: true # Archive runner logs before removing execution directories.
+#   logRetention: 7d # Retention for completed log archives; durations support d, h, m and s.
+#   logRoot: logs # Log archive directory; relative to the config directory.
