@@ -1,13 +1,93 @@
 package ghalet
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
+
+func TestStateSizeLimitPreservesReadableRecord(t *testing.T) {
+	c := testConfig(t)
+	state := testState(t, c)
+	store := stateStore{c.Runner.WorkRoot}
+	if err := store.save(state); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(filepath.Dir(state.RunnerDir), "state.json")
+	original, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range []string{"error", "members"} {
+		t.Run(field, func(t *testing.T) {
+			large := *state
+			if field == "error" {
+				large.Error = strings.Repeat("x", maxStateBytes)
+			} else {
+				large.Members = make([]ProcessIdentity, 8000)
+				for i := range large.Members {
+					large.Members[i] = ProcessIdentity{PID: i + 2, PGID: 1234, UID: state.UID, Started: "linux:00000000-0000-0000-0000-000000000000:123456789"}
+				}
+			}
+			if err := store.save(&large); err == nil || !strings.Contains(err.Error(), "byte limit") {
+				t.Fatal("oversized state write was not rejected", err)
+			}
+			data, err := os.ReadFile(path)
+			if err != nil || !bytes.Equal(data, original) {
+				t.Fatal("oversized save replaced the last readable record", err)
+			}
+			records, err := store.load()
+			if err != nil || len(records) != 1 || records[0].Err != nil || records[0].State.RunID != state.RunID {
+				t.Fatal("oversized save broke recovery of the previous record", err)
+			}
+		})
+	}
+}
+
+func TestStateSizeBoundary(t *testing.T) {
+	c := testConfig(t)
+	state := testState(t, c)
+	store := stateStore{c.Runner.WorkRoot}
+	state.UpdatedAt = time.Date(2000, 1, 1, 0, 0, 0, 123456789, time.UTC)
+	state.Error = "x"
+	data, err := json.MarshalIndent(state, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	state.Error = strings.Repeat("x", maxStateBytes-len(data))
+	if err := store.save(state); err != nil {
+		t.Fatal("state at the write limit was rejected", err)
+	}
+	path := filepath.Join(filepath.Dir(state.RunnerDir), "state.json")
+	data, err = os.ReadFile(path)
+	if err != nil || len(data) > maxStateBytes || len(data) < maxStateBytes-10 {
+		t.Fatal("test did not reach the state size boundary", len(data), err)
+	}
+	// Normalize subsecond timestamp length differences to test the exact read limit.
+	state.Error += strings.Repeat("x", maxStateBytes-len(data))
+	data, err = json.MarshalIndent(state, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	data = append(data, '\n')
+	if len(data) != maxStateBytes {
+		t.Fatal("incorrect exact-boundary fixture size", len(data))
+	}
+	for _, extra := range []string{"", "\n", "x"} {
+		if err := os.WriteFile(path, append(append([]byte(nil), data...), extra...), 0600); err != nil {
+			t.Fatal(err)
+		}
+		records, err := store.load()
+		if err != nil || len(records) != 1 || (records[0].Err != nil) != (extra != "") {
+			t.Fatal("state read size limit was inconsistent", len(extra), records, err)
+		}
+	}
+}
 
 func TestStateAtomicRoundTripAndLastFileCleanup(t *testing.T) {
 	c := testConfig(t)

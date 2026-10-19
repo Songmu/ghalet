@@ -188,6 +188,12 @@ in diagnostics. Recovery of a surviving process does not recreate `Wait` or
 invent its exit code. Descendants observed in the original process group can
 be recovered; escaped descendants cannot be completely detected or isolated.
 
+An empty process-group snapshot must also pass a kernel absence check;
+otherwise the execution remains uncertain and retains capacity. State files
+are limited to 1 MiB, including their final newline. Oversized saves fail
+without replacing the last readable record, including when a large descendant
+list cannot be persisted before signaling.
+
 For manual recovery, inspect the named paths/processes, wait for or explicitly
 stop only the identified execution, then run `gc --dry-run` and `gc`. Correct
 configuration/permission issues and restart to revalidate. Do not delete

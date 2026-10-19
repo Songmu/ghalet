@@ -13,6 +13,8 @@ import (
 	"time"
 )
 
+const maxStateBytes = 1024 * 1024
+
 type ProcessIdentity struct {
 	PID     int    `json:"pid"`
 	PGID    int    `json:"pgid"`
@@ -135,6 +137,9 @@ func (s stateStore) save(state *RunState) error {
 	if err != nil {
 		return err
 	}
+	if len(data)+1 > maxStateBytes {
+		return fmt.Errorf("state exceeds %d byte limit", maxStateBytes)
+	}
 	file, err := os.CreateTemp(dir, ".state-*")
 	if err != nil {
 		return err
@@ -203,12 +208,16 @@ func (s stateStore) load() ([]recoveredState, error) {
 				record.Err = err
 			} else {
 				var state RunState
-				decoder := json.NewDecoder(io.LimitReader(file, 1024*1024))
+				input := &io.LimitedReader{R: file, N: maxStateBytes + 1}
+				decoder := json.NewDecoder(input)
 				decoder.DisallowUnknownFields()
 				err = decoder.Decode(&state)
 				var extra any
 				if err == nil && decoder.Decode(&extra) != io.EOF {
 					err = errors.New("state contains trailing data")
+				}
+				if input.N == 0 {
+					err = fmt.Errorf("state exceeds %d byte limit", maxStateBytes)
 				}
 				file.Close()
 				if err == nil {
