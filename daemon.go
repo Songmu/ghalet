@@ -1025,7 +1025,7 @@ func (d *daemon) stop(run *activeRun, forced bool) error {
 	run.Stopping = true
 	ctx, cancel := context.WithTimeout(d.ctx, 10*time.Second)
 	defer cancel()
-	err := stopGroup(ctx, run.State)
+	err := stopGroup(ctx, run.State, func() error { return d.save(run) })
 	if err != nil {
 		return err
 	}

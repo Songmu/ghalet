@@ -53,7 +53,7 @@ func cleanupProcesses(t *testing.T, d *daemon) {
 			}
 			if run.State.Process.PID != 0 && !run.State.ProcessDone {
 				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-				if err := stopGroup(ctx, run.State); err != nil {
+				if err := stopGroup(ctx, run.State, func() error { return d.store.save(run.State) }); err != nil {
 					t.Errorf("test process cleanup: %v", err)
 				}
 				cancel()
@@ -547,7 +547,7 @@ func testRecoveredRunner(t *testing.T, missingCompletion bool) {
 		if err := d.save(run); err != nil {
 			t.Fatal(err)
 		}
-		if err := stopGroup(t.Context(), run.State); err != nil {
+		if err := stopGroup(t.Context(), run.State, func() error { return d.store.save(run.State) }); err != nil {
 			t.Fatal(err)
 		}
 		d.reconcile()

@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"os/user"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -197,12 +198,27 @@ func inspectGroup(state *RunState, table map[int]processEntry) (bool, []ProcessI
 	return len(members) > 0, members, nil
 }
 
-func stopGroup(ctx context.Context, state *RunState) error {
-	table, err := processTable(ctx)
-	if err != nil {
-		return err
+func stopGroup(ctx context.Context, state *RunState, persist func() error) error {
+	saved := false
+	inspect := func() (bool, error) {
+		table, err := processTable(ctx)
+		if err != nil {
+			return false, err
+		}
+		alive, members, err := inspectGroup(state, table)
+		if err != nil || !alive {
+			return alive, err
+		}
+		if !saved || !slices.Equal(state.Members, members) {
+			state.Members = members
+			if err := persist(); err != nil {
+				return false, fmt.Errorf("persist verified process group before signaling: %w", err)
+			}
+			saved = true
+		}
+		return true, nil
 	}
-	alive, _, err := inspectGroup(state, table)
+	alive, err := inspect()
 	if err != nil || !alive {
 		return err
 	}
@@ -215,11 +231,7 @@ func stopGroup(ctx context.Context, state *RunState) error {
 			return ctx.Err()
 		case <-time.After(100 * time.Millisecond):
 		}
-		table, err = processTable(ctx)
-		if err != nil {
-			return err
-		}
-		alive, _, err = inspectGroup(state, table)
+		alive, err = inspect()
 		if err != nil || !alive {
 			return err
 		}
