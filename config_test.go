@@ -26,7 +26,7 @@ targets:
     credential:
       type: pat
       tokenEnv: GHALET_TEST_TOKEN
-    scaleSetName: build
+    scaleSet: build
     scaling:
       minRunners: 0
       maxRunners: 2
@@ -114,13 +114,77 @@ func TestConfigTargetScope(t *testing.T) {
 	}
 }
 
+func TestConfigScaleSetName(t *testing.T) {
+	for _, tc := range []struct {
+		name, scaleSetName, want string
+	}{
+		{"omitted", "", "build"},
+		{"empty", `""`, "build"},
+		{"explicit", "remote", "remote"},
+		{"non-ID name", "build/linux", "build/linux"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			content := strings.Replace(testYAML, "    scaleSet: build\n", "", 1)
+			if tc.scaleSetName != "" {
+				content = strings.Replace(content, "    scaling:", "    scaleSet: "+tc.scaleSetName+"\n    scaling:", 1)
+			}
+			c, err := LoadConfig(writeConfig(t, content))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if c.Targets[0].ID != "build" || c.Targets[0].ScaleSetName != tc.want {
+				t.Fatalf("unexpected target identity: %+v", c.Targets[0])
+			}
+		})
+	}
+}
+
+func TestConfigScaleSetNameRegistrations(t *testing.T) {
+	const extra = `
+  - id: other
+    scope: owner/repository
+    credential:
+      type: gh
+    scaleSet: build
+    scaling:
+      maxRunners: 2
+runner:`
+	for _, tc := range []struct {
+		name, scope string
+		valid       bool
+	}{
+		{"same scope", "owner/repository", false},
+		{"different scopes", "owner/another-repository", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			content := strings.Replace(testYAML, "    scaleSet: build\n", "", 1)
+			second := strings.Replace(extra, "owner/repository", tc.scope, 1)
+			content = strings.Replace(content, "\nrunner:", second, 1)
+			c, err := LoadConfig(writeConfig(t, content))
+			if !tc.valid {
+				if err == nil || !strings.Contains(err.Error(), "duplicate scope/group/scale set registration") {
+					t.Fatalf("expected duplicate registration, got %v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if c.Targets[0].ID == c.Targets[1].ID ||
+				c.Targets[0].ScaleSetName != "build" || c.Targets[1].ScaleSetName != "build" {
+				t.Fatalf("unexpected target identities: %+v", c.Targets)
+			}
+		})
+	}
+}
+
 func TestConfigRejectsDuplicateShorthandRegistration(t *testing.T) {
 	const extra = `
   - id: other
     scope: https://github.com/REGISTRATION
     credential:
       type: gh
-    scaleSetName: build
+    scaleSet: build
     scaling:
       maxRunners: 2
 runner:`
@@ -144,7 +208,7 @@ targets:
     credential: &credential
 CREDENTIAL
 FIRST_INSTALLATION
-    scaleSetName: build
+    scaleSet: build
     scaling: &scaling
       minRunners: 0
       maxRunners: 2
@@ -152,7 +216,7 @@ FIRST_INSTALLATION
     scope: *scope
     credential: *credential
 SECOND_INSTALLATION
-    scaleSetName: test
+    scaleSet: test
     scaling: *scaling
 runner:
   version: "2.338.0"
@@ -245,17 +309,21 @@ func TestConfigRejectsInvalidInput(t *testing.T) {
 		"missing credential":    strings.Replace(testYAML, "    credential:\n      type: pat\n      tokenEnv: GHALET_TEST_TOKEN\n", "", 1),
 		"missing type":          strings.Replace(testYAML, "      type: pat\n", "", 1),
 		"missing scope":         strings.Replace(testYAML, "    scope: https://github.com/owner/repository\n", "", 1),
+		"multiple scopes":       strings.Replace(testYAML, "scope: https://github.com/owner/repository", "scope: [owner/repository, owner/another-repository]", 1),
 		"old URL key":           strings.Replace(testYAML, "scope: https://github.com/owner/repository", "url: https://github.com/owner/repository", 1),
 		"legacy credentials":    testYAML + "credentials: {}\n",
 		"legacy scopes":         testYAML + "scopes: {}\n",
 		"legacy scopeRef":       strings.Replace(testYAML, "id: build", "id: build\n    scopeRef: repository", 1),
 		"legacy credentialRef":  strings.Replace(testYAML, "id: build", "id: build\n    credentialRef: personal", 1),
-		"repository group":      strings.Replace(testYAML, "scaleSetName: build", "runnerGroup: special\n    scaleSetName: build", 1),
+		"old scale set key":     strings.Replace(testYAML, "scaleSet: build", "scaleSetName: build", 1),
+		"repository group":      strings.Replace(testYAML, "scaleSet: build", "runnerGroup: special\n    scaleSet: build", 1),
 		"enterprise":            strings.Replace(testYAML, "owner/repository", "enterprises/company", 1),
 		"HTTP scope":            strings.Replace(testYAML, "https:", "http:", 1),
 		"userinfo":              strings.Replace(testYAML, "github.com/", "user:secret@github.com/", 1),
 		"query":                 strings.Replace(testYAML, "owner/repository", "owner/repository?token=abc", 1),
 		"invalid target id":     strings.Replace(testYAML, "id: build", "id: ../outside", 1),
+		"missing target id":     strings.Replace(testYAML, "  - id: build\n    scope:", "  - scope:", 1),
+		"empty target id":       strings.Replace(testYAML, "id: build", `id: ""`, 1),
 		"negative min":          strings.Replace(testYAML, "minRunners: 0", "minRunners: -1", 1),
 		"min exceeds max":       strings.Replace(testYAML, "minRunners: 0", "minRunners: 3", 1),
 		"missing max":           strings.Replace(testYAML, "maxRunners: 2", "maxRunners: 0", 1),

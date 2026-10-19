@@ -71,7 +71,7 @@ type Target struct {
 	Credential     Credential    `yaml:"credential"`
 	InstallationID int64         `yaml:"installationId"`
 	RunnerGroup    string        `yaml:"runnerGroup"`
-	ScaleSetName   string        `yaml:"scaleSetName"`
+	ScaleSetName   string        `yaml:"scaleSet"`
 	Scaling        ScalingConfig `yaml:"scaling"`
 }
 
@@ -156,6 +156,9 @@ func LoadConfig(path string) (*Config, error) {
 	}
 	for i := range c.Targets {
 		target := &c.Targets[i]
+		if target.ScaleSetName == "" {
+			target.ScaleSetName = target.ID
+		}
 		cred := &target.Credential
 		if cred.TokenFile != "" {
 			cred.TokenFile = resolve(cred.TokenFile)

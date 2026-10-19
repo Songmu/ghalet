@@ -36,8 +36,9 @@ targets:
 
     # runnerGroup: ""
     # Organization targets only; empty selects GitHub's default runner group.
-    scaleSetName: macmini
-    # Scale set name and workflow runs-on label.
+    # scaleSet: project
+    # Defaults to id; scale set name and workflow runs-on label.
+    # Set explicitly to use a different name or share a name across scopes.
     scaling:
       # minRunners: 0
       # Warm runners to retain when idle.
@@ -47,7 +48,7 @@ targets:
   # - id: another-project
   #   scope: OWNER/ANOTHER-REPO
   #   credential: *personal
-  #   scaleSetName: macmini
+  #   scaleSet: macmini
   #   scaling:
   #     maxRunners: 2
   # Optional second target reusing the &personal credential via a YAML alias.

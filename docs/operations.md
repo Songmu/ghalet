@@ -21,6 +21,12 @@ examples. Each target contains its registration `scope` and a nested
 `OWNER/REPO` for a repository or `ORG` for an organization; these are normalized
 to HTTPS URLs before validation, authentication, and registration matching.
 Full HTTPS URLs are also accepted and are required for other GitHub hosts.
+Each target accepts exactly one scope. Its required `id` identifies it in
+management commands and local state. The optional `scaleSet` defaults
+to `id`; set it explicitly to use a different GitHub registration name
+and workflow `runs-on` label, including a shared name across scopes.
+IDs must be unique across all targets and contain 1-64 ASCII letters,
+digits, underscores or hyphens, starting with a letter or digit.
 App `installationId` belongs to the target, not its credential, so multiple
 installations can share a single App key. Reuse values with ordinary YAML
 anchors and aliases:
@@ -31,20 +37,23 @@ targets:
     scope: &repository OWNER/REPO
     credential: &personal
       type: gh
-    scaleSetName: build
+    # scaleSet: build
+    # Defaults to id.
     scaling: &scaling
       minRunners: 0
       maxRunners: 2
   - id: test
     scope: *repository
     credential: *personal
-    scaleSetName: test
+    # scaleSet: test
+    # Defaults to id.
     scaling: *scaling
 ```
 
 There is no separate scope or credential registry. The old top-level
 `scopes` and `credentials` mappings and the `scopeRef` / `credentialRef`
 fields are no longer accepted; move their values into each target.
+Use `scaleSet` instead of the old `scaleSetName` configuration key.
 Unknown keys, duplicate IDs, conflicting registrations, unsupported enterprise
 scopes, repository runner groups, and impossible minimum capacities are
 rejected before any GitHub operation.

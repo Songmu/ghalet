@@ -46,6 +46,7 @@ non-root subprocesses. They cover:
 | Contract | Automated evidence |
 | --- | --- |
 | Target-local config, YAML alias reuse, defaults and config-relative paths | Config/CLI tables, shared credential/scaling aliases and legacy-key rejection |
+| Scale set names default to required target IDs and remain explicitly overridable | Omitted/empty names, explicit overrides, missing/empty ID rejection and default/explicit registration collision tests |
 | Repository/organization shorthand resolves to GitHub.com without bypassing validation | URL normalization, invalid shorthand, aliases and mixed shorthand/full-URL duplicate registration tests |
 | Version queries never enter daemon startup regardless of common-flag placement | Mixed pre/post-command flags, valid/missing config and untouched execution-directory regressions |
 | Day durations reject mixed units; enterprise scope rejection is case-insensitive | Duration and scope URL regression tables |
