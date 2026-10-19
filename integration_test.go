@@ -38,6 +38,7 @@ func TestOfficialRunnerJITInputSmoke(t *testing.T) {
 		t.Skip("set GHALET_TEST_OFFICIAL_RUNNER=1 to download and exercise the pinned official runner")
 	}
 	d, _ := testDaemon(t)
+	d.config.Runner.Version = defaultRunnerVersion
 	dest := filepath.Join(testDirectory(t), "runner")
 	ctx, cancel := context.WithTimeout(t.Context(), preparationTimeout)
 	defer cancel()

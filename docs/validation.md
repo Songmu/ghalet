@@ -10,8 +10,10 @@ statistics before the official Listener acknowledges a message. The v0.4.0
 tag has a different callback contract; selecting that tag is not an
 interchangeable dependency downgrade.
 
-The example and optional runner smoke test pin `actions/runner` 2.338.0.
-Source inspection of that tag establishes:
+The bundled runner version is pinned in `defaultRunnerVersion`; the
+`update-runner` workflow proposes updates from official stable releases.
+The optional runner smoke test uses the configured version, defaulting to
+that bundled pin. Source inspection of `actions/runner` 2.338.0 establishes:
 
 - `CommandSettings` reads `ACTIONS_RUNNER_INPUT_*`, removes input environment
   variables and registers secret arguments with the masker.
@@ -46,6 +48,8 @@ non-root subprocesses. They cover:
 | Contract | Automated evidence |
 | --- | --- |
 | Target-local config, YAML alias reuse, defaults and config-relative paths | Config/CLI tables, shared credential/scaling aliases and legacy-key rejection |
+| Per-target scaling defaults to 0 minimum and 2 maximum runners | Omitted/empty/partial scaling, explicit overrides, aliased defaults and zero-maximum rejection |
+| Global runner version defaults to a bundled numeric pin | Omitted/empty runner mapping, omitted version, explicit override and empty/latest version rejection |
 | Scale set names default to required target IDs and remain explicitly overridable | Omitted/empty names, explicit overrides, missing/empty ID rejection and default/explicit registration collision tests |
 | Repository/organization shorthand resolves to GitHub.com without bypassing validation | URL normalization, invalid shorthand, aliases and mixed shorthand/full-URL duplicate registration tests |
 | Version queries never enter daemon startup regardless of common-flag placement | Mixed pre/post-command flags, valid/missing config and untouched execution-directory regressions |

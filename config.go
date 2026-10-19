@@ -16,6 +16,8 @@ import (
 
 type Duration time.Duration
 
+const defaultRunnerVersion = "2.338.0"
+
 var dayDuration = regexp.MustCompile(`^[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)d$`)
 
 func (d *Duration) UnmarshalYAML(unmarshal func(any) error) error {
@@ -73,6 +75,16 @@ type Target struct {
 	RunnerGroup    string        `yaml:"runnerGroup"`
 	ScaleSetName   string        `yaml:"scaleSet"`
 	Scaling        ScalingConfig `yaml:"scaling"`
+}
+
+func (t *Target) UnmarshalYAML(unmarshal func(any) error) error {
+	type plain Target
+	value := plain{Scaling: ScalingConfig{MaxRunners: 2}}
+	if err := unmarshal(&value); err != nil {
+		return err
+	}
+	*t = Target(value)
+	return nil
 }
 
 type ScalingConfig struct {
@@ -134,6 +146,7 @@ func LoadConfig(path string) (*Config, error) {
 	c := &Config{
 		Path: path, Capacity: CapacityConfig{MaxRunners: 2},
 		Runner: RunnerConfig{
+			Version:        defaultRunnerVersion,
 			StartupTimeout: Duration(2 * time.Minute), DrainTimeout: Duration(10 * time.Minute),
 			WorkRoot: "runs", DistributionRoot: "runners", CacheRoot: "downloads",
 		},

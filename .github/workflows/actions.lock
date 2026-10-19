@@ -29,6 +29,9 @@ workflows:
         - 'actions/setup-go@v7.0.0'
         - 'codecov/codecov-action@v7.1.1'
         - 'golang/govulncheck-action@v1.1.0'
+    '.github/workflows/update-runner.yaml':
+        - 'actions/checkout@v7.0.1'
+        - 'actions/setup-go@v7.0.0'
 dependencies:
     'actions/attest@v4.2.2':
         ref: 'v4.2.2'

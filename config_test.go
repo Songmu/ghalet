@@ -72,6 +72,74 @@ func TestConfigDefaultsAndRelativePaths(t *testing.T) {
 	}
 }
 
+func TestConfigRunnerVersionDefault(t *testing.T) {
+	for _, tc := range []struct {
+		name, runner, want string
+	}{
+		{"omitted runner", "", defaultRunnerVersion},
+		{"empty runner", "runner: {}\n", defaultRunnerVersion},
+		{"omitted version", "runner:\n  startupTimeout: 3m\n", defaultRunnerVersion},
+		{"explicit version", "runner:\n  version: \"2.337.0\"\n", "2.337.0"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			content := strings.Replace(testYAML, "runner:\n  version: \"2.338.0\"\n", tc.runner, 1)
+			c, err := LoadConfig(writeConfig(t, content))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if c.Runner.Version != tc.want {
+				t.Fatalf("got %q, want %q", c.Runner.Version, tc.want)
+			}
+		})
+	}
+}
+
+func TestConfigScalingDefaults(t *testing.T) {
+	const scaling = "    scaling:\n      minRunners: 0\n      maxRunners: 2\n"
+	for _, tc := range []struct {
+		name, input string
+		want        ScalingConfig
+	}{
+		{"omitted", "", ScalingConfig{MaxRunners: 2}},
+		{"empty", "    scaling: {}\n", ScalingConfig{MaxRunners: 2}},
+		{"minimum only", "    scaling:\n      minRunners: 1\n", ScalingConfig{MinRunners: 1, MaxRunners: 2}},
+		{"maximum only", "    scaling:\n      maxRunners: 4\n", ScalingConfig{MaxRunners: 4}},
+		{"explicit", "    scaling:\n      minRunners: 1\n      maxRunners: 3\n", ScalingConfig{MinRunners: 1, MaxRunners: 3}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			content := strings.Replace(testYAML, scaling, tc.input, 1)
+			c, err := LoadConfig(writeConfig(t, content))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if c.Targets[0].Scaling != tc.want {
+				t.Fatalf("got %+v, want %+v", c.Targets[0].Scaling, tc.want)
+			}
+		})
+	}
+}
+
+func TestConfigScalingAliasDefaults(t *testing.T) {
+	content := strings.Replace(testYAML, "      maxRunners: 2\n", "", 1)
+	content = strings.Replace(content, "    scaling:", "    scaling: &scaling", 1)
+	content = strings.Replace(content, "\nrunner:", `
+  - id: other
+    scope: owner/another-repository
+    credential:
+      type: gh
+    scaling: *scaling
+runner:`, 1)
+	c, err := LoadConfig(writeConfig(t, content))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, target := range c.Targets {
+		if target.Scaling != (ScalingConfig{MaxRunners: 2}) {
+			t.Fatalf("unexpected aliased scaling defaults: %+v", target.Scaling)
+		}
+	}
+}
+
 func TestConfigTargetScope(t *testing.T) {
 	for _, tc := range []struct {
 		input, want string
@@ -306,6 +374,7 @@ func TestConfigRejectsInvalidInput(t *testing.T) {
 		"empty extra document":  testYAML + "---\n",
 		"wrong version":         strings.Replace(testYAML, "ghalet/v1alpha1", "ghalet/v2", 1),
 		"unfixed runner":        strings.Replace(testYAML, `"2.338.0"`, "latest", 1),
+		"empty runner version":  strings.Replace(testYAML, `"2.338.0"`, `""`, 1),
 		"missing credential":    strings.Replace(testYAML, "    credential:\n      type: pat\n      tokenEnv: GHALET_TEST_TOKEN\n", "", 1),
 		"missing type":          strings.Replace(testYAML, "      type: pat\n", "", 1),
 		"missing scope":         strings.Replace(testYAML, "    scope: https://github.com/owner/repository\n", "", 1),
@@ -326,7 +395,7 @@ func TestConfigRejectsInvalidInput(t *testing.T) {
 		"empty target id":       strings.Replace(testYAML, "id: build", `id: ""`, 1),
 		"negative min":          strings.Replace(testYAML, "minRunners: 0", "minRunners: -1", 1),
 		"min exceeds max":       strings.Replace(testYAML, "minRunners: 0", "minRunners: 3", 1),
-		"missing max":           strings.Replace(testYAML, "maxRunners: 2", "maxRunners: 0", 1),
+		"zero max":              strings.Replace(testYAML, "maxRunners: 2", "maxRunners: 0", 1),
 		"min exceeds global":    strings.Replace(testYAML, "minRunners: 0", "minRunners: 2", 1) + "capacity:\n  maxRunners: 1\n",
 		"zero startup timeout":  testYAML + "cleanup:\n  logRetention: 0s\n",
 		"two PAT inputs":        strings.Replace(testYAML, "tokenEnv: GHALET_TEST_TOKEN", "tokenEnv: GHALET_TEST_TOKEN\n      tokenFile: token", 1),

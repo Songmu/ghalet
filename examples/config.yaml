@@ -28,28 +28,24 @@ targets:
 
     # runnerGroup: "" # Org only; empty uses default group.
     # scaleSet: project # Defaults to id; GitHub name and runs-on label.
-    scaling:
-      # minRunners: 0 # Idle warm runners.
-      maxRunners: 2
-      # Per-target limit; shared capacity applies.
+    # scaling:
+    #   minRunners: 0 # Idle warm runners.
+    #   maxRunners: 2 # Per-target limit; shared capacity applies.
 
   # - id: another-project # Optional second target.
   #   scope: OWNER/ANOTHER-REPO
   #   credential: *personal # Reuse credentials via YAML alias.
   #   scaleSet: macmini
-  #   scaling:
-  #     maxRunners: 2
 
-runner:
-  version: "2.338.0"
-  # Pinned runner version; auto-update disabled.
-  # user: "" # Empty: current user. Root must set a non-root user.
-  # startupTimeout: 2m # Runner readiness deadline.
-  # drainTimeout: 10m # Grace period before forced stop.
-  # workRoot: runs # Runs and recovery state.
-  # distributionRoot: runners # Pinned runner metadata.
-  # cacheRoot: downloads # Runner archives.
-  # env: {} # Job env; no credentials or runner input variables.
+# runner:
+#   version: "2.338.0" # Bundled default; override to pin another version.
+#   user: "" # Empty: current user. Root must set a non-root user.
+#   startupTimeout: 2m # Runner readiness deadline.
+#   drainTimeout: 10m # Grace period before forced stop.
+#   workRoot: runs # Runs and recovery state.
+#   distributionRoot: runners # Pinned runner metadata.
+#   cacheRoot: downloads # Runner archives.
+#   env: {} # Job env; no credentials or runner input variables.
 
 # cleanup:
 #   preserveLogs: true # Archive logs before cleanup.

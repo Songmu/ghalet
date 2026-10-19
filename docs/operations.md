@@ -118,6 +118,14 @@ No Docker daemon, Kubernetes, VM runtime or service manager is needed for
 native Linux/macOS execution. macOS ARM64/x64 and Linux ARM64/x64/ARM runner
 packages are selected from the pinned version. Windows is not supported.
 
+`runner` is global and optional. Its version defaults to the numeric version
+bundled with ghalet; set `runner.version` to pin a different release.
+The scheduled `update-runner` workflow checks official stable releases weekly
+and opens a tested PR updating the bundled default and example. It also
+supports manual dispatch. Updating ghalet and restarting picks up the new
+default unless the configuration explicitly pins a version. Startup never
+resolves `latest`, and runner self-update remains disabled.
+
 The pinned archive is fetched from `actions/runner` releases, checked against
 the release asset's official SHA-256 digest, and checked again whenever the
 cached archive is reused. Releases without an official asset digest fail
@@ -127,6 +135,10 @@ not silently replaced: remove the indicated bad archive, then restart.
 Automatic runner updates are disabled on the explicit scale set.
 
 ## Capacity, retries and shutdown
+
+`scaling` is optional: each target defaults to `minRunners: 0` and
+`maxRunners: 2`. Omitted fields retain their defaults; an explicit
+`maxRunners: 0` is invalid.
 
 The desired total is `min(maxRunners, assignedJobs + minRunners)`. Running
 jobs, launches and uncertain recovered executions occupy the same shared
