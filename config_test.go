@@ -105,6 +105,75 @@ func TestConfigLogRootOverride(t *testing.T) {
 	}
 }
 
+func TestConfigLogRootWithoutHome(t *testing.T) {
+	t.Setenv("HOME", "")
+	if err := os.Unsetenv("HOME"); err != nil {
+		t.Fatal(err)
+	}
+	for _, env := range []struct {
+		name, value string
+		unset       bool
+	}{
+		{"unset", "", true},
+		{"empty", "", false},
+		{"relative", "relative/state", false},
+		{"absolute", testDirectory(t), false},
+	} {
+		t.Run(env.name, func(t *testing.T) {
+			t.Setenv("XDG_STATE_HOME", env.value)
+			if env.unset {
+				if err := os.Unsetenv("XDG_STATE_HOME"); err != nil {
+					t.Fatal(err)
+				}
+			}
+			for _, tc := range []struct {
+				name, cleanup, wantErr string
+				root                   string
+			}{
+				{name: "omitted", wantErr: "resolve default log directory"},
+				{name: "empty mapping", cleanup: "cleanup: {}\n", wantErr: "resolve default log directory"},
+				{name: "empty path", cleanup: "cleanup:\n  logRoot: \"\"\n", wantErr: "empty"},
+				{name: "relative override", root: "custom/logs"},
+				{name: "absolute override", root: filepath.Join(testDirectory(t), "logs")},
+			} {
+				t.Run(tc.name, func(t *testing.T) {
+					content := testYAML + tc.cleanup
+					if tc.root != "" {
+						content += "cleanup:\n  logRoot: " + tc.root + "\n"
+					}
+					path := writeConfig(t, content)
+					c, err := LoadConfig(path)
+					wantErr := tc.wantErr
+					if filepath.IsAbs(env.value) && tc.name != "empty path" {
+						wantErr = ""
+					}
+					if wantErr != "" {
+						if err == nil {
+							t.Fatal("config without a usable log directory was accepted")
+						}
+						if tc.name != "empty path" && !strings.Contains(err.Error(), wantErr) {
+							t.Fatalf("expected %q, got %v", wantErr, err)
+						}
+						return
+					}
+					if err != nil {
+						t.Fatal(err)
+					}
+					want := tc.root
+					if want == "" {
+						want = filepath.Join(env.value, "ghalet", "logs")
+					} else if !filepath.IsAbs(want) {
+						want = filepath.Join(filepath.Dir(path), want)
+					}
+					if c.Cleanup.LogRoot != want {
+						t.Fatalf("got %q, want %q", c.Cleanup.LogRoot, want)
+					}
+				})
+			}
+		})
+	}
+}
+
 func TestConfigDefaultsAndRelativePaths(t *testing.T) {
 	c := testConfig(t)
 	if c.Capacity.MaxRunners != 2 || c.Runner.StartupTimeout != Duration(2*time.Minute) ||

@@ -147,12 +147,16 @@ func LoadConfig(path string) (*Config, error) {
 	}
 	base := filepath.Dir(path)
 	stateHome := os.Getenv("XDG_STATE_HOME")
+	var logRootErr error
 	if !filepath.IsAbs(stateHome) {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return nil, fmt.Errorf("resolve default log directory: %w", err)
+		stateHome, logRootErr = os.UserHomeDir()
+		if logRootErr == nil {
+			stateHome = filepath.Join(stateHome, ".local", "state")
 		}
-		stateHome = filepath.Join(home, ".local", "state")
+	}
+	logRoot := ""
+	if logRootErr == nil {
+		logRoot = filepath.Join(stateHome, "ghalet", "logs")
 	}
 	c := &Config{
 		Path: path, Capacity: CapacityConfig{MaxRunners: 2},
@@ -163,11 +167,14 @@ func LoadConfig(path string) (*Config, error) {
 		},
 		Cleanup: CleanupConfig{
 			PreserveLogs: true, LogRetention: Duration(7 * 24 * time.Hour),
-			LogRoot: filepath.Join(stateHome, "ghalet", "logs"),
+			LogRoot: logRoot,
 		},
 	}
 	if err := yaml.NodeToValue(file.Docs[0].Body, c, yaml.Strict()); err != nil {
 		return nil, fmt.Errorf("decode config: %w", err)
+	}
+	if c.Cleanup.LogRoot == "" && logRootErr != nil {
+		return nil, fmt.Errorf("resolve default log directory: %w", logRootErr)
 	}
 	resolve := func(path string) string {
 		if !filepath.IsAbs(path) {
