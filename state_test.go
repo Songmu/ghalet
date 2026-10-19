@@ -109,6 +109,9 @@ func TestStateAtomicRoundTripAndLastFileCleanup(t *testing.T) {
 	if err != nil || !json.Valid(data) || strings.Contains(string(data), "jit") {
 		t.Fatal("invalid or secret-bearing state")
 	}
+	if bytes.Contains(data, []byte(`"scopeRef"`)) {
+		t.Fatal("new state persisted a legacy scope reference")
+	}
 	info, _ := os.Stat(filepath.Join(filepath.Dir(state.RunnerDir), "state.json"))
 	if info.Mode().Perm() != 0600 {
 		t.Fatal("state permissions are not private")

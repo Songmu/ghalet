@@ -44,14 +44,12 @@ func (d *Duration) UnmarshalYAML(unmarshal func(any) error) error {
 }
 
 type Config struct {
-	APIVersion  string                `yaml:"apiVersion"`
-	Capacity    CapacityConfig        `yaml:"capacity"`
-	Credentials map[string]Credential `yaml:"credentials"`
-	Scopes      map[string]Scope      `yaml:"scopes"`
-	Targets     []Target              `yaml:"targets"`
-	Runner      RunnerConfig          `yaml:"runner"`
-	Cleanup     CleanupConfig         `yaml:"cleanup"`
-	Path        string                `yaml:"-"`
+	APIVersion string         `yaml:"apiVersion"`
+	Capacity   CapacityConfig `yaml:"capacity"`
+	Targets    []Target       `yaml:"targets"`
+	Runner     RunnerConfig   `yaml:"runner"`
+	Cleanup    CleanupConfig  `yaml:"cleanup"`
+	Path       string         `yaml:"-"`
 }
 
 type CapacityConfig struct {
@@ -67,18 +65,14 @@ type Credential struct {
 	PrivateKeyFile string `yaml:"privateKeyFile"`
 }
 
-type Scope struct {
-	URL            string `yaml:"url"`
-	CredentialRef  string `yaml:"credentialRef"`
-	InstallationID int64  `yaml:"installationId"`
-}
-
 type Target struct {
-	ID           string        `yaml:"id"`
-	ScopeRef     string        `yaml:"scopeRef"`
-	RunnerGroup  string        `yaml:"runnerGroup"`
-	ScaleSetName string        `yaml:"scaleSetName"`
-	Scaling      ScalingConfig `yaml:"scaling"`
+	ID             string        `yaml:"id"`
+	URL            string        `yaml:"url"`
+	Credential     Credential    `yaml:"credential"`
+	InstallationID int64         `yaml:"installationId"`
+	RunnerGroup    string        `yaml:"runnerGroup"`
+	ScaleSetName   string        `yaml:"scaleSetName"`
+	Scaling        ScalingConfig `yaml:"scaling"`
 }
 
 type ScalingConfig struct {
@@ -160,18 +154,16 @@ func LoadConfig(path string) (*Config, error) {
 		}
 		*path = resolve(*path)
 	}
-	for name, cred := range c.Credentials {
+	for i := range c.Targets {
+		target := &c.Targets[i]
+		cred := &target.Credential
 		if cred.TokenFile != "" {
 			cred.TokenFile = resolve(cred.TokenFile)
 		}
 		if cred.PrivateKeyFile != "" {
 			cred.PrivateKeyFile = resolve(cred.PrivateKeyFile)
 		}
-		c.Credentials[name] = cred
-	}
-	for name, scope := range c.Scopes {
-		scope.URL = strings.TrimRight(scope.URL, "/")
-		c.Scopes[name] = scope
+		target.URL = strings.TrimRight(target.URL, "/")
 	}
 	if err := c.Validate(); err != nil {
 		return nil, err
@@ -199,49 +191,6 @@ func (c *Config) Validate() error {
 	if len(c.Targets) == 0 {
 		return errors.New("at least one target is required")
 	}
-	for name, cred := range c.Credentials {
-		if !safeID.MatchString(name) {
-			return fmt.Errorf("invalid credential name %q", name)
-		}
-		switch cred.Type {
-		case "gh":
-			if cred.TokenEnv != "" || cred.TokenFile != "" || cred.ClientID != "" || cred.PrivateKeyFile != "" {
-				return fmt.Errorf("credential %s: gh accepts only hostname", name)
-			}
-		case "pat":
-			if (cred.TokenEnv == "") == (cred.TokenFile == "") || cred.ClientID != "" || cred.PrivateKeyFile != "" || cred.Hostname != "" {
-				return fmt.Errorf("credential %s: pat requires exactly one of tokenEnv or tokenFile", name)
-			}
-			if cred.TokenEnv != "" && !envName.MatchString(cred.TokenEnv) {
-				return fmt.Errorf("credential %s: invalid tokenEnv", name)
-			}
-		case "github-app":
-			if cred.ClientID == "" || cred.PrivateKeyFile == "" || cred.TokenEnv != "" || cred.TokenFile != "" || cred.Hostname != "" {
-				return fmt.Errorf("credential %s: github-app requires clientId and privateKeyFile", name)
-			}
-		default:
-			return fmt.Errorf("credential %s: unsupported type %q", name, cred.Type)
-		}
-	}
-	for name, scope := range c.Scopes {
-		if !safeID.MatchString(name) {
-			return fmt.Errorf("invalid scope name %q", name)
-		}
-		u, err := scopeURL(scope.URL)
-		if err != nil {
-			return fmt.Errorf("scope %s: %w", name, err)
-		}
-		cred, ok := c.Credentials[scope.CredentialRef]
-		if !ok {
-			return fmt.Errorf("scope %s: unknown credentialRef %q", name, scope.CredentialRef)
-		}
-		if (cred.Type == "github-app" && scope.InstallationID <= 0) || (cred.Type != "github-app" && scope.InstallationID != 0) {
-			return fmt.Errorf("scope %s: installationId is required only for github-app", name)
-		}
-		if cred.Type == "gh" && cred.Hostname != "" && cred.Hostname != u.Host {
-			return fmt.Errorf("scope %s: credential hostname does not match scope URL", name)
-		}
-	}
 	ids, registrations := map[string]bool{}, map[string]bool{}
 	minimum := 0
 	for _, target := range c.Targets {
@@ -249,11 +198,36 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("invalid or duplicate target id %q", target.ID)
 		}
 		ids[target.ID] = true
-		scope, ok := c.Scopes[target.ScopeRef]
-		if !ok {
-			return fmt.Errorf("target %s: unknown scopeRef %q", target.ID, target.ScopeRef)
+		u, err := scopeURL(target.URL)
+		if err != nil {
+			return fmt.Errorf("target %s: %w", target.ID, err)
 		}
-		u, _ := scopeURL(scope.URL)
+		cred := target.Credential
+		switch cred.Type {
+		case "gh":
+			if cred.TokenEnv != "" || cred.TokenFile != "" || cred.ClientID != "" || cred.PrivateKeyFile != "" {
+				return fmt.Errorf("target %s: gh credential accepts only hostname", target.ID)
+			}
+		case "pat":
+			if (cred.TokenEnv == "") == (cred.TokenFile == "") || cred.ClientID != "" || cred.PrivateKeyFile != "" || cred.Hostname != "" {
+				return fmt.Errorf("target %s: pat credential requires exactly one of tokenEnv or tokenFile", target.ID)
+			}
+			if cred.TokenEnv != "" && !envName.MatchString(cred.TokenEnv) {
+				return fmt.Errorf("target %s: invalid tokenEnv", target.ID)
+			}
+		case "github-app":
+			if cred.ClientID == "" || cred.PrivateKeyFile == "" || cred.TokenEnv != "" || cred.TokenFile != "" || cred.Hostname != "" {
+				return fmt.Errorf("target %s: github-app credential requires clientId and privateKeyFile", target.ID)
+			}
+		default:
+			return fmt.Errorf("target %s: unsupported credential type %q", target.ID, cred.Type)
+		}
+		if (cred.Type == "github-app" && target.InstallationID <= 0) || (cred.Type != "github-app" && target.InstallationID != 0) {
+			return fmt.Errorf("target %s: installationId is required only for github-app", target.ID)
+		}
+		if cred.Type == "gh" && cred.Hostname != "" && cred.Hostname != u.Host {
+			return fmt.Errorf("target %s: credential hostname does not match target URL", target.ID)
+		}
 		if len(strings.Split(strings.Trim(u.Path, "/"), "/")) == 2 && target.RunnerGroup != "" {
 			return fmt.Errorf("target %s: repository scope cannot specify runnerGroup", target.ID)
 		}
@@ -270,7 +244,7 @@ func (c *Config) Validate() error {
 		if group == "" {
 			group = "default"
 		}
-		key := strings.ToLower(scope.URL) + "\x00" + group + "\x00" + target.ScaleSetName
+		key := strings.ToLower(target.URL) + "\x00" + group + "\x00" + target.ScaleSetName
 		if registrations[key] {
 			return fmt.Errorf("target %s: duplicate scope/group/scale set registration", target.ID)
 		}
@@ -298,6 +272,15 @@ func (c *Config) Validate() error {
 		}
 	}
 	return nil
+}
+
+func (c *Config) target(id string) (Target, error) {
+	for _, target := range c.Targets {
+		if target.ID == id {
+			return target, nil
+		}
+	}
+	return Target{}, fmt.Errorf("unknown target %q", id)
 }
 
 func scopeURL(raw string) (*url.URL, error) {
@@ -329,8 +312,8 @@ func (c *Config) secretEnv(name string) bool {
 		"ACTIONS_RUNNER_INPUT_JITCONFIG":
 		return true
 	}
-	for _, credential := range c.Credentials {
-		if credential.TokenEnv == name && name != "" {
+	for _, target := range c.Targets {
+		if target.Credential.TokenEnv == name && name != "" {
 			return true
 		}
 	}

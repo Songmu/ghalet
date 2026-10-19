@@ -12,19 +12,21 @@ import (
 )
 
 type fakeScaleAPI struct {
-	mu          sync.Mutex
-	group       *scaleset.RunnerGroup
-	set         *scaleset.RunnerScaleSet
-	runners     map[int]*scaleset.RunnerReference
-	nextID      int
-	getErr      error
-	removeErr   error
-	jitErr      error
-	groupErr    error
-	createCalls int
-	updateCalls int
-	removeCalls int
-	deleteCalls int
+	mu               sync.Mutex
+	group            *scaleset.RunnerGroup
+	set              *scaleset.RunnerScaleSet
+	runners          map[int]*scaleset.RunnerReference
+	nextID           int
+	getErr           error
+	removeErr        error
+	jitErr           error
+	groupErr         error
+	createCalls      int
+	updateCalls      int
+	removeCalls      int
+	deleteCalls      int
+	lastGroupName    string
+	lastScaleSetName string
 }
 
 func newFakeAPI() *fakeScaleAPI {
@@ -36,15 +38,17 @@ func newFakeAPI() *fakeScaleAPI {
 	}
 }
 
-func (f *fakeScaleAPI) GetRunnerGroupByName(context.Context, string) (*scaleset.RunnerGroup, error) {
+func (f *fakeScaleAPI) GetRunnerGroupByName(_ context.Context, name string) (*scaleset.RunnerGroup, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.lastGroupName = name
 	return f.group, f.groupErr
 }
 
-func (f *fakeScaleAPI) GetRunnerScaleSet(context.Context, int, string) (*scaleset.RunnerScaleSet, error) {
+func (f *fakeScaleAPI) GetRunnerScaleSet(_ context.Context, _ int, name string) (*scaleset.RunnerScaleSet, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.lastScaleSetName = name
 	return f.set, f.getErr
 }
 
@@ -160,7 +164,7 @@ func testState(t *testing.T, c *Config) *RunState {
 		t.Fatal(err)
 	}
 	dir := c.Runner.WorkRoot + "/build/" + id
-	return &RunState{Schema: 1, RunID: id, TargetID: "build", ScopeRef: "repository",
+	return &RunState{Schema: 1, RunID: id, TargetID: "build",
 		ScopeURL: "https://github.com/owner/repository", ScaleSetName: "build", ScaleSetID: 10,
 		GroupID: 1, RunnerName: "runner-" + id, User: account.Name, UID: account.UID, Home: account.Home,
 		RunnerDir: dir + "/runner", Workspace: dir + "/work", Phase: "preparing"}

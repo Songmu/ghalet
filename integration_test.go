@@ -88,7 +88,7 @@ func TestGitHubEphemeralLifecycle(t *testing.T) {
 		t.Fatal("live test requires exactly one dedicated repository target with minRunners=0")
 	}
 	target := c.Targets[0]
-	u, err := scopeURL(c.Scopes[target.ScopeRef].URL)
+	u, err := scopeURL(target.URL)
 	if err != nil || len(strings.Split(strings.Trim(u.Path, "/"), "/")) != 2 {
 		t.Fatal("live test requires a repository scope")
 	}

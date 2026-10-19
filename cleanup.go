@@ -171,7 +171,7 @@ func archiveLogs(c *Config, state *RunState, secret *secrets) error {
 			return err
 		}
 	}
-	data, err := json.Marshal(archivedRun{RunID: state.RunID, TargetID: state.TargetID, Scope: state.ScopeRef, ArchivedAt: time.Now().UTC()})
+	data, err := json.Marshal(archivedRun{RunID: state.RunID, TargetID: state.TargetID, Scope: state.ScopeURL, ArchivedAt: time.Now().UTC()})
 	if err != nil {
 		return err
 	}

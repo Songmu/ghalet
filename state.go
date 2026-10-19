@@ -23,10 +23,11 @@ type ProcessIdentity struct {
 }
 
 type RunState struct {
-	Schema       int               `json:"schema"`
-	RunID        string            `json:"runId"`
-	TargetID     string            `json:"targetId"`
-	ScopeRef     string            `json:"scopeRef"`
+	Schema   int    `json:"schema"`
+	RunID    string `json:"runId"`
+	TargetID string `json:"targetId"`
+	// Retained for existing state files, not used to identify registrations.
+	ScopeRef     string            `json:"scopeRef,omitempty"`
 	ScopeURL     string            `json:"scopeUrl"`
 	GroupName    string            `json:"groupName"`
 	GroupID      int               `json:"groupId"`

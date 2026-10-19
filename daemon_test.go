@@ -498,7 +498,7 @@ func TestCompletedTargetDrainDoesNotExpire(t *testing.T) {
 	if response := d.drain(t.Context(), "build"); response.Error != "" {
 		t.Fatal(response.Error)
 	}
-	plan, err := d.planDestroy(t.Context(), controlRequest{Scope: "repository", ScaleSet: "build"})
+	plan, err := d.planDestroy(t.Context(), controlRequest{Target: "build", ScaleSet: "build"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -551,6 +551,24 @@ func TestRecoveryKeepsUnmatchedAndCorruptStateConservative(t *testing.T) {
 	}
 	if _, err := os.Stat(broken); err != nil {
 		t.Fatal("corrupt recovery record was deleted")
+	}
+}
+
+func TestRecoveryAcceptsLegacyScopeRefWithoutUsingIt(t *testing.T) {
+	d, _ := testDaemon(t)
+	state := testState(t, d.config)
+	state.ScopeRef = "removed-scope"
+	state.ProcessDone, state.Phase = true, "cleaning"
+	if err := d.store.save(state); err != nil {
+		t.Fatal(err)
+	}
+	d.offline = true
+	if err := d.recover(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	run := d.runs[state.RunID]
+	if run == nil || run.Uncertain || len(d.problems) != 0 {
+		t.Fatal("legacy scope name prevented recovery of the matching registration")
 	}
 }
 

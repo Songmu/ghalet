@@ -3,42 +3,39 @@ apiVersion: ghalet/v1alpha1
 capacity:
   maxRunners: 2
 
-credentials:
-  personal:
-    type: gh
-    hostname: github.com
-  # organization:
-  #   type: github-app
-  #   clientId: "<app-client-id>"
-  #   privateKeyFile: credentials/app.pem
-  # token:
-  #   type: pat
-  #   tokenFile: credentials/token
-  #   # Alternatively use tokenEnv: MY_GITHUB_TOKEN (not both).
-
-scopes:
-  project:
-    url: https://github.com/OWNER/REPO
-    credentialRef: personal
-  # organization:
-  #   url: https://github.com/EXAMPLE-ORG
-  #   credentialRef: organization
-  #   installationId: 12345
-
 targets:
   - id: project
-    scopeRef: project
+    url: https://github.com/OWNER/REPO
+    credential: &personal
+      type: gh
     scaleSetName: macmini
     scaling:
       minRunners: 0
       maxRunners: 2
+  # - id: another-project
+  #   url: https://github.com/OWNER/ANOTHER-REPO
+  #   credential: *personal
+  #   scaleSetName: macmini
+  #   scaling:
+  #     minRunners: 0
+  #     maxRunners: 2
   # - id: organization
-  #   scopeRef: organization
+  #   url: https://github.com/EXAMPLE-ORG
+  #   credential:
+  #     type: github-app
+  #     clientId: "<app-client-id>"
+  #     privateKeyFile: credentials/app.pem
+  #   installationId: 12345
   #   runnerGroup: existing-build-runners
   #   scaleSetName: linux-arm64
   #   scaling:
   #     minRunners: 0
   #     maxRunners: 2
+  # For PAT authentication, replace a target's credential with:
+  # credential:
+  #   type: pat
+  #   tokenFile: credentials/token
+  #   # Alternatively use tokenEnv: MY_GITHUB_TOKEN (not both).
 
 runner:
   version: "2.338.0"

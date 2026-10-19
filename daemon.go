@@ -135,7 +135,7 @@ type daemon struct {
 	offline       bool
 	guardRunners  bool
 	nextRetention time.Time
-	clientFactory func(context.Context, string) (scaleAPI, error)
+	clientFactory func(context.Context, Target) (scaleAPI, error)
 }
 
 func newDaemon(c *Config, out io.Writer) (*daemon, error) {
@@ -163,8 +163,8 @@ func newDaemon(c *Config, out io.Writer) (*daemon, error) {
 		ctx: ctx, cancel: cancel, confirmations: map[string]destroyPlan{},
 		guardRunners: runtime.GOOS == "darwin",
 	}
-	d.clientFactory = func(ctx context.Context, scope string) (scaleAPI, error) {
-		return newScaleClient(ctx, c, scope, secret)
+	d.clientFactory = func(ctx context.Context, target Target) (scaleAPI, error) {
+		return newScaleClient(ctx, target, secret)
 	}
 	return d, nil
 }
@@ -196,7 +196,7 @@ func (d *daemon) initialize(ctx context.Context, offline bool) error {
 		err := retry(ctx, func() error {
 			callCtx, cancel := context.WithTimeout(ctx, apiTimeout)
 			defer cancel()
-			client, err := d.clientFactory(callCtx, config.ScopeRef)
+			client, err := d.clientFactory(callCtx, config)
 			if err != nil {
 				return err
 			}
@@ -249,7 +249,7 @@ func (d *daemon) recover(ctx context.Context) error {
 			reason = "state does not correspond to a currently configured target"
 		case target.Set == nil || target.Fault != "":
 			reason = "registration cannot be verified; resolve target authentication/registration and restart"
-		case state.ScopeURL != d.config.Scopes[target.Config.ScopeRef].URL ||
+		case state.ScopeURL != target.Config.URL ||
 			state.ScaleSetName != target.Config.ScaleSetName || runnerGroupName(state.GroupName) != runnerGroupName(target.Config.RunnerGroup) ||
 			state.ScaleSetID != target.Set.ID || state.GroupID != target.Set.RunnerGroupID:
 			reason = "recorded registration differs from the current explicit scope/group/scale set"
@@ -769,8 +769,8 @@ func (d *daemon) reserve(target *targetRuntime) error {
 		return err
 	}
 	state := &RunState{
-		Schema: 1, RunID: id, TargetID: target.Config.ID, ScopeRef: target.Config.ScopeRef,
-		ScopeURL: d.config.Scopes[target.Config.ScopeRef].URL, GroupName: target.Config.RunnerGroup,
+		Schema: 1, RunID: id, TargetID: target.Config.ID,
+		ScopeURL: target.Config.URL, GroupName: target.Config.RunnerGroup,
 		GroupID: target.Set.RunnerGroupID, ScaleSetName: target.Config.ScaleSetName, ScaleSetID: target.Set.ID,
 		RunnerName: "runner-" + id, User: d.user.Name, UID: d.user.UID, Home: d.user.Home,
 		RunnerDir: filepath.Join(dir, "runner"), Workspace: filepath.Join(dir, "work"), Phase: "preparing",
@@ -862,7 +862,7 @@ func (d *daemon) prepare(ctx context.Context, target *targetRuntime, run *active
 	if err := d.launch(run, jit.EncodedJITConfig); err != nil {
 		return err
 	}
-	d.log.Info("Runner started", "event", "runner.started", "scope", state.ScopeRef, "targetId", state.TargetID, "runId", state.RunID, "durationMs", time.Since(start).Milliseconds())
+	d.log.Info("Runner started", "event", "runner.started", "scope", state.ScopeURL, "targetId", state.TargetID, "runId", state.RunID, "durationMs", time.Since(start).Milliseconds())
 	return nil
 }
 

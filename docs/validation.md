@@ -45,10 +45,10 @@ non-root subprocesses. They cover:
 
 | Contract | Automated evidence |
 | --- | --- |
-| Strict declarative config, defaults and config-relative paths | Config/CLI invalid-input tables |
+| Target-local config, YAML alias reuse, defaults and config-relative paths | Config/CLI tables, shared credential/scaling aliases and legacy-key rejection |
 | Version queries never enter daemon startup regardless of common-flag placement | Mixed pre/post-command flags, valid/missing config and untouched execution-directory regressions |
 | Day durations reject mixed units; enterprise scope rejection is case-insensitive | Duration and scope URL regression tables |
-| Named PAT/gh/App settings, protected files, environment filtering and JSONL secret redaction | Credential, gh subprocess and environment tests |
+| Target-local PAT/gh/App settings, protected files, environment filtering and JSONL secret redaction | Credential, shared App key/per-target installation, gh subprocess and cross-target environment tests |
 | Runner input environment overrides are blocked case-insensitively | Uppercase/lowercase/mixed-case config rejection and inherited-environment filtering regressions |
 | Multiline secrets are masked without cross-line buffering | Split-write LF/CRLF live/archive regressions, final partial lines and shared-component/JIT reference release |
 | Overlapping secrets are masked independently of registration order | Original-input union masking for prefixes, partial/chained/self overlaps, structured logs and split-write live/archive capture |
@@ -60,6 +60,7 @@ non-root subprocesses. They cover:
 | Shared capacity, warm-slot yield, busy protection and deletion refusal races | Multi-target real process tests |
 | Accepted backlog during drain, startup deadline and forced drain reporting | Lifecycle timeout tests |
 | Atomic state, OS locking, malformed/unknown/PID-reused state | Filesystem and identity tests |
+| Legacy execution state remains recoverable without named scopes | Matching registration recovery with an obsolete scopeRef; new state omits it |
 | State writes never replace a readable record with an oversized one | Large member-list rejection, exact 1 MiB read boundary and over-limit trailing-data regressions |
 | Empty and zombie-only process snapshots cannot conceal live descendants | Real forked descendants with reaped or zombie leaders and stale ps output; stop/recovery/GC retain capacity and state; native kernel checks accept genuine zombie-only groups |
 | Linux kernel group verification rejects incomplete enumerations | Vanished-PID, omitted-live-child and newly observed zombie fixtures, including a zombie leader with live worker threads |

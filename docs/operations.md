@@ -16,11 +16,34 @@ control address: it is derived from the normalized absolute config path.
 running snapshot even if the file's contents are now invalid.
 
 `examples/config.yaml` includes repository, organization, `gh`, PAT and App
-examples. Each credential is named and referenced by scopes. App installation
-IDs belong to scopes, not credentials. Multiple installations can share a
-single App key. Unknown keys, duplicate IDs, conflicting registrations,
-invalid references, unsupported enterprise scopes, repository runner groups,
-and impossible minimum capacities are rejected before any GitHub operation.
+examples. Each target contains its registration `url` and a nested
+`credential` mapping with an explicit `type`. App `installationId` belongs
+to the target, not its credential, so multiple installations can share a
+single App key. Reuse values with ordinary YAML anchors and aliases:
+
+```yaml
+targets:
+  - id: build
+    url: &repository https://github.com/OWNER/REPO
+    credential: &personal
+      type: gh
+    scaleSetName: build
+    scaling: &scaling
+      minRunners: 0
+      maxRunners: 2
+  - id: test
+    url: *repository
+    credential: *personal
+    scaleSetName: test
+    scaling: *scaling
+```
+
+There is no separate scope or credential registry. The old top-level
+`scopes` and `credentials` mappings and the `scopeRef` / `credentialRef`
+fields are no longer accepted; move their values into each target.
+Unknown keys, duplicate IDs, conflicting registrations, unsupported enterprise
+scopes, repository runner groups, and impossible minimum capacities are
+rejected before any GitHub operation.
 
 For `gh`, log in as the account that actually starts the service. ghalet runs
 `gh auth token --hostname HOST` with a 15-second deadline and does not write
@@ -150,7 +173,7 @@ ghalet status --config /path/to/config.yaml
 ghalet doctor --config /path/to/config.yaml
 ghalet gc --config /path/to/config.yaml --dry-run
 ghalet gc --config /path/to/config.yaml
-ghalet destroy --config /path/to/config.yaml --scope project --scale-set macmini
+ghalet destroy --config /path/to/config.yaml --target project --scale-set macmini
 ```
 
 CLI responses are JSON. `status` returns zero when it retrieves a snapshot,
@@ -165,7 +188,7 @@ OS workRoot lock and the config's control-address lock. A failed socket
 connection alone never permits bypassing an existing daemon. Lock files
 are not PID files and may remain after a process exits.
 
-Destruction requires a real terminal, explicit scope/name, an organization
+Destruction requires a real terminal, explicit target/scale set name, an organization
 group when applicable, and the exact answer `yes`. There is no `--yes`
 escape hatch for noninteractive use. The registration ID is checked again
 after confirmation and after drain. A changed target, unknown local records,
@@ -174,11 +197,15 @@ statistics prevents deletion. Approval exists only in memory and is consumed
 once. Groups are never deleted. Normal stop/config changes never remove old
 registrations.
 
-Scopes can remain without targets so old registrations can be explicitly
-destroyed. Remove a scope only after draining/destroying registrations that
-need its credentials. Retained executions matching an explicitly approved
-old registration are reverified before they can participate in that
-destruction; this association and deletion approval are not persisted.
+`--target` selects a configured target's URL and credentials; `--scale-set`
+and, for organizations, `--runner-group` explicitly select the registration
+to delete. They may name an old registration rather than the target's current
+scale set or group. Keep the target configured at the old URL until destruction
+is complete. Once no target retains that URL and its credentials, delete
+unneeded registrations manually in GitHub; there are no deletion-only entries.
+Retained executions matching an explicitly approved old registration are
+reverified before they can participate in that destruction; this association
+and deletion approval are not persisted.
 
 After a crash, records are matched to current explicit registrations, process
 UID/group/kernel start identity and, for live executions, GitHub runner IDs.
@@ -214,6 +241,11 @@ escaped within a record; runner output is never mixed into stdout. Configure
 your collector to select structured fields and perform any forwarding or
 OTel conversion externally. There is no embedded HTTP health endpoint,
 metrics exporter, OTel SDK or collector dependency.
+
+The `scope` field in new runner-start events and log archive metadata contains
+the registration URL rather than a configured scope name. Existing execution
+state files remain readable; their legacy `scopeRef` does not select credentials
+or determine registration identity.
 
 With `preserveLogs: true`, `output.log` and `_diag/**/*.log` are archived to
 `cleanup.logRoot/runs/RUN_ID` before removing the execution. Credentials and

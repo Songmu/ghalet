@@ -176,24 +176,20 @@ func readProtected(path string) (string, error) {
 	return strings.TrimSpace(string(data)), nil
 }
 
-func newScaleClient(ctx context.Context, c *Config, scopeName string, secret *secrets) (*scaleset.Client, error) {
-	scope, ok := c.Scopes[scopeName]
-	if !ok {
-		return nil, fmt.Errorf("unknown scope %q", scopeName)
-	}
-	credential := c.Credentials[scope.CredentialRef]
+func newScaleClient(ctx context.Context, target Target, secret *secrets) (*scaleset.Client, error) {
+	credential := target.Credential
 	options := []scaleset.HTTPOption{scaleset.WithTimeout(apiTimeout), scaleset.WithRetryMax(0)}
 	info := scaleset.SystemInfo{System: "ghalet", Version: version, CommitSHA: revision}
 	if credential.Type == "github-app" {
 		key, err := readProtected(credential.PrivateKeyFile)
 		if err != nil {
-			return nil, fmt.Errorf("scope %s: %w", scopeName, err)
+			return nil, fmt.Errorf("target %s: %w", target.ID, err)
 		}
 		secret.add(key)
 		return scaleset.NewClientWithGitHubApp(scaleset.ClientWithGitHubAppConfig{
-			GitHubConfigURL: scope.URL, SystemInfo: info,
+			GitHubConfigURL: target.URL, SystemInfo: info,
 			GitHubAppAuth: scaleset.GitHubAppAuth{
-				ClientID: credential.ClientID, InstallationID: scope.InstallationID, PrivateKey: key,
+				ClientID: credential.ClientID, InstallationID: target.InstallationID, PrivateKey: key,
 			},
 		}, options...)
 	}
@@ -201,7 +197,7 @@ func newScaleClient(ctx context.Context, c *Config, scopeName string, secret *se
 	var err error
 	switch credential.Type {
 	case "gh":
-		u, _ := scopeURL(scope.URL)
+		u, _ := scopeURL(target.URL)
 		host := credential.Hostname
 		if host == "" {
 			host = u.Host
@@ -213,7 +209,7 @@ func newScaleClient(ctx context.Context, c *Config, scopeName string, secret *se
 		data, runErr := command.Output()
 		if runErr != nil {
 			// gh's stderr can include credentials or user-controlled text.
-			return nil, fmt.Errorf("scope %s: gh auth token failed (%w); log in on %s and grant runner administration permissions", scopeName, runErr, host)
+			return nil, fmt.Errorf("target %s: gh auth token failed (%w); log in on %s and grant runner administration permissions", target.ID, runErr, host)
 		}
 		token = strings.TrimSpace(string(data))
 	case "pat":
@@ -226,14 +222,14 @@ func newScaleClient(ctx context.Context, c *Config, scopeName string, secret *se
 		return nil, errors.New("unsupported credential type")
 	}
 	if err != nil {
-		return nil, fmt.Errorf("scope %s: %w", scopeName, err)
+		return nil, fmt.Errorf("target %s: %w", target.ID, err)
 	}
 	if token == "" {
-		return nil, fmt.Errorf("scope %s: empty management token", scopeName)
+		return nil, fmt.Errorf("target %s: empty management token", target.ID)
 	}
 	secret.add(token)
 	return scaleset.NewClientWithPersonalAccessToken(scaleset.NewClientWithPersonalAccessTokenConfig{
-		GitHubConfigURL: scope.URL, PersonalAccessToken: token, SystemInfo: info,
+		GitHubConfigURL: target.URL, PersonalAccessToken: token, SystemInfo: info,
 	}, options...)
 }
 

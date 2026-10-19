@@ -35,9 +35,8 @@ func Run(ctx context.Context, argv []string, outStream, errStream io.Writer) err
 		}
 		command, argv = "validate", argv[1:]
 	}
-	target := fs.String("target", "", "target id (default all targets)")
+	target := fs.String("target", "", "target id (required for destroy; default all targets for drain)")
 	dryRun := fs.Bool("dry-run", false, "show garbage collection without modifying files")
-	scope := fs.String("scope", "", "explicit scope to destroy")
 	group := fs.String("runner-group", "", "existing organization runner group")
 	set := fs.String("scale-set", "", "explicit scale set name to destroy")
 	fs.Usage = func() {
@@ -92,7 +91,7 @@ func Run(ctx context.Context, argv []string, outStream, errStream io.Writer) err
 		defer stop()
 		return runDaemon(ctx, config, outStream)
 	}
-	request := controlRequest{Command: command, Target: *target, DryRun: *dryRun, Scope: *scope, RunnerGroup: *group, ScaleSet: *set}
+	request := controlRequest{Command: command, Target: *target, DryRun: *dryRun, RunnerGroup: *group, ScaleSet: *set}
 	if command == "destroy" {
 		request.Command = "destroy-plan"
 		terminal := exec.Command("/bin/sh", "-c", "test -t 0")
