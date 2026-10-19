@@ -1,0 +1,27 @@
+services:
+  ghalet:
+    image: ghcr.io/songmu/ghalet:${GHALET_VERSION:?Set GHALET_VERSION to a release tag}
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 15m
+    volumes:
+      - type: bind
+        source: ./config.yaml
+        target: /etc/ghalet/config.yaml
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./credentials
+        target: /etc/ghalet/credentials
+        read_only: true
+        bind:
+          create_host_path: false
+      - data:/var/lib/ghalet
+      - cache:/var/cache/ghalet
+      - logs:/var/log/ghalet
+
+volumes:
+  data:
+  cache:
+  logs:

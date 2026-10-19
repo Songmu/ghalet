@@ -330,6 +330,10 @@ by a trusted workflow.
 
 ## Service deployment
 
+For packaged Linux installation or Docker Compose, see
+[packages and containers](distribution.md). The instructions below cover
+manual service installation.
+
 For Linux, precreate a dedicated `ghalet` user and writable storage paths,
 copy `examples/ghalet.service` into `/etc/systemd/system/`, and place the
 configuration at `/etc/ghalet/config.yaml`. Set workRoot, distributionRoot,

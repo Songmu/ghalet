@@ -1,0 +1,74 @@
+name: ghalet
+arch: ${ARCH}
+platform: linux
+version: ${VERSION}
+release: "1"
+maintainer: Songmu <Songmu@users.noreply.github.com>
+description: GitHub Actions Runner Scale Set process manager
+homepage: https://github.com/Songmu/ghalet
+license: MIT
+umask: 0o022
+recommends:
+  - git
+contents:
+  - src: ${BINARY}
+    dst: /usr/bin/ghalet
+    expand: true
+    file_info:
+      mode: 0o755
+  - src: ${UNIT}
+    dst: /usr/lib/systemd/system/ghalet.service
+    expand: true
+    file_info:
+      mode: 0o644
+  - src: examples/system-config.yaml
+    dst: /usr/share/ghalet/config.yaml.example
+    file_info:
+      mode: 0o644
+  - src: schema.yaml
+    dst: /usr/share/ghalet/schema.yaml
+    file_info:
+      mode: 0o644
+  - src: LICENSE
+    dst: /usr/share/doc/ghalet/copyright
+    file_info:
+      mode: 0o644
+  - src: CREDITS
+    dst: /usr/share/doc/ghalet/CREDITS
+    file_info:
+      mode: 0o644
+scripts:
+  preinstall: packaging/preinstall.sh
+  postinstall: packaging/postinstall.sh
+  preremove: packaging/preremove.sh
+  postremove: packaging/postremove.sh
+overrides:
+  deb:
+    depends:
+      - ca-certificates
+      - procps
+      - libc6
+      - libgcc-s1
+      - libstdc++6
+      - libicu74 | libicu72
+      - libssl3t64 | libssl3
+      - libkrb5-3
+      - zlib1g
+      - passwd
+  rpm:
+    depends:
+      - ca-certificates
+      - procps-ng
+      - glibc
+      - libgcc
+      - libstdc++
+      - libicu
+      - openssl-libs
+      - krb5-libs
+      - zlib
+      - shadow-utils
+rpm:
+  requires:
+    post:
+      - coreutils
+      - shadow-utils

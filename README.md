@@ -44,6 +44,10 @@ containers and service containers are unsupported.
 
 ## Installation
 
+Linux `.deb`/`.rpm` packages with a systemd unit and a GHCR container image
+are also built for releases. See [packages and containers](docs/distribution.md)
+for installation, configuration, and updates.
+
 ```console
 # Install the latest version into ./bin/ by default.
 % curl -sfL https://raw.githubusercontent.com/Songmu/ghalet/main/install.sh | sh -s
