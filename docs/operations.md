@@ -70,8 +70,9 @@ paths such as `/private/var/...` instead of the `/var` symlink.
 The execution user's HOME, USER and LOGNAME are used. PATH and other
 non-management variables are inherited and `runner.env` overrides them.
 No login shell or shell initialization files are read. Standard GitHub token
-variables, explicitly configured PAT variables and runner input variables
-are stripped. A JIT secret is supplied only as
+variables and explicitly configured PAT variables are stripped. Runner input
+variables are stripped case-insensitively, and `runner.env` cannot set them.
+A JIT secret is supplied only as
 `ACTIONS_RUNNER_INPUT_JITCONFIG`, never a command-line argument or a state
 field. Do not intentionally copy management secrets into another variable.
 The runner's own files are private to its execution directory and removed

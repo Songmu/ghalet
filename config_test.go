@@ -2,6 +2,7 @@ package ghalet
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -116,6 +117,22 @@ func TestConfigRejectsInvalidInput(t *testing.T) {
 	}
 }
 
+func TestConfigRejectsRunnerInputEnvironmentCaseInsensitively(t *testing.T) {
+	for _, name := range []string{
+		"ACTIONS_RUNNER_INPUT_HELP",
+		"actions_runner_input_help",
+		"Actions_Runner_Input_Help",
+		"actions_runner_input_jitconfig",
+	} {
+		t.Run(name, func(t *testing.T) {
+			input := strings.Replace(testYAML, `"2.338.0"`, "\"2.338.0\"\n  env:\n    "+name+": \"true\"", 1)
+			if _, err := LoadConfig(writeConfig(t, input)); err == nil {
+				t.Fatal("runner input override was accepted", name)
+			}
+		})
+	}
+}
+
 func TestConfigDurationDecoding(t *testing.T) {
 	for _, tc := range []struct {
 		input string
@@ -179,6 +196,37 @@ func TestConfigurationValidationCLI(t *testing.T) {
 		if err := Run(t.Context(), []string{command, "--config", filepath.Join(testDirectory(t), "missing.yaml")}, &output, &output); err == nil {
 			t.Fatalf("%s accepted a missing config", command)
 		}
+	}
+}
+
+func TestVersionFlagPlacementDoesNotStartDaemon(t *testing.T) {
+	path := writeConfig(t, testYAML)
+	missing := filepath.Join(filepath.Dir(path), "missing.yaml")
+	t.Setenv("GHALET_TEST_TOKEN", "")
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	for _, args := range [][]string{
+		{"--version"},
+		{"run", "--version"},
+		{"run", "--config", path, "--version"},
+		{"--config", path, "run", "--version"},
+		{"--config", path, "run", "--target", "build", "--version"},
+		{"--config", path, "config", "validate", "--version"},
+		{"--config", missing, "run", "--version"},
+		{"--version", "run"},
+	} {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			var output, stderr bytes.Buffer
+			if err := Run(ctx, args, &output, &stderr); err != nil {
+				t.Fatal("version query entered command execution", err, stderr.String())
+			}
+			if output.String() != cmdName+" v"+version+" (rev:"+revision+")\n" || stderr.Len() != 0 {
+				t.Fatal("version query produced unexpected output", output.String(), stderr.String())
+			}
+		})
+	}
+	if _, err := os.Stat(filepath.Join(filepath.Dir(path), "runs")); !os.IsNotExist(err) {
+		t.Fatal("version query touched daemon execution directories", err)
 	}
 }
 

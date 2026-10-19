@@ -230,6 +230,8 @@ func TestRunnerEnvironment(t *testing.T) {
 		"GH_TOKEN=management", "GITHUB_TOKEN=management", "GHALET_TEST_TOKEN=management",
 		"PATH=/old", "HOME=/controller", "USER=controller", "LOGNAME=controller",
 		"KEEP=value", "ACTIONS_RUNNER_INPUT_OLD=secret", "RUNNER_ALLOW_RUNASROOT=1",
+		"actions_runner_input_help=true", "Actions_Runner_Input_Help=true",
+		"actions_runner_input_jitconfig=inherited-jit",
 	}, "jit-only")
 	all := "\n" + strings.Join(environment, "\n") + "\n"
 	for _, forbidden := range []string{"management", "/controller", "ACTIONS_RUNNER_INPUT_OLD", "RUNNER_ALLOW_RUNASROOT"} {
@@ -240,6 +242,12 @@ func TestRunnerEnvironment(t *testing.T) {
 	for _, expected := range []string{"PATH=/tools/bin", "HOME=/home/runner", "USER=runner", "LOGNAME=runner", "KEEP=value", "ACTIONS_RUNNER_INPUT_JITCONFIG=jit-only"} {
 		if !strings.Contains(all, "\n"+expected+"\n") {
 			t.Fatalf("missing %s", expected)
+		}
+	}
+	for _, entry := range environment {
+		key, _, _ := strings.Cut(entry, "=")
+		if strings.HasPrefix(strings.ToUpper(key), "ACTIONS_RUNNER_INPUT_") && entry != "ACTIONS_RUNNER_INPUT_JITCONFIG=jit-only" {
+			t.Fatal("inherited runner input survived filtering", entry)
 		}
 	}
 }

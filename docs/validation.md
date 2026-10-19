@@ -46,8 +46,10 @@ non-root subprocesses. They cover:
 | Contract | Automated evidence |
 | --- | --- |
 | Strict declarative config, defaults and config-relative paths | Config/CLI invalid-input tables |
+| Version queries never enter daemon startup regardless of common-flag placement | Mixed pre/post-command flags, valid/missing config and untouched execution-directory regressions |
 | Day durations reject mixed units; enterprise scope rejection is case-insensitive | Duration and scope URL regression tables |
 | Named PAT/gh/App settings, protected files, environment filtering and JSONL secret redaction | Credential, gh subprocess and environment tests |
+| Runner input environment overrides are blocked case-insensitively | Uppercase/lowercase/mixed-case config rejection and inherited-environment filtering regressions |
 | Multiline secrets are masked without cross-line buffering | Split-write LF/CRLF live/archive regressions, final partial lines and shared-component/JIT reference release |
 | Overlapping secrets are masked independently of registration order | Original-input union masking for prefixes, partial/chained/self overlaps, structured logs and split-write live/archive capture |
 | Explicit registration/group lookup, reuse and update disablement | Fake API request/counter tests |

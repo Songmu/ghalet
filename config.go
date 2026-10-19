@@ -281,7 +281,7 @@ func (c *Config) Validate() error {
 	}
 	for name, value := range c.Runner.Env {
 		if !envName.MatchString(name) || strings.ContainsRune(value, 0) || c.secretEnv(name) ||
-			name == "HOME" || name == "USER" || name == "LOGNAME" || strings.HasPrefix(name, "ACTIONS_RUNNER_INPUT_") {
+			name == "HOME" || name == "USER" || name == "LOGNAME" || strings.HasPrefix(strings.ToUpper(name), "ACTIONS_RUNNER_INPUT_") {
 			return fmt.Errorf("runner.env cannot set invalid, identity or management credential variable %q", name)
 		}
 	}

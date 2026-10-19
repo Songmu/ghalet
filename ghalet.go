@@ -60,6 +60,9 @@ func Run(ctx context.Context, argv []string, outStream, errStream io.Writer) err
 			return err
 		}
 	}
+	if *versionFlag {
+		return printVersion(outStream)
+	}
 	if fs.NArg() != 0 {
 		return fmt.Errorf("unexpected arguments: %s", strings.Join(fs.Args(), " "))
 	}

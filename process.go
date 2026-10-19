@@ -78,7 +78,7 @@ func runnerEnvironment(c *Config, account executionUser, inherited []string, jit
 	values := map[string]string{}
 	for _, entry := range inherited {
 		key, value, ok := strings.Cut(entry, "=")
-		if ok && !c.secretEnv(key) && !strings.HasPrefix(key, "ACTIONS_RUNNER_INPUT_") && key != "RUNNER_ALLOW_RUNASROOT" {
+		if ok && !c.secretEnv(key) && !strings.HasPrefix(strings.ToUpper(key), "ACTIONS_RUNNER_INPUT_") && key != "RUNNER_ALLOW_RUNASROOT" {
 			values[key] = value
 		}
 	}
