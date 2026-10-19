@@ -46,6 +46,7 @@ non-root subprocesses. They cover:
 | Contract | Automated evidence |
 | --- | --- |
 | Strict declarative config, defaults and config-relative paths | Config/CLI invalid-input tables |
+| Day durations reject mixed units; enterprise scope rejection is case-insensitive | Duration and scope URL regression tables |
 | Named PAT/gh/App settings, protected files, environment filtering and JSONL secret redaction | Credential, gh subprocess and environment tests |
 | Explicit registration/group lookup, reuse and update disablement | Fake API request/counter tests |
 | Digest validation, independent extraction, bad-cache refusal and traversal rejection | Archive/digest/HTTP fixtures |
@@ -55,8 +56,11 @@ non-root subprocesses. They cover:
 | Shared capacity, warm-slot yield, busy protection and deletion refusal races | Multi-target real process tests |
 | Accepted backlog during drain, startup deadline and forced drain reporting | Lifecycle timeout tests |
 | Atomic state, OS locking, malformed/unknown/PID-reused state | Filesystem and identity tests |
+| Process commands retain consecutive spaces; exited PIDs are absent rather than unverifiable | Real managed-path drain and reaped-PID kernel lookup regressions |
 | Monitoring after the original process parent exits | Subprocess helper exits; another controller recovers and stops the surviving group |
 | Shutdown waits for uncertain groups and local exit/output observation without signaling unverified processes | Live-process shutdown, uncertain-group disappearance and delayed-observer regressions |
+| Native runner guards reclaim their own groups on controller death | Real controller SIGKILL with a TERM-resistant runner/descendant, unrelated-process survival and preserved recovery state |
+| Guards preserve actual runner exit results and prevent execution before the durable gate | Successful/failed runner exit, descriptor closure, final output, closed-gate and shared-group refusal regressions |
 | Recovered busy runs release capacity after confirmed exit | Missed-completion recovery regression |
 | Runner exit is observed independently of descendant-held output pipes | Real subprocess/FIFO test with an observed descendant and a final unterminated log line |
 | Termination persists newly verified descendants before signaling and refreshes membership during shutdown | SIGTERM-resistant subprocess tests for children created before/during termination, plus a failed-save no-signal test |
@@ -67,6 +71,7 @@ non-root subprocesses. They cover:
 | State durability includes newly created directory ancestry | Unreadable-ancestor failure after state rename, followed by a successful retry; not a power-loss simulation |
 | Retention rejects symlinked ancestry without creating missing directories | Symlinks at runs/logRoot/ancestor levels, dry-run and actual retention |
 | Failed destruction cannot publish a provisioning target or partially adopt executions | Invalid-user, missing-statistics and adoption-save failure regressions |
+| Adopted executions report cleanup errors under their runtime target and block deletion | Old-target archive failure followed by an explicitly confirmed destruction attempt |
 | Config edits preserve control address and running snapshot | Unix socket CLI tests |
 | Partial GC, status/doctor exit behavior and confirmation refusal | Control/CLI tests |
 

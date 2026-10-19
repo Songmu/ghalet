@@ -122,6 +122,47 @@ func TestFailedDestructionDoesNotPublishSyntheticTarget(t *testing.T) {
 	}
 }
 
+func TestAdoptedCleanupFailurePreventsDestroy(t *testing.T) {
+	d, api := testDaemon(t)
+	useFakeManagement(d, api)
+	state := testState(t, d.config)
+	state.TargetID = "old-target"
+	dir := filepath.Join(d.config.Runner.WorkRoot, state.TargetID, state.RunID)
+	state.RunnerDir, state.Workspace = filepath.Join(dir, "runner"), filepath.Join(dir, "work")
+	if err := d.store.save(state); err != nil {
+		t.Fatal(err)
+	}
+	if err := safeDirectory(state.RunnerDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(d.config.Cleanup.LogRoot, []byte("not a directory"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	run := &activeRun{State: state, Uncertain: true}
+	d.runs[state.RunID] = run
+	target := d.targets["build"]
+	adoption := destroyPlan{URL: state.ScopeURL, ScaleSet: state.ScaleSetName, ScaleSetID: state.ScaleSetID, GroupID: state.GroupID}
+	if err := d.adoptForDestroy(t.Context(), target, adoption); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.cleanup(run); err == nil {
+		t.Fatal("cleanup fixture did not fail")
+	}
+	status := d.statusLocked()
+	if len(status.Problems) != 1 || status.Problems[0].TargetID != target.Config.ID ||
+		state.TargetID != "old-target" || !d.drained(target.Config.ID) {
+		t.Fatal("adopted cleanup diagnostics lost the runtime target or changed durable ownership", status)
+	}
+	plan, err := d.planDestroy(t.Context(), controlRequest{Scope: "repository", ScaleSet: "build"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := d.destroy(t.Context(), plan.Confirmation)
+	if response.Error == "" || api.deleteCalls != 0 || d.runs[state.RunID] == nil {
+		t.Fatal("adopted cleanup failure allowed scale set deletion", response.Error)
+	}
+}
+
 func TestFailedAdoptionSaveKeepsEveryExecutionUncertain(t *testing.T) {
 	d, _ := testDaemon(t)
 	var runs []*activeRun

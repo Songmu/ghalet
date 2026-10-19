@@ -26,7 +26,7 @@
   <key>ExitTimeOut</key>
   <integer>900</integer>
   <key>AbandonProcessGroup</key>
-  <true/>
+  <false/>
   <key>StandardOutPath</key>
   <string>/Users/REPLACE_ME/Library/Logs/ghalet.jsonl</string>
   <key>StandardErrorPath</key>

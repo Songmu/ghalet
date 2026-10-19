@@ -5,12 +5,62 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
 )
+
+func TestKernelProcessStartReportsExitedPID(t *testing.T) {
+	command := exec.Command("/bin/sh", "-c", "exit 0")
+	if err := command.Run(); err != nil {
+		t.Fatal(err)
+	}
+	_, err := kernelProcessStart(command.Process.Pid)
+	if !errors.Is(err, syscall.ESRCH) && !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("exited process was not reported as absent", err)
+	}
+}
+
+func TestRunnerPathPreservesConsecutiveSpaces(t *testing.T) {
+	d, _ := testDaemon(t)
+	d.config.Runner.WorkRoot = filepath.Join(testDirectory(t), "work  root")
+	d.store = stateStore{root: d.config.Runner.WorkRoot}
+	if err := safeDirectory(d.config.Runner.WorkRoot, 0711); err != nil {
+		t.Fatal(err)
+	}
+	cleanupProcesses(t, d)
+	seedDistribution(t, d.config, "#!/bin/sh\nprintf 'Listening for Jobs\\n'\nsleep 60\n")
+	d.targets["build"].Assigned = 1
+	var run *activeRun
+	pumpUntil(t, d, func() bool {
+		for _, candidate := range d.runs {
+			if candidate.State.Ready && !candidate.Preparing {
+				run = candidate
+				return true
+			}
+		}
+		return false
+	})
+	table, err := processTable(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(table[run.State.Process.PID].Command, run.State.RunnerDir) {
+		t.Fatal("process command collapsed consecutive spaces", table[run.State.Process.PID].Command)
+	}
+	if alive, _, err := inspectGroup(run.State, table); err != nil || !alive {
+		t.Fatal("valid runner in a consecutive-space path was rejected", err)
+	}
+	d.mu.Lock()
+	d.targets["build"].Assigned = 0
+	d.beginDrain(d.targets["build"])
+	d.mu.Unlock()
+	pumpUntil(t, d, func() bool { return len(d.runs) == 0 })
+}
 
 func startTerminationRunner(t *testing.T, script string) (*daemon, *activeRun) {
 	t.Helper()

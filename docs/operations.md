@@ -131,6 +131,17 @@ confirmed absent. Their records and diagnostics remain for inspection;
 absence alone does not authorize cleanup. Forced shutdown is reported as
 incomplete, not success.
 
+On native macOS, each new runner has a small foreground guard as its process
+group leader. The durable launch gate also supplies controller liveness:
+if the controller exits or is killed, the pipe closes and the guard sends
+SIGKILL to its own group, including itself. Its live leadership pins the group
+ID, so this does not depend on guessing an uncertain PID. A normal runner
+exit is reported separately, followed by TERM and a two-second grace before
+the final group-wide KILL. The controller uses the runner's actual process
+result, not the guard's deliberate SIGKILL, for exit diagnostics. The guard
+does not rewrite state or remove logs, and its descriptors are not inherited
+by the runner. This is child supervision, not self-daemonization.
+
 ## Diagnosis, garbage collection and explicit destruction
 
 ```sh
@@ -229,18 +240,17 @@ For native macOS, customize absolute paths in
 file in `~/Library/LaunchAgents/`. Use `launchctl bootstrap gui/$(id -u) FILE`.
 The 900-second service stop limit exceeds the default 10-minute drain by five
 minutes; increase it if changing the configured timeout. Zero would mean an
-infinite launchd stop wait and is deliberately avoided. Unlike systemd,
-launchd does not provide the example with a cgroup-wide kill boundary:
-its exit-time process-group cleanup only covers the controller's group,
-while runners use separate groups. `AbandonProcessGroup` preserves the
-existing crash-recovery policy. Neither changing that flag nor setting
-`ExitTimeOut` guarantees runner cleanup if the controller is forcibly
-terminated or crashes; surviving groups require recovery or manual
-inspection. Use the Linux/Lima service if cgroup-wide last-resort termination
-is required. LaunchAgents start at login, not before login, and do not prevent
-sleep. For another execution user, use an administrator-managed LaunchDaemon
-and set `runner.user`; do not assume a LaunchAgent can change users. Test
-keychain access and shutdown behavior in the actual login/service context.
+infinite launchd stop wait and is deliberately avoided. `AbandonProcessGroup`
+is false so launchd also cleans up the controller's own group. Runner groups
+are separate: when launchd finally kills a stuck controller, their guards
+observe pipe EOF and kill their respective groups. The same mechanism handles
+controller crashes and SIGKILL outside launchd. This is not cgroup isolation:
+trusted jobs must not kill their guard or escape its group, and kernel/host
+failure can interrupt supervision. LaunchAgents start at login, not before
+login, and do not prevent sleep. For another execution user, use an
+administrator-managed LaunchDaemon and set `runner.user`; do not assume a
+LaunchAgent can change users. Test keychain access and shutdown behavior in
+the actual login/service context.
 
 For Apple Silicon Lima, `examples/lima.yaml` supplies an Ubuntu ARM64 VM
 with VZ, 4 vCPU, 8 GiB, 80 GiB, no host mounts, no containerd, installation

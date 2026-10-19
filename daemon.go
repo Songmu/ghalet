@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"sync"
 	"time"
 
@@ -132,6 +133,7 @@ type daemon struct {
 	workers       sync.WaitGroup
 	confirmations map[string]destroyPlan
 	offline       bool
+	guardRunners  bool
 	nextRetention time.Time
 	clientFactory func(context.Context, string) (scaleAPI, error)
 }
@@ -159,6 +161,7 @@ func newDaemon(c *Config, out io.Writer) (*daemon, error) {
 		store: stateStore{c.Runner.WorkRoot}, distribution: newDistribution(),
 		targets: map[string]*targetRuntime{}, runs: map[string]*activeRun{}, events: make(chan runEvent, 1024),
 		ctx: ctx, cancel: cancel, confirmations: map[string]destroyPlan{},
+		guardRunners: runtime.GOOS == "darwin",
 	}
 	d.clientFactory = func(ctx context.Context, scope string) (scaleAPI, error) {
 		return newScaleClient(ctx, c, scope, secret)
@@ -883,7 +886,32 @@ func (d *daemon) launch(run *activeRun, jit string) (retErr error) {
 		return err
 	}
 	defer input.Close()
-	defer output.Close()
+	defer func() {
+		if !d.guardRunners || retErr != nil {
+			output.Close()
+		}
+	}()
+	command := exec.Command("/bin/sh", "-c", `read -r ready <&3 && exec 3<&- && exec "$@"`, "ghalet-launch", filepath.Join(state.RunnerDir, "bin", "Runner.Listener"), "run")
+	command.ExtraFiles = []*os.File{input}
+	var exitReport *os.File
+	if d.guardRunners {
+		command, err = runnerGuardCommand(filepath.Join(state.RunnerDir, "bin", "Runner.Listener"))
+		if err != nil {
+			return err
+		}
+		var reportOutput *os.File
+		exitReport, reportOutput, err = os.Pipe()
+		if err != nil {
+			return err
+		}
+		defer reportOutput.Close()
+		defer func() {
+			if retErr != nil {
+				exitReport.Close()
+			}
+		}()
+		command.ExtraFiles = []*os.File{input, reportOutput}
+	}
 	logFile, err := os.OpenFile(filepath.Join(state.RunnerDir, "output.log"), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
 	if err != nil {
 		return err
@@ -906,9 +934,8 @@ func (d *daemon) launch(run *activeRun, jit string) (retErr error) {
 			logInput.Close()
 		}
 	}()
-	command := exec.Command("/bin/sh", "-c", `read -r ready <&3 && exec 3<&- && exec "$@"`, "ghalet-launch", filepath.Join(state.RunnerDir, "bin", "Runner.Listener"), "run")
 	command.Dir, command.Env, command.SysProcAttr = state.RunnerDir, runnerEnvironment(d.config, d.user, os.Environ(), jit), processAttributes(d.user)
-	command.ExtraFiles, command.Stdout, command.Stderr = []*os.File{input}, logOutput, logOutput
+	command.Stdout, command.Stderr = logOutput, logOutput
 	if err := command.Start(); err != nil {
 		writer.close()
 		return err
@@ -947,10 +974,14 @@ func (d *daemon) launch(run *activeRun, jit string) (retErr error) {
 		run.OutputError = errors.Join(err, logInput.Close(), writer.close())
 		close(run.WaitDone)
 	}()
-	// Reaping must not wait for inherited output pipes, and an uncertain
-	// live runner must not keep the daemon's shutdown workers blocked.
+	// Reaping and output collection remain independent so shutdown can
+	// observe both without blocking diagnostics and control access.
 	go func() {
 		err := command.Wait()
+		if exitReport != nil {
+			err = readRunnerGuardResult(exitReport, err)
+			output.Close()
+		}
 		select {
 		case d.events <- runEvent{id: state.RunID, kind: "exit", err: err}:
 		case <-d.ctx.Done():
@@ -1136,7 +1167,7 @@ func (d *daemon) statusLocked() Status {
 		copy.Members = append([]ProcessIdentity(nil), run.State.Members...)
 		status.Runs = append(status.Runs, &copy)
 		if run.State.Error != "" || run.Uncertain {
-			status.Problems = append(status.Problems, Problem{TargetID: run.State.TargetID, RunID: run.State.RunID, Path: run.State.RunnerDir, Reason: run.State.Error})
+			status.Problems = append(status.Problems, Problem{TargetID: d.runTargetID(run), RunID: run.State.RunID, Path: run.State.RunnerDir, Reason: run.State.Error})
 		}
 	}
 	return status

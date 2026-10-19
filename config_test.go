@@ -136,7 +136,7 @@ func TestConfigDurationDecoding(t *testing.T) {
 			}
 		})
 	}
-	for _, input := range []string{"0s", "-1d", "invalid", "2562048d", "2562048h", "true", "[7d]", "{days: 7}"} {
+	for _, input := range []string{"0s", "-1d", "invalid", "2562048d", "2562048h", "true", "[7d]", "{days: 7}", "1h1d", "2m1d", "1d2h"} {
 		t.Run(input, func(t *testing.T) {
 			if _, err := LoadConfig(writeConfig(t, testYAML+"cleanup:\n  logRetention: "+input+"\n")); err == nil {
 				t.Fatal("invalid duration was accepted")
@@ -188,7 +188,7 @@ func TestScopeURLValidation(t *testing.T) {
 			t.Fatalf("%s: %v", raw, err)
 		}
 	}
-	for _, raw := range []string{"https://github.com", "https://github.com/a/../b", "https://github.com/a/b/c", "https://github.com/a%2fb", "https://github.com:443/org"} {
+	for _, raw := range []string{"https://github.com", "https://github.com/a/../b", "https://github.com/a/b/c", "https://github.com/a%2fb", "https://github.com:443/org", "https://github.com/Enterprises/acme", "https://github.com/ENTERPRISES/acme"} {
 		if _, err := scopeURL(raw); err == nil {
 			t.Fatalf("accepted %s", raw)
 		}

@@ -16,12 +16,17 @@ import (
 
 type Duration time.Duration
 
+var dayDuration = regexp.MustCompile(`^[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)d$`)
+
 func (d *Duration) UnmarshalYAML(unmarshal func(any) error) error {
 	var value string
 	if err := unmarshal(&value); err != nil {
 		return err
 	}
 	if strings.HasSuffix(value, "d") {
+		if !dayDuration.MatchString(value) {
+			return errors.New("day durations must be a single number followed by d")
+		}
 		value = strings.TrimSuffix(value, "d") + "h"
 		parsed, err := time.ParseDuration(value)
 		if err != nil {
@@ -302,7 +307,7 @@ func scopeURL(raw string) (*url.URL, error) {
 		return nil, errors.New("scope URL must be an HTTPS organization or repository URL")
 	}
 	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
-	if len(parts) < 1 || len(parts) > 2 || parts[0] == "enterprises" {
+	if len(parts) < 1 || len(parts) > 2 || strings.EqualFold(parts[0], "enterprises") {
 		return nil, errors.New("only repository and organization scopes are supported")
 	}
 	for _, part := range parts {

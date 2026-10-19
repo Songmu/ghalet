@@ -119,6 +119,10 @@ func processTable(ctx context.Context) (map[int]processEntry, error) {
 		if len(fields) < 10 {
 			return nil, fmt.Errorf("cannot parse process identity: %q", line)
 		}
+		commandText := strings.TrimLeft(line, " \t")
+		for _, field := range fields[:9] {
+			commandText = strings.TrimLeft(commandText[len(field):], " \t")
+		}
 		pid, err1 := strconv.Atoi(fields[0])
 		pgid, err2 := strconv.Atoi(fields[1])
 		uid, err3 := strconv.Atoi(fields[2])
@@ -136,7 +140,7 @@ func processTable(ctx context.Context) (map[int]processEntry, error) {
 		}
 		entries[pid] = processEntry{
 			ProcessIdentity: ProcessIdentity{PID: pid, PGID: pgid, UID: uid, Started: start},
-			Command:         strings.Join(fields[9:], " "), Zombie: strings.HasPrefix(fields[3], "Z"),
+			Command:         commandText, Zombie: strings.HasPrefix(fields[3], "Z"),
 			Exiting: strings.Contains(fields[3], "E"),
 		}
 	}
