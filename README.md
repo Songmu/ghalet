@@ -1,5 +1,4 @@
-ghalet
-=======
+# ghalet
 
 [![Test Status](https://github.com/Songmu/ghalet/actions/workflows/test.yaml/badge.svg?branch=main)][actions]
 [![Coverage Status](https://codecov.io/gh/Songmu/ghalet/branch/main/graph/badge.svg)][codecov]
@@ -11,22 +10,86 @@ ghalet
 [license]: https://github.com/Songmu/ghalet/blob/main/LICENSE
 [PkgGoDev]: https://pkg.go.dev/github.com/Songmu/ghalet
 
-ghalet runs ephemeral GitHub Actions Runner Scale Sets as native Linux/macOS
-processes. It scales several repository/organization targets within a shared
-host capacity, without Kubernetes, Docker, or a VM per job.
+[English](README.md) | [日本語](README.ja.md)
 
-## Synopsis
+ghalet turns a Linux or macOS host into an automatically scaling
+self-hosted GitHub Actions runner environment. Put a spare Mac, a dedicated
+Linux machine, or an always-on VM to work for your trusted repositories,
+without setting up Kubernetes, Docker, or a VM for every job.
+
+It is a Go daemon that manages GitHub Actions Runner Scale Sets and starts
+native runner processes as jobs arrive. Each runner handles one job, then
+exits; ghalet cleans up its runner directory and workspace. Several
+repositories or organizations can share the host with per-target and
+host-wide concurrency limits.
+
+## Use cases
+
+- **Use a spare Mac for macOS builds.** Run jobs directly on macOS with
+  tools already installed on the machine.
+- **Share a Linux host across trusted projects.** Register several
+  repository or organization targets and let ghalet start runners on
+  demand within a shared capacity limit.
+- **Keep the runner setup small and disposable.** Run one daemon on a
+  dedicated account or an always-on VM, including a Lima VM on macOS.
+  Configuration defines the setup; small local state files support recovery
+  without a separate database.
+
+ghalet scales **runner processes on one host**, not the hosts themselves.
+It does not orchestrate multiple machines or provision per-job VMs or
+containers. **Ephemeral registration is not job isolation:** jobs share the
+execution user's HOME, tools, caches and privileges. Use only trusted
+workflows, not untrusted fork PRs or hostile code. Docker actions, job
+containers and service containers are unsupported.
+
+## Installation
+
+```console
+# Install the latest version into ./bin/ by default.
+% curl -sfL https://raw.githubusercontent.com/Songmu/ghalet/main/install.sh | sh -s
+
+# Specify the installation directory and version.
+% curl -sfL https://raw.githubusercontent.com/Songmu/ghalet/main/install.sh | sh -s -- -b $(go env GOPATH)/bin [vX.Y.Z]
+
+# On Alpine Linux without curl.
+% wget -O - -q https://raw.githubusercontent.com/Songmu/ghalet/main/install.sh | sh -s [vX.Y.Z]
+
+# Or install with Go.
+% go install github.com/Songmu/ghalet/cmd/ghalet@latest
+```
+
+Add the installation directory to your `PATH`. Install the build tools your
+workflows need and the official runner's OS prerequisites on the host.
+Run ghalet as a non-root user; root jobs are
+refused. See [operations](docs/operations.md#direct-execution-and-environment)
+for execution users and environment settings.
+
+## Quick start
+
+Create a configuration and authenticate with GitHub CLI as the user who
+will run ghalet. Replace `OWNER/REPO` below with your repository
+(or `ORG` for an organization):
 
 ```sh
 mkdir -p ~/.config/ghalet
-cp examples/config.yaml ~/.config/ghalet/config.yaml
-# Set the target ID and repository or organization scope.
+cat > ~/.config/ghalet/config.yaml <<'YAML'
+targets:
+  - id: project
+    scope: OWNER/REPO
+YAML
 gh auth login
 ghalet config validate
 ghalet run
 ```
 
-Use the configured scale set name in a trusted workflow:
+The default configuration path is `~/.config/ghalet/config.yaml`; use
+`--config /path/to/config.yaml` to select another file. The default
+authentication uses your `gh` login; [PAT and GitHub App
+credentials](docs/operations.md#configuration-and-credentials) are also
+supported. For more settings, see the [commented example](examples/config.yaml).
+
+Use the configured scale set name (`scaleSet`, or `id` when omitted) in a
+trusted workflow:
 
 ```yaml
 jobs:
@@ -42,15 +105,34 @@ In another terminal:
 ghalet status
 ghalet doctor
 ghalet drain --target project
-ghalet gc --dry-run
 ```
 
-## Behavior and trust
+`drain` stops new job acceptance for that target and waits for accepted work;
+it leaves the daemon running. To stop the whole daemon, press Ctrl-C in
+its terminal. Both use the configured drain deadline, after which remaining
+jobs may be forcibly stopped. Restart the daemon to resume a drained target
+or apply configuration changes.
 
-Each job receives a new JIT runner, runner directory and workspace. The
-execution user, HOME, host tools and caches are shared. **This is not job
-isolation: do not run untrusted fork PRs or hostile code.** Root jobs and
-Docker-dependent workflows are unsupported.
+## Commands
+
+All commands accept `--config PATH`. A **target** is one configured
+repository or organization registration, identified locally by its `id`.
+
+| Command | Purpose |
+| --- | --- |
+| `ghalet run` | Run the daemon in the foreground, accepting jobs and managing runner processes for all configured targets. |
+| `ghalet config validate` | Check configuration syntax, values and local path constraints without registering runners or contacting GitHub. |
+| `ghalet status` | Read the running daemon's state and capacity snapshot. A successful response does not mean the daemon is healthy. |
+| `ghalet doctor` | Check the running daemon for diagnostic problems; exit nonzero when a problem is found. |
+| `ghalet drain [--target ID]` | Stop accepting new work and wait for accepted jobs, for one target or all targets. The daemon stays running. |
+| `ghalet gc [--dry-run]` | Recheck retained executions, clean up those verified safe to remove, and expire saved logs; use `--dry-run` to inspect without changes. |
+| `ghalet destroy --target ID --scale-set NAME` | Drain and delete an explicitly selected scale set after interactive `yes` confirmation. For an organization, also select `--runner-group NAME`. Runner groups are never deleted. |
+
+`ghalet --version` prints the installed version. Management responses are
+JSON. See [diagnosis and cleanup](docs/operations.md#diagnosis-garbage-collection-and-explicit-destruction)
+for exit codes, offline maintenance and deletion safeguards.
+
+## Runtime behavior
 
 The default host capacity is two. Targets support minimum idle runners and
 per-target limits; real assigned jobs take precedence over idle warm pools.
@@ -64,26 +146,13 @@ runner logs are archived before execution cleanup. Configuration changes and
 faulted targets require a normal stop/restart. Scale sets remain registered
 until an explicit, interactively confirmed `destroy`.
 
-See [operations](docs/operations.md) for authentication, configuration,
-recovery, command exit codes and systemd/launchd/Lima examples.
-See [validation](docs/validation.md) for automated coverage and the explicit
-opt-in live acceptance tests and their limits.
+## Documentation
 
-## Installation
-
-```console
-# Install the latest version. (Install it into ./bin/ by default).
-% curl -sfL https://raw.githubusercontent.com/Songmu/ghalet/main/install.sh | sh -s
-
-# Specify installation directory ($(go env GOPATH)/bin/) and version.
-% curl -sfL https://raw.githubusercontent.com/Songmu/ghalet/main/install.sh | sh -s -- -b $(go env GOPATH)/bin [vX.Y.Z]
-
-# In alpine linux (as it does not come with curl by default)
-% wget -O - -q https://raw.githubusercontent.com/Songmu/ghalet/main/install.sh | sh -s [vX.Y.Z]
-
-# go install
-% go install github.com/Songmu/ghalet/cmd/ghalet@latest
-```
+- [Operations](docs/operations.md): authentication, configuration, execution
+  environment, recovery, logs and systemd/launchd/Lima deployment.
+- [Validation](docs/validation.md): automated coverage, opt-in live
+  acceptance tests and what those tests do not establish.
+- [Example configuration](examples/config.yaml) and [configuration schema](schema.yaml).
 
 ## Development
 

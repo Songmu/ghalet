@@ -1,5 +1,19 @@
 # Operations
 
+[English](operations.md) | [日本語](operations.ja.md)
+
+This guide covers configuring, running and maintaining ghalet on a single
+trusted host. Start with the [README](../README.md#quick-start) for setup and
+the [command overview](../README.md#commands).
+
+- [Configuration and credentials](#configuration-and-credentials)
+- [Direct execution and environment](#direct-execution-and-environment)
+- [Capacity, retries and shutdown](#capacity-retries-and-shutdown)
+- [Diagnosis, garbage collection and explicit destruction](#diagnosis-garbage-collection-and-explicit-destruction)
+- [Logs](#logs)
+- [Service deployment](#service-deployment)
+- [Trust boundary](#trust-boundary)
+
 ## Configuration and credentials
 
 All commands select `~/.config/ghalet/config.yaml` unless `--config` is
@@ -210,8 +224,9 @@ ghalet gc --config /path/to/config.yaml
 ghalet destroy --config /path/to/config.yaml --target project --scale-set macmini
 ```
 
-CLI responses are JSON. `status` returns zero when it retrieves a snapshot,
-including an unhealthy one. `doctor` is nonzero for any diagnostic problem.
+Management-command responses are JSON. `status` returns zero when it
+retrieves a snapshot, including an unhealthy one. `doctor` is nonzero for
+any diagnostic problem.
 `drain`, `gc`, and `destroy` are nonzero for any failed/incomplete part and
 include individual results. A partial management failure does not terminate
 the daemon or roll back successful cleanup.

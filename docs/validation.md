@@ -1,5 +1,17 @@
 # Validation
 
+[English](validation.md) | [日本語](validation.ja.md)
+
+This guide describes the evidence behind ghalet's behavior, how to run
+automated and opt-in live checks, and the limits of that evidence. For setup
+and deployment, see the [README](../README.md) and [operations](operations.md).
+
+- [Protocol contracts](#protocol-contracts)
+- [Automated tests](#automated-tests)
+- [Optional official runner smoke test](#optional-official-runner-smoke-test)
+- [Explicit live acceptance](#explicit-live-acceptance)
+- [Verification limits](#verification-limits)
+
 ## Protocol contracts
 
 The `actions/scaleset` revision in [go.mod](../go.mod) provides a
