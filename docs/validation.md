@@ -10,8 +10,10 @@ statistics before the official Listener acknowledges a message. The v0.4.0
 tag has a different callback contract; selecting that tag is not an
 interchangeable dependency downgrade.
 
-The example and optional runner smoke test pin `actions/runner` 2.338.0.
-Source inspection of that tag establishes:
+The bundled runner version is pinned in `defaultRunnerVersion`; the
+`update-runner` workflow proposes updates from official stable releases.
+The optional runner smoke test uses the configured version, defaulting to
+that bundled pin. Source inspection of `actions/runner` 2.338.0 establishes:
 
 - `CommandSettings` reads `ACTIONS_RUNNER_INPUT_*`, removes input environment
   variables and registers secret arguments with the masker.
@@ -45,10 +47,14 @@ non-root subprocesses. They cover:
 
 | Contract | Automated evidence |
 | --- | --- |
-| Strict declarative config, defaults and config-relative paths | Config/CLI invalid-input tables |
+| Target-local config, YAML alias reuse, defaults and config-relative paths | Config/CLI tables, shared credential/scaling aliases and legacy-key rejection |
+| Per-target scaling defaults to 0 minimum and 2 maximum runners | Omitted/empty/partial scaling, explicit overrides, aliased defaults and zero-maximum rejection |
+| Global runner version defaults to a bundled numeric pin | Omitted/empty runner mapping, omitted version, explicit override and empty/latest version rejection |
+| Scale set names default to required target IDs and remain explicitly overridable | Omitted/empty names, explicit overrides, missing/empty ID rejection and default/explicit registration collision tests |
+| Repository/organization shorthand resolves to GitHub.com without bypassing validation | URL normalization, invalid shorthand, aliases and mixed shorthand/full-URL duplicate registration tests |
 | Version queries never enter daemon startup regardless of common-flag placement | Mixed pre/post-command flags, valid/missing config and untouched execution-directory regressions |
 | Day durations reject mixed units; enterprise scope rejection is case-insensitive | Duration and scope URL regression tables |
-| Named PAT/gh/App settings, protected files, environment filtering and JSONL secret redaction | Credential, gh subprocess and environment tests |
+| Target-local PAT/gh/App settings, protected files, environment filtering and JSONL secret redaction | Credential, shared App key/per-target installation, gh subprocess and cross-target environment tests |
 | Runner input environment overrides are blocked case-insensitively | Uppercase/lowercase/mixed-case config rejection and inherited-environment filtering regressions |
 | Multiline secrets are masked without cross-line buffering | Split-write LF/CRLF live/archive regressions, final partial lines and shared-component/JIT reference release |
 | Overlapping secrets are masked independently of registration order | Original-input union masking for prefixes, partial/chained/self overlaps, structured logs and split-write live/archive capture |
@@ -60,6 +66,7 @@ non-root subprocesses. They cover:
 | Shared capacity, warm-slot yield, busy protection and deletion refusal races | Multi-target real process tests |
 | Accepted backlog during drain, startup deadline and forced drain reporting | Lifecycle timeout tests |
 | Atomic state, OS locking, malformed/unknown/PID-reused state | Filesystem and identity tests |
+| Legacy execution state remains recoverable without named scopes | Matching registration recovery with an obsolete scopeRef; new state omits it |
 | State writes never replace a readable record with an oversized one | Large member-list rejection, exact 1 MiB read boundary and over-limit trailing-data regressions |
 | Empty and zombie-only process snapshots cannot conceal live descendants | Real forked descendants with reaped or zombie leaders and stale ps output; stop/recovery/GC retain capacity and state; native kernel checks accept genuine zombie-only groups |
 | Linux kernel group verification rejects incomplete enumerations | Vanished-PID, omitted-live-child and newly observed zombie fixtures, including a zombie leader with live worker threads |

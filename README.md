@@ -20,7 +20,7 @@ host capacity, without Kubernetes, Docker, or a VM per job.
 ```sh
 mkdir -p ~/.config/ghalet
 cp examples/config.yaml ~/.config/ghalet/config.yaml
-# Edit the repository URL, scale set name and pinned runner version.
+# Set the target ID and repository or organization scope.
 gh auth login
 ghalet config validate
 ghalet run
@@ -31,7 +31,7 @@ Use the configured scale set name in a trusted workflow:
 ```yaml
 jobs:
   build:
-    runs-on: macmini
+    runs-on: project
     steps:
       - run: uname -a
 ```

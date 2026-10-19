@@ -35,6 +35,11 @@ func TestArchiveBeforeDeletionAndIdempotentRetry(t *testing.T) {
 	if err != nil || strings.Contains(string(data), "management-secret") {
 		t.Fatal("logs were not archived with redaction", err)
 	}
+	data, err = os.ReadFile(filepath.Join(archive, "metadata.json"))
+	var metadata archivedRun
+	if err != nil || json.Unmarshal(data, &metadata) != nil || metadata.Scope != state.ScopeURL {
+		t.Fatal("archive metadata did not identify the registration by URL", err)
+	}
 	if _, err := os.Stat(filepath.Join(archive, ".credentials")); !os.IsNotExist(err) {
 		t.Fatal("runner credentials were archived")
 	}

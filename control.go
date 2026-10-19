@@ -23,7 +23,6 @@ type controlRequest struct {
 	Command      string `json:"command"`
 	Target       string `json:"target,omitempty"`
 	DryRun       bool   `json:"dryRun,omitempty"`
-	Scope        string `json:"scope,omitempty"`
 	RunnerGroup  string `json:"runnerGroup,omitempty"`
 	ScaleSet     string `json:"scaleSet,omitempty"`
 	Confirmation string `json:"confirmation,omitempty"`
@@ -37,7 +36,7 @@ type controlResponse struct {
 }
 
 type destroyPlan struct {
-	Scope        string `json:"scope"`
+	Target       string `json:"target"`
 	URL          string `json:"url"`
 	RunnerGroup  string `json:"runnerGroup"`
 	ScaleSet     string `json:"scaleSet"`
@@ -282,14 +281,15 @@ func (d *daemon) gc(ctx context.Context, dryRun bool) controlResponse {
 }
 
 func (d *daemon) planDestroy(ctx context.Context, request controlRequest) (destroyPlan, error) {
-	if request.Scope == "" || request.ScaleSet == "" {
-		return destroyPlan{}, errors.New("destroy requires explicit --scope and --scale-set")
+	if request.Target == "" || request.ScaleSet == "" {
+		return destroyPlan{}, errors.New("destroy requires explicit --target and --scale-set")
 	}
-	scope, ok := d.config.Scopes[request.Scope]
-	if !ok {
-		return destroyPlan{}, fmt.Errorf("unknown scope %q; keep its URL and credentials configured until destruction is complete", request.Scope)
+	config, err := d.config.target(request.Target)
+	if err != nil {
+		return destroyPlan{}, err
 	}
-	u, _ := scopeURL(scope.URL)
+	config.RunnerGroup, config.ScaleSetName = request.RunnerGroup, request.ScaleSet
+	u, _ := scopeURL(config.URL)
 	if len(strings.Split(strings.Trim(u.Path, "/"), "/")) == 2 && request.RunnerGroup != "" {
 		return destroyPlan{}, errors.New("repository destruction cannot specify --runner-group")
 	}
@@ -298,11 +298,11 @@ func (d *daemon) planDestroy(ctx context.Context, request controlRequest) (destr
 	}
 	callCtx, cancel := context.WithTimeout(ctx, apiTimeout)
 	defer cancel()
-	client, err := d.clientFactory(callCtx, request.Scope)
+	client, err := d.clientFactory(callCtx, config)
 	if err != nil {
 		return destroyPlan{}, err
 	}
-	set, err := registration(callCtx, client, Target{ScopeRef: request.Scope, RunnerGroup: request.RunnerGroup, ScaleSetName: request.ScaleSet}, false)
+	set, err := registration(callCtx, client, config, false)
 	if err != nil {
 		return destroyPlan{}, err
 	}
@@ -314,7 +314,7 @@ func (d *daemon) planDestroy(ctx context.Context, request controlRequest) (destr
 		return destroyPlan{}, err
 	}
 	plan := destroyPlan{
-		Scope: request.Scope, URL: scope.URL, RunnerGroup: request.RunnerGroup,
+		Target: request.Target, URL: config.URL, RunnerGroup: request.RunnerGroup,
 		ScaleSet: request.ScaleSet, ScaleSetID: set.ID, GroupID: set.RunnerGroupID, Confirmation: nonce,
 	}
 	d.confirmations[nonce] = plan
@@ -329,14 +329,20 @@ func (d *daemon) destroy(ctx context.Context, confirmation string) controlRespon
 		d.mu.Unlock()
 		return controlResponse{Error: "missing, expired or previously used interactive confirmation"}
 	}
+	config, err := d.config.target(plan.Target)
+	if err != nil {
+		d.mu.Unlock()
+		return controlResponse{Error: err.Error()}
+	}
+	config.RunnerGroup, config.ScaleSetName = plan.RunnerGroup, plan.ScaleSet
 	callCtx, cancel := context.WithTimeout(ctx, apiTimeout)
-	client, err := d.clientFactory(callCtx, plan.Scope)
+	client, err := d.clientFactory(callCtx, config)
 	if err != nil {
 		cancel()
 		d.mu.Unlock()
 		return controlResponse{Error: d.secrets.redact(err.Error())}
 	}
-	set, err := registration(callCtx, client, Target{ScopeRef: plan.Scope, RunnerGroup: plan.RunnerGroup, ScaleSetName: plan.ScaleSet}, false)
+	set, err := registration(callCtx, client, config, false)
 	cancel()
 	if err != nil || set == nil || set.ID != plan.ScaleSetID || set.RunnerGroupID != plan.GroupID {
 		d.mu.Unlock()
@@ -353,17 +359,16 @@ func (d *daemon) destroy(ctx context.Context, confirmation string) controlRespon
 	var target *targetRuntime
 	for _, candidate := range d.targets {
 		if candidate.Set != nil && candidate.Set.ID == plan.ScaleSetID &&
-			d.config.Scopes[candidate.Config.ScopeRef].URL == plan.URL {
+			candidate.Config.URL == plan.URL {
 			target = candidate
 			break
 		}
 	}
 	if target == nil {
 		id := "destroy-" + confirmation[:12]
-		target = &targetRuntime{Config: Target{
-			ID: id, ScopeRef: plan.Scope, RunnerGroup: plan.RunnerGroup, ScaleSetName: plan.ScaleSet,
-			Scaling: ScalingConfig{MaxRunners: d.config.Capacity.MaxRunners},
-		}, Client: client, Set: set}
+		config.ID = id
+		config.Scaling = ScalingConfig{MaxRunners: d.config.Capacity.MaxRunners}
+		target = &targetRuntime{Config: config, Client: client, Set: set}
 	}
 	if err := d.adoptForDestroy(ctx, target, plan); err != nil {
 		d.mu.Unlock()

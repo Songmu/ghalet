@@ -1,57 +1,50 @@
 apiVersion: ghalet/v1alpha1
+# Relative paths use this file's directory.
 
-capacity:
-  maxRunners: 2
-
-credentials:
-  personal:
-    type: gh
-    hostname: github.com
-  # organization:
-  #   type: github-app
-  #   clientId: "<app-client-id>"
-  #   privateKeyFile: credentials/app.pem
-  # token:
-  #   type: pat
-  #   tokenFile: credentials/token
-  #   # Alternatively use tokenEnv: MY_GITHUB_TOKEN (not both).
-
-scopes:
-  project:
-    url: https://github.com/OWNER/REPO
-    credentialRef: personal
-  # organization:
-  #   url: https://github.com/EXAMPLE-ORG
-  #   credentialRef: organization
-  #   installationId: 12345
+# capacity:
+#   maxRunners: 2 # Total runner limit.
 
 targets:
   - id: project
-    scopeRef: project
-    scaleSetName: macmini
-    scaling:
-      minRunners: 0
-      maxRunners: 2
-  # - id: organization
-  #   scopeRef: organization
-  #   runnerGroup: existing-build-runners
-  #   scaleSetName: linux-arm64
-  #   scaling:
-  #     minRunners: 0
-  #     maxRunners: 2
+    # Unique local ID for management commands.
+    scope: OWNER/REPO
+    # GitHub.com: OWNER/REPO or ORG; other hosts: full HTTPS URL.
+    # Enterprise scopes are unsupported.
+    # credential:
+    #   type: gh # Default; uses the launching user's gh login.
+    #   hostname: "" # gh only; defaults to scope's host.
 
-runner:
-  version: "2.338.0"
-  # user: ci-runner
-  startupTimeout: 2m
-  drainTimeout: 10m
-  workRoot: runs
-  distributionRoot: runners
-  cacheRoot: downloads
-  env:
-    LANG: en_US.UTF-8
+    # credential: # PAT alternative.
+    #   type: pat
+    #   tokenFile: credentials/token # chmod 600; use this or tokenEnv.
 
-cleanup:
-  preserveLogs: true
-  logRetention: 7d
-  logRoot: logs
+    # credential: # GitHub App alternative.
+    #   type: github-app
+    #   clientId: "<app-client-id>"
+    #   privateKeyFile: credentials/app.pem # chmod 600.
+    # installationId: 12345 # Required for github-app; per target.
+
+    # runnerGroup: "" # Org only; empty uses default group.
+    # scaleSet: project # Defaults to id; GitHub name and runs-on label.
+    # scaling:
+    #   minRunners: 0 # Idle warm runners.
+    #   maxRunners: 2 # Per-target limit; shared capacity applies.
+
+  # - id: another-project # Optional second target.
+  #   scope: OWNER/ANOTHER-REPO
+  #   scaleSet: macmini
+
+# runner:
+#   version: "2.338.0" # Bundled default; override to pin another version.
+#   user: "" # Empty: current user. Root must set a non-root user.
+#   startupTimeout: 2m # Runner readiness deadline.
+#   drainTimeout: 10m # Grace period before forced stop.
+#   workRoot: runs # Runs and recovery state.
+#   distributionRoot: runners # Pinned runner metadata.
+#   cacheRoot: downloads # Runner archives.
+#   env: {} # Job env; no credentials or runner input variables.
+
+# cleanup:
+#   preserveLogs: true # Archive logs before cleanup.
+#   logRetention: 7d # Log retention (d, h, m, s).
+#   logRoot: logs # Log archive directory.

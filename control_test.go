@@ -11,7 +11,7 @@ import (
 )
 
 func useFakeManagement(d *daemon, api *fakeScaleAPI) {
-	d.clientFactory = func(context.Context, string) (scaleAPI, error) { return api, nil }
+	d.clientFactory = func(context.Context, Target) (scaleAPI, error) { return api, nil }
 	target := d.targets["build"]
 	target.Cancel = func() {}
 	target.ListenerDone = true
@@ -20,7 +20,7 @@ func useFakeManagement(d *daemon, api *fakeScaleAPI) {
 func TestConfirmedDestroyRechecksIdentityAndNeverDeletesGroup(t *testing.T) {
 	d, api := testDaemon(t)
 	useFakeManagement(d, api)
-	plan, err := d.planDestroy(t.Context(), controlRequest{Scope: "repository", ScaleSet: "build"})
+	plan, err := d.planDestroy(t.Context(), controlRequest{Target: "build", ScaleSet: "build"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -33,11 +33,45 @@ func TestConfirmedDestroyRechecksIdentityAndNeverDeletesGroup(t *testing.T) {
 	}
 }
 
+func TestDestroyUsesTargetCredentialsAndExplicitRegistration(t *testing.T) {
+	for _, tc := range []struct {
+		name, url, group string
+	}{
+		{"repository", "https://github.com/owner/repository", ""},
+		{"organization", "https://github.com/owner", "old-group"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d, api := testDaemon(t)
+			d.config.Targets[0].URL = tc.url
+			d.config.Targets[0].ScaleSetName = "current"
+			original := d.config.Targets[0]
+			var received Target
+			d.clientFactory = func(_ context.Context, target Target) (scaleAPI, error) {
+				received = target
+				return api, nil
+			}
+			plan, err := d.planDestroy(t.Context(), controlRequest{Target: "build", ScaleSet: "old", RunnerGroup: tc.group})
+			if err != nil {
+				t.Fatal(err)
+			}
+			expected := original
+			expected.ScaleSetName, expected.RunnerGroup = "old", tc.group
+			if received != expected || d.config.Targets[0] != original {
+				t.Fatal("deletion did not use the selected target's credentials or changed its config", received)
+			}
+			if plan.Target != "build" || plan.URL != tc.url || plan.ScaleSet != "old" ||
+				api.lastScaleSetName != "old" || api.lastGroupName != runnerGroupName(tc.group) || api.createCalls != 0 {
+				t.Fatal("deletion ignored the explicitly requested old registration", plan)
+			}
+		})
+	}
+}
+
 func TestDestroyRefusesChangedRegistrationAndForcedDrain(t *testing.T) {
 	for _, forced := range []bool{false, true} {
 		d, api := testDaemon(t)
 		useFakeManagement(d, api)
-		plan, err := d.planDestroy(t.Context(), controlRequest{Scope: "repository", ScaleSet: "build"})
+		plan, err := d.planDestroy(t.Context(), controlRequest{Target: "build", ScaleSet: "build"})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -102,7 +136,7 @@ func TestFailedDestructionDoesNotPublishSyntheticTarget(t *testing.T) {
 				}
 				d.runs[state.RunID] = &activeRun{State: state, Uncertain: true}
 			}
-			plan, err := d.planDestroy(t.Context(), controlRequest{Scope: "repository", ScaleSet: "build"})
+			plan, err := d.planDestroy(t.Context(), controlRequest{Target: "build", ScaleSet: "build"})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -153,7 +187,7 @@ func TestAdoptedCleanupFailurePreventsDestroy(t *testing.T) {
 		state.TargetID != "old-target" || !d.drained(target.Config.ID) {
 		t.Fatal("adopted cleanup diagnostics lost the runtime target or changed durable ownership", status)
 	}
-	plan, err := d.planDestroy(t.Context(), controlRequest{Scope: "repository", ScaleSet: "build"})
+	plan, err := d.planDestroy(t.Context(), controlRequest{Target: "build", ScaleSet: "build"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -222,7 +256,7 @@ func TestDestroyAdoptionWaitsForLocalObservers(t *testing.T) {
 				close(run.WaitDone)
 			}
 			d.runs[state.RunID] = run
-			plan, err := d.planDestroy(t.Context(), controlRequest{Scope: "repository", ScaleSet: "build"})
+			plan, err := d.planDestroy(t.Context(), controlRequest{Target: "build", ScaleSet: "build"})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -326,7 +360,7 @@ func TestStatusAndDoctorExitCodesAndPartialGC(t *testing.T) {
 }
 
 func TestDestroyRequiresExplicitInteractiveApproval(t *testing.T) {
-	plan := &destroyPlan{Scope: "repository", URL: "https://github.com/owner/repository", ScaleSet: "build", ScaleSetID: 10}
+	plan := &destroyPlan{Target: "build", URL: "https://github.com/owner/repository", ScaleSet: "build", ScaleSetID: 10}
 	for _, answer := range []string{"no\n", "y\n", "\n", "YES\n", ""} {
 		if err := confirmDestroy(plan, strings.NewReader(answer), &bytes.Buffer{}); err == nil {
 			t.Fatalf("answer %q approved destruction", answer)
@@ -342,8 +376,21 @@ func TestDestroyRequiresExplicitInteractiveApproval(t *testing.T) {
 	if _, err := d.planDestroy(t.Context(), controlRequest{}); err == nil {
 		t.Fatal("destroy accepted implicit target")
 	}
-	if _, err := d.planDestroy(t.Context(), controlRequest{Scope: "repository", ScaleSet: "build", RunnerGroup: "not-allowed"}); err == nil {
+	for _, request := range []controlRequest{
+		{Target: "build"},
+		{ScaleSet: "build"},
+		{Target: "missing", ScaleSet: "build"},
+	} {
+		if _, err := d.planDestroy(t.Context(), request); err == nil {
+			t.Fatal("destroy accepted a missing or unknown selector", request)
+		}
+	}
+	if _, err := d.planDestroy(t.Context(), controlRequest{Target: "build", ScaleSet: "build", RunnerGroup: "not-allowed"}); err == nil {
 		t.Fatal("repository destroy accepted a group")
+	}
+	d.config.Targets[0].URL = "https://github.com/owner"
+	if _, err := d.planDestroy(t.Context(), controlRequest{Target: "build", ScaleSet: "build"}); err == nil {
+		t.Fatal("organization destroy accepted an implicit group")
 	}
 }
 

@@ -16,17 +16,50 @@ control address: it is derived from the normalized absolute config path.
 running snapshot even if the file's contents are now invalid.
 
 `examples/config.yaml` includes repository, organization, `gh`, PAT and App
-examples. Each credential is named and referenced by scopes. App installation
-IDs belong to scopes, not credentials. Multiple installations can share a
-single App key. Unknown keys, duplicate IDs, conflicting registrations,
-invalid references, unsupported enterprise scopes, repository runner groups,
-and impossible minimum capacities are rejected before any GitHub operation.
+examples. Each target contains its registration `scope`. The optional
+`credential` mapping defaults to `type: gh`, including when the mapping is
+empty or `type` is omitted. PAT and App credentials require an explicit
+`type: pat` or `type: github-app`; credential-specific fields do not select
+the type automatically. An explicitly empty type is rejected.
+For GitHub.com, `scope` accepts
+`OWNER/REPO` for a repository or `ORG` for an organization; these are normalized
+to HTTPS URLs before validation, authentication, and registration matching.
+Full HTTPS URLs are also accepted and are required for other GitHub hosts.
+Each target accepts exactly one scope. Its required `id` identifies it in
+management commands and local state. The optional `scaleSet` defaults
+to `id`; set it explicitly to use a different GitHub registration name
+and workflow `runs-on` label, including a shared name across scopes.
+IDs must be unique across all targets and contain 1-64 ASCII letters,
+digits, underscores or hyphens, starting with a letter or digit.
+App `installationId` belongs to the target, not its credential, so multiple
+installations can share a single App key. A minimal configuration is:
 
-For `gh`, log in as the account that actually starts the service. ghalet runs
+```yaml
+apiVersion: ghalet/v1alpha1
+targets:
+  - id: build
+    scope: OWNER/REPO
+```
+
+There is no separate scope or credential registry. The old top-level
+`scopes` and `credentials` mappings and the `scopeRef` / `credentialRef`
+fields are no longer accepted; move their values into each target.
+Use `scaleSet` instead of the old `scaleSetName` configuration key.
+Unknown keys, duplicate IDs, conflicting registrations, unsupported enterprise
+scopes, repository runner groups, and impossible minimum capacities are
+rejected before any GitHub operation.
+
+For the default `gh` authentication, install GitHub CLI where ghalet runs
+and log in as the account that actually starts the service. ghalet runs
 `gh auth token --hostname HOST` with a 15-second deadline and does not write
 the token to configuration. A login in an interactive user's keychain does
 not automatically grant access to a different service user or to a locked
 keychain. Test the command as that user in the actual service environment.
+Missing GitHub CLI or authentication is an error; ghalet does not fall back
+to another credential type.
+Jobs running as the same OS user may still access that user's saved GitHub
+CLI credentials. Stripping token environment variables or supplying a
+job-scoped `GH_TOKEN` does not isolate those saved credentials from jobs.
 
 For PATs, select exactly one of `tokenEnv` and `tokenFile`. Credential files,
 including App private keys, must be owner-only regular files (normally
@@ -84,6 +117,14 @@ No Docker daemon, Kubernetes, VM runtime or service manager is needed for
 native Linux/macOS execution. macOS ARM64/x64 and Linux ARM64/x64/ARM runner
 packages are selected from the pinned version. Windows is not supported.
 
+`runner` is global and optional. Its version defaults to the numeric version
+bundled with ghalet; set `runner.version` to pin a different release.
+The scheduled `update-runner` workflow checks official stable releases weekly
+and opens a tested PR updating the bundled default and example. It also
+supports manual dispatch. Updating ghalet and restarting picks up the new
+default unless the configuration explicitly pins a version. Startup never
+resolves `latest`, and runner self-update remains disabled.
+
 The pinned archive is fetched from `actions/runner` releases, checked against
 the release asset's official SHA-256 digest, and checked again whenever the
 cached archive is reused. Releases without an official asset digest fail
@@ -93,6 +134,10 @@ not silently replaced: remove the indicated bad archive, then restart.
 Automatic runner updates are disabled on the explicit scale set.
 
 ## Capacity, retries and shutdown
+
+`scaling` is optional: each target defaults to `minRunners: 0` and
+`maxRunners: 2`. Omitted fields retain their defaults; an explicit
+`maxRunners: 0` is invalid.
 
 The desired total is `min(maxRunners, assignedJobs + minRunners)`. Running
 jobs, launches and uncertain recovered executions occupy the same shared
@@ -150,7 +195,7 @@ ghalet status --config /path/to/config.yaml
 ghalet doctor --config /path/to/config.yaml
 ghalet gc --config /path/to/config.yaml --dry-run
 ghalet gc --config /path/to/config.yaml
-ghalet destroy --config /path/to/config.yaml --scope project --scale-set macmini
+ghalet destroy --config /path/to/config.yaml --target project --scale-set macmini
 ```
 
 CLI responses are JSON. `status` returns zero when it retrieves a snapshot,
@@ -165,7 +210,7 @@ OS workRoot lock and the config's control-address lock. A failed socket
 connection alone never permits bypassing an existing daemon. Lock files
 are not PID files and may remain after a process exits.
 
-Destruction requires a real terminal, explicit scope/name, an organization
+Destruction requires a real terminal, explicit target/scale set name, an organization
 group when applicable, and the exact answer `yes`. There is no `--yes`
 escape hatch for noninteractive use. The registration ID is checked again
 after confirmation and after drain. A changed target, unknown local records,
@@ -174,11 +219,15 @@ statistics prevents deletion. Approval exists only in memory and is consumed
 once. Groups are never deleted. Normal stop/config changes never remove old
 registrations.
 
-Scopes can remain without targets so old registrations can be explicitly
-destroyed. Remove a scope only after draining/destroying registrations that
-need its credentials. Retained executions matching an explicitly approved
-old registration are reverified before they can participate in that
-destruction; this association and deletion approval are not persisted.
+`--target` selects a configured target's URL and credentials; `--scale-set`
+and, for organizations, `--runner-group` explicitly select the registration
+to delete. They may name an old registration rather than the target's current
+scale set or group. Keep the target configured at the old URL until destruction
+is complete. Once no target retains that URL and its credentials, delete
+unneeded registrations manually in GitHub; there are no deletion-only entries.
+Retained executions matching an explicitly approved old registration are
+reverified before they can participate in that destruction; this association
+and deletion approval are not persisted.
 
 After a crash, records are matched to current explicit registrations, process
 UID/group/kernel start identity and, for live executions, GitHub runner IDs.
@@ -214,6 +263,11 @@ escaped within a record; runner output is never mixed into stdout. Configure
 your collector to select structured fields and perform any forwarding or
 OTel conversion externally. There is no embedded HTTP health endpoint,
 metrics exporter, OTel SDK or collector dependency.
+
+The `scope` field in new runner-start events and log archive metadata contains
+the registration URL rather than a configured scope name. Existing execution
+state files remain readable; their legacy `scopeRef` does not select credentials
+or determine registration identity.
 
 With `preserveLogs: true`, `output.log` and `_diag/**/*.log` are archived to
 `cleanup.logRoot/runs/RUN_ID` before removing the execution. Credentials and

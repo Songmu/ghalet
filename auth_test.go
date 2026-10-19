@@ -19,7 +19,7 @@ func TestCredentialsAndSecretRedaction(t *testing.T) {
 	c := testConfig(t)
 	secret := &secrets{}
 	t.Setenv("GHALET_TEST_TOKEN", "management-secret")
-	client, err := newScaleClient(t.Context(), c, "repository", secret)
+	client, err := newScaleClient(t.Context(), c.Targets[0], secret)
 	if err != nil || client == nil {
 		t.Fatal(err)
 	}
@@ -34,7 +34,7 @@ func TestCredentialsAndSecretRedaction(t *testing.T) {
 		t.Fatalf("secret or invalid JSONL output: %s", output.String())
 	}
 	t.Setenv("GHALET_TEST_TOKEN", "")
-	if _, err := newScaleClient(t.Context(), c, "repository", secret); err == nil {
+	if _, err := newScaleClient(t.Context(), c.Targets[0], secret); err == nil {
 		t.Fatal("empty token accepted")
 	}
 }
@@ -150,19 +150,21 @@ func TestMultilineSecretReferenceCounts(t *testing.T) {
 	}
 }
 
-func TestSharedAppKeyUsesScopeInstallations(t *testing.T) {
+func TestSharedAppKeyUsesTargetInstallations(t *testing.T) {
 	c := testConfig(t)
-	c.Credentials["app"] = Credential{Type: "github-app", ClientID: "app-client", PrivateKeyFile: "/protected/app.pem"}
-	first := Scope{URL: "https://github.com/first", CredentialRef: "app", InstallationID: 100}
-	second := Scope{URL: "https://github.com/second", CredentialRef: "app", InstallationID: 200}
-	c.Scopes["first"], c.Scopes["second"] = first, second
+	first := c.Targets[0]
+	first.URL = "https://github.com/first"
+	first.Credential = Credential{Type: "github-app", ClientID: "app-client", PrivateKeyFile: "/protected/app.pem"}
+	first.InstallationID = 100
+	second := first
+	second.ID, second.URL, second.InstallationID = "second", "https://github.com/second", 200
+	c.Targets = []Target{first, second}
 	if err := c.Validate(); err != nil {
 		t.Fatal("shared App key rejected across installations", err)
 	}
-	second.InstallationID = 0
-	c.Scopes["second"] = second
+	c.Targets[1].InstallationID = 0
 	if err := c.Validate(); err == nil {
-		t.Fatal("App installation identity was not scope-specific")
+		t.Fatal("App installation identity was not target-specific")
 	}
 }
 
@@ -175,21 +177,21 @@ func TestGhAuthenticationUsesHostAndFiniteCommand(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", dir+":"+os.Getenv("PATH"))
-	c.Credentials["personal"] = Credential{Type: "gh"}
+	c.Targets[0].Credential = Credential{Type: "gh"}
 	secret := &secrets{}
-	if _, err := newScaleClient(t.Context(), c, "repository", secret); err != nil {
+	if _, err := newScaleClient(t.Context(), c.Targets[0], secret); err != nil {
 		t.Fatal(err)
 	}
 	if secret.redact("fake-gh-secret") != "***" {
 		t.Fatal("gh token not registered for redaction")
 	}
 	os.WriteFile(path, []byte("#!/bin/sh\nprintf sensitive-stderr >&2\nexit 1\n"), 0700)
-	if _, err := newScaleClient(t.Context(), c, "repository", secret); err == nil || strings.Contains(err.Error(), "sensitive-stderr") {
+	if _, err := newScaleClient(t.Context(), c.Targets[0], secret); err == nil || strings.Contains(err.Error(), "sensitive-stderr") {
 		t.Fatal("gh error leaked subprocess stderr or was ignored")
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	if _, err := newScaleClient(ctx, c, "repository", secret); err == nil {
+	if _, err := newScaleClient(ctx, c.Targets[0], secret); err == nil {
 		t.Fatal("canceled gh command succeeded")
 	}
 }
@@ -224,10 +226,15 @@ func TestExplicitRegistrationAndDisableUpdate(t *testing.T) {
 
 func TestRunnerEnvironment(t *testing.T) {
 	c := testConfig(t)
+	other := c.Targets[0]
+	other.ID, other.ScaleSetName = "other", "other"
+	other.Credential.TokenEnv = "OTHER_MANAGEMENT_TOKEN"
+	c.Targets = append(c.Targets, other)
 	c.Runner.Env = map[string]string{"PATH": "/tools/bin", "LANG": "C.UTF-8"}
 	account := executionUser{Name: "runner", UID: 1001, Home: "/home/runner"}
 	environment := runnerEnvironment(c, account, []string{
 		"GH_TOKEN=management", "GITHUB_TOKEN=management", "GHALET_TEST_TOKEN=management",
+		"OTHER_MANAGEMENT_TOKEN=other-management",
 		"PATH=/old", "HOME=/controller", "USER=controller", "LOGNAME=controller",
 		"KEEP=value", "ACTIONS_RUNNER_INPUT_OLD=secret", "RUNNER_ALLOW_RUNASROOT=1",
 		"actions_runner_input_help=true", "Actions_Runner_Input_Help=true",
@@ -238,6 +245,10 @@ func TestRunnerEnvironment(t *testing.T) {
 		if strings.Contains(all, forbidden) {
 			t.Fatalf("forbidden inherited environment: %s", all)
 		}
+	}
+	c.Runner.Env["OTHER_MANAGEMENT_TOKEN"] = "must-not-be-copied"
+	if err := c.Validate(); err == nil {
+		t.Fatal("runner.env accepted another target's management credential")
 	}
 	for _, expected := range []string{"PATH=/tools/bin", "HOME=/home/runner", "USER=runner", "LOGNAME=runner", "KEEP=value", "ACTIONS_RUNNER_INPUT_JITCONFIG=jit-only"} {
 		if !strings.Contains(all, "\n"+expected+"\n") {
