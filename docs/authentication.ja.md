@@ -14,11 +14,10 @@ API ドキュメントとポリシーを確認してください。
 | --- | --- | --- |
 | GitHub CLI（`gh`、デフォルト） | 既存のログインを使い、ghalet 専用のシークレットファイルなしで試せる | 既存ログインの権限と有効性を共有する。デーモンの環境で `gh` とログイン・キーチェーンを利用できる必要があり、OAuth ログインはリポジトリ単位に限定できない |
 | Fine-grained PAT（`pat`） | リポジトリと権限を選べ、ファイル参照で簡単に設定できる | 個人と一つの resource owner にひも付く。有効期限、再発行、必要に応じた Organization の承認を管理する必要がある |
-| Classic PAT（`pat`） | アカウントやポリシーの制約で fine-grained PAT を使えない場合の選択肢になる | アクセス可能なリポジトリに広い scope が及び、個人にひも付く。有効期限・ローテーションと、場合によって SSO 承認が必要 |
 | GitHub App（`github-app`） | 個人のログインではなくインストールの識別情報で動作し、リポジトリと権限を選べる。短命な installation token は SDK が更新する | 初期登録、インストール承認、ID・鍵の管理が増える。長期利用する秘密鍵自体の保護とローテーションは必要 |
 
 共有・長期運用には専用の App、単純な専用構成には fine-grained PAT、
-既存の対話環境で試す場合には `gh` を使い、classic PAT は互換性のための選択肢とします。
+既存の対話環境で試す場合には `gh` を使います。
 GitHub の [PAT ガイド][pat-guide]、[App の概要][app-overview]、
 [installation 認証ガイド][app-installation]も参照してください。
 どの方式でも、ジョブの OS ユーザーが読める認証情報からジョブを隔離するものではありません。
@@ -33,7 +32,7 @@ workflow の保存先ではなく、target の `scope` に合わせて権限を�
 | --- | --- | --- |
 | Fine-grained PAT | リポジトリの **Administration: Read and write**。アクセス先を対象リポジトリに限定 | Organization の **Self-hosted runners: Read and write**。Resource owner を対象 Organization に設定 |
 | GitHub App | リポジトリの **Administration: Read and write**。対象リポジトリにインストール | Organization の **Self-hosted runners: Read and write**。対象 Organization にインストール |
-| Classic PAT / GitHub CLI の OAuth トークン | `repo` | `admin:org`。REST API のドキュメントでは非公開リポジトリに `repo` も要求 |
+| GitHub CLI の OAuth トークン | `repo` | `admin:org`。REST API のドキュメントでは非公開リポジトリに `repo` も要求 |
 
 自動で付くリポジトリの **Metadata: Read-only** はそのままにします。
 Organization の target だけに使う App には、リポジトリの Administration は不要です。
@@ -95,19 +94,14 @@ targets:
     scope: OWNER/REPO
 ```
 
-Fine-grained PAT も classic PAT も `type: pat` を使います。
+Classic PAT も `type: pat` で利用できますが、新規設定では
+fine-grained PAT または GitHub App を推奨します。
+
 `tokenEnv` は `tokenFile` の代替であり、併記はできません。パッケージのサービスでは
 環境変数によるシークレット保存を避けてください。トークンの値をコマンド引数、
 シェル履歴、コミットするファイル、runner の環境設定に書かないでください。
 
-### Classic PAT と GitHub CLI
-
-Fine-grained PAT を使えない場合は、**Settings → Developer settings →
-Personal access tokens → Tokens (classic) → Generate new token (classic)** を開き、
-有効期限と上の表の scope だけを設定して、同様に保存します。
-Classic PAT はアクセス先を特定のリポジトリだけに限定できません。
-SAML SSO を使う Organization では、
-[classic PAT の SSO 承認][sso]も行ってください。
+## GitHub CLI
 
 `type: gh` ではデーモンの実行ユーザーでログインします。
 既存のログインが GitHub CLI の OAuth トークンを使っている場合は、
@@ -231,7 +225,7 @@ GitHub の権限確認ではありません。デーモンが対象の Scale Set
 その名前を `runs-on` に使う信頼できるテスト workflow を実行できることを確認してください。
 
 認証や登録に失敗した場合は、トークンの期限切れ・失効、PAT 発行者のアクセス権、
-resource owner と承認、classic PAT の SSO 承認、App の権限とインストール時の承認、
+resource owner と承認、App の権限とインストール時の承認、
 対象リポジトリ、client ID・installation ID・鍵の組み合わせを確認します。
 Runner group でも workflow のリポジトリが許可されている必要があります。
 アクセスエラーを解消するために全権限を付けることは避けてください。
@@ -240,7 +234,6 @@ Runner group でも workflow のリポジトリが許可されている必要が
 [org-registration]: https://docs.github.com/ja/rest/actions/self-hosted-runners#create-a-registration-token-for-an-organization
 [sdk-auth]: https://github.com/actions/scaleset/blob/e6daac702355cdb5b880b4fbdcf6d85dcd9e48e5/client.go
 [pat-guide]: https://docs.github.com/ja/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens
-[sso]: https://docs.github.com/ja/enterprise-cloud@latest/authentication/authenticating-with-single-sign-on/authorizing-a-personal-access-token-for-use-with-single-sign-on
 [app-guide]: https://docs.github.com/ja/apps/creating-github-apps/registering-a-github-app/registering-a-github-app
 [app-keys]: https://docs.github.com/ja/apps/creating-github-apps/authenticating-with-a-github-app/managing-private-keys-for-github-apps
 [app-overview]: https://docs.github.com/ja/apps/creating-github-apps/about-creating-github-apps/about-creating-github-apps

@@ -14,13 +14,11 @@ For other GitHub hosts, check that host's API documentation and policies.
 | --- | --- | --- |
 | GitHub CLI (`gh`, default) | Reuses an existing login without a separate ghalet secret file; convenient for local trials | Shares that login's authority and lifecycle. Requires `gh` and a usable login/keychain in the daemon's environment; an OAuth login is not repository-scoped |
 | Fine-grained PAT (`pat`) | Select individual repositories and permissions; simple file-based setup | Tied to a person and one resource owner. Expiration, replacement and any organization approval need operator management |
-| Classic PAT (`pat`) | Useful when fine-grained tokens are unavailable for the account or policy | Broad scopes across accessible repositories, tied to a person; requires expiration/rotation management and possibly SSO authorization |
 | GitHub App (`github-app`) | Installation identity rather than a person's login; selected repositories and permissions; SDK renews short-lived installation tokens | More initial setup, installation approval and ID/key management. The long-lived private key still needs protection and rotation |
 
 Use a dedicated App for shared or long-lived deployments, a fine-grained PAT
 for a simple dedicated setup, and `gh` for an existing interactive environment.
-Keep classic PATs as a compatibility option. See GitHub's
-[PAT guidance][pat-guide], [App overview][app-overview] and
+See GitHub's [PAT guidance][pat-guide], [App overview][app-overview] and
 [installation authentication guide][app-installation].
 None of these methods isolates jobs from credentials accessible to their OS
 user; retain the [trusted-host boundary](operations.md#trust-boundary).
@@ -34,7 +32,7 @@ A repository target and an organization target have different requirements:
 | --- | --- | --- |
 | Fine-grained PAT | Repository **Administration: Read and write**, limited to the target repositories | Organization **Self-hosted runners: Read and write**, with the target organization as resource owner |
 | GitHub App | Repository **Administration: Read and write**, installed on the target repositories | Organization **Self-hosted runners: Read and write**, installed on the target organization |
-| Classic PAT / GitHub CLI OAuth token | `repo` | `admin:org`; the REST API documentation also requires `repo` for private repositories |
+| GitHub CLI OAuth token | `repo` | `admin:org`; the REST API documentation also requires `repo` for private repositories |
 
 Keep the automatically included repository **Metadata: Read-only** permission.
 For an organization-only App, repository Administration is not required.
@@ -97,18 +95,15 @@ targets:
     scope: OWNER/REPO
 ```
 
-Both fine-grained and classic PATs use `type: pat`. `tokenEnv` is an alternative
-to `tokenFile`, not an additional field; avoid environment-based secret storage
-for the packaged service. Never put token values in command arguments, shell
-history, committed files or runner environment settings.
+Classic PATs are also supported with `type: pat`, but use a fine-grained PAT
+or GitHub App for new setups.
 
-### Classic PATs and GitHub CLI
+`tokenEnv` is an alternative to `tokenFile`, not an additional field;
+avoid environment-based secret storage for the packaged service. Never put
+token values in command arguments, shell history, committed files or runner
+environment settings.
 
-If fine-grained PATs cannot be used, open **Settings → Developer settings →
-Personal access tokens → Tokens (classic) → Generate new token (classic)**.
-Set an expiration and select only the scopes in the table, then store it as
-above. Classic tokens cannot be limited to selected repositories. If the
-organization uses SAML SSO, [authorize the classic PAT for that organization][sso].
+## GitHub CLI
 
 For `type: gh`, log in as the daemon's execution user. If the existing login
 uses a GitHub CLI OAuth token, request the required scope:
@@ -237,17 +232,15 @@ it does not prove GitHub permissions. Confirm that the daemon registers the
 target scale set and executes a trusted test workflow using its `runs-on` name.
 
 If authentication or registration fails, check token expiration/revocation,
-PAT owner access, resource owner and approval, classic-token SSO authorization,
-App permissions and installation approval, selected repositories, and the
-client ID / installation ID / key combination. Runner group access must also
-allow the workflow's repository. Do not fix an access error by granting every
-permission.
+PAT owner access, resource owner and approval, App permissions and installation
+approval, selected repositories, and the client ID / installation ID / key
+combination. Runner group access must also allow the workflow's repository.
+Do not fix an access error by granting every permission.
 
 [repo-registration]: https://docs.github.com/en/rest/actions/self-hosted-runners#create-a-registration-token-for-a-repository
 [org-registration]: https://docs.github.com/en/rest/actions/self-hosted-runners#create-a-registration-token-for-an-organization
 [sdk-auth]: https://github.com/actions/scaleset/blob/e6daac702355cdb5b880b4fbdcf6d85dcd9e48e5/client.go
 [pat-guide]: https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens
-[sso]: https://docs.github.com/en/enterprise-cloud@latest/authentication/authenticating-with-single-sign-on/authorizing-a-personal-access-token-for-use-with-single-sign-on
 [app-guide]: https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/registering-a-github-app
 [app-keys]: https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/managing-private-keys-for-github-apps
 [app-overview]: https://docs.github.com/en/apps/creating-github-apps/about-creating-github-apps/about-creating-github-apps
