@@ -1,4 +1,4 @@
-name: packaging
+name: test packaging
 
 on:
   pull_request:
@@ -14,16 +14,16 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  packages:
+  test:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
         include:
-        - os: ubuntu-24.04
+        - os: ubuntu-26.04
           arch: amd64
-        - os: ubuntu-24.04-arm
+        - os: ubuntu-26.04-arm
           arch: arm64
     steps:
     - name: checkout
@@ -34,23 +34,28 @@ jobs:
       uses: actions/setup-go@v7.0.0
       with:
         go-version-file: go.mod
-    - name: build archives
+    - name: read application version
+      run: |
+        version=$(sed -n 's/^const Version = "\([^"]*\)"$/v\1/p' version.go)
+        test -n "$version"
+        echo "GHALET_VERSION=$version" >> "$GITHUB_ENV"
+    - name: build test archives
       id: goxz
       uses: Songmu/goxz@v0.13.0
       with:
-        package-version: v0.0.0
+        package-version: ${{ env.GHALET_VERSION }}
         os: linux
         arch: ${{ matrix.arch }}
         packages: ./cmd/ghalet
         static: true
         destination: ${{ runner.temp }}/release
-    - name: build packages
+    - name: build test packages
       env:
         ARCH: ${{ matrix.arch }}
         OUTPUT_DIR: ${{ steps.goxz.outputs.output-dir }}
       run: |
         go install github.com/goreleaser/nfpm/v2/cmd/nfpm@v2.48.0
-        sh packaging/build.sh v0.0.0 "$OUTPUT_DIR" "$OUTPUT_DIR" "$RUNNER_TEMP/container-binaries" "$ARCH"
+        sh packaging/build.sh "$GHALET_VERSION" "$OUTPUT_DIR" "$OUTPUT_DIR" "$RUNNER_TEMP/container-binaries" "$ARCH"
         shellcheck packaging/*.sh
     - name: test package installation, upgrade and removal
       env:
@@ -81,7 +86,7 @@ jobs:
         tags: ghalet:test
     - name: test container configuration and official runner dependencies
       run: |
-        GHALET_VERSION=v0.0.0 docker compose -f examples/compose.yaml config --quiet
+        docker compose -f examples/compose.yaml config --quiet
         docker run --rm --init \
           --mount "type=bind,src=$GITHUB_WORKSPACE/examples/system-config.yaml,dst=/etc/ghalet/config.yaml,readonly" \
           ghalet:test config validate --config /etc/ghalet/config.yaml

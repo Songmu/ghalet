@@ -1,0 +1,170 @@
+# Linux パッケージとコンテナ
+
+[English](distribution.md) | [日本語](distribution.ja.md)
+
+リリースタグごとに amd64 / arm64 のバイナリ、`.deb` / `.rpm` パッケージ、
+マルチプラットフォームイメージ `ghcr.io/songmu/ghalet:TAG` を公開します。
+既存のアーカイブ、`install.sh`、`go install` も引き続き利用できます。
+この配布設定には APT/DNF リポジトリや Homebrew のサービス連携は含みません。
+
+## Debian / RPM パッケージ
+
+GitHub Releases から使用するアーキテクチャのパッケージをダウンロードし、
+`SHA256SUMS` と照合してください。パッケージもビルド provenance の対象です。
+
+```sh
+gh attestation verify ./PACKAGE --repo Songmu/ghalet
+sudo apt install ./PACKAGE.deb
+# RPM 系の場合:
+sudo dnf install ./PACKAGE.rpm
+```
+
+公式 runner が要求する OS の依存パッケージと `procps` を依存関係に含みます。
+配布用設定は PAT ファイルを使うため、GitHub CLI は必須ではありません。
+Git や workflow で使用するビルドツールは別途導入してください。
+パッケージのスモークテストは、両アーキテクチャの Ubuntu 26.04 ホストと
+Rocky Linux 9 コンテナを対象としています。他のディストリビューションでは
+別途互換性の確認が必要です。
+
+導入時に、非特権の `ghalet` アカウント、その HOME となる `/var/lib/ghalet`、
+保存用ディレクトリ、systemd unit を作成します。
+**本番設定の作成、サービスの自動起動の有効化、サービスの起動は行いません。**
+
+```sh
+sudo install -o root -g ghalet -m 0640 \
+  /usr/share/ghalet/config.yaml.example /etc/ghalet/config.yaml
+sudoedit /etc/ghalet/config.yaml
+sudo install -o ghalet -g ghalet -m 0600 \
+  /path/to/pat-file /etc/ghalet/credentials/token
+sudo -u ghalet ghalet config validate --config /etc/ghalet/config.yaml
+sudo systemctl enable --now ghalet
+```
+
+設定の `OWNER/REPO` を置き換え、runner の管理に必要な権限を持つ PAT を用意してください。
+GitHub App を使う場合は、[運用ガイド](operations.ja.md#設定と認証情報)に従い、
+target の `credential` を変更し、所有者だけが読める秘密鍵ファイルを渡します。
+認証情報を YAML の値やシェルのコマンド引数に直接書かないでください。
+
+サンプル設定は、実行データと runner のメタデータを `/var/lib/ghalet`、
+ダウンロードを `/var/cache/ghalet`、保存する runner ログを `/var/log/ghalet`
+以下に配置します。デーモンの出力は journal に記録します。
+
+```sh
+sudo journalctl -u ghalet -f
+sudo -u ghalet ghalet doctor --config /etc/ghalet/config.yaml
+```
+
+更新時はサービスを通常停止し、停止が不完全なら状況を確認してからパッケージを置き換えます。
+パッケージの更新スクリプトもサービスを停止しますが、自動では再起動しません。
+更新後は明示的に起動してください。既存の OS 起動時の自動起動設定は保持します。
+
+```sh
+sudo systemctl stop ghalet
+# apt または dnf で新しいパッケージを導入します。
+sudo systemctl start ghalet
+```
+
+削除時はサービスを停止し、自動起動を無効化します。`apt purge` を使った場合も、
+設定、認証情報、ステート、ログ、アカウントは残します。
+保持された実行データを確認した後で、必要に応じて削除してください。
+パッケージ操作で GitHub の Scale Set を削除することはありません。
+
+unit は `KillMode=mixed` と、停止処理全体に対する 15 分の最終期限を使います。
+デフォルトの drain 期限 10 分を変更する場合は、unit 側の期限も延ばしてください。
+停止時とクラッシュ時の後始末については、
+[サービスとしての常駐化](operations.ja.md#サービスとしての常駐化)を参照してください。
+
+## Docker Compose
+
+コンテナ内では、ghalet と Linux runner プロセスを UID/GID 10001 で実行します。
+runner の依存パッケージ、Git、curl、シェルを含みますが、
+GitHub-hosted runner と同等の完全なツールセットは含みません。
+workflow 固有のツールは、このイメージを拡張して導入してください。
+コンテナ内で systemd は使いません。
+
+`examples/compose.yaml` と `examples/system-config.yaml` を新しい配置用ディレクトリへ
+コピーし、後者を `config.yaml` に変更します。`OWNER/REPO` を設定し、
+PAT を `credentials/token` に配置してください。Linux の Docker ホストでは、
+bind mount する認証情報をイメージのユーザーに合わせて準備します。
+
+```sh
+mkdir -p credentials
+# シークレット管理ツールで PAT を credentials/token に書き込みます。
+sudo chown -R 10001:10001 credentials
+sudo chmod 0700 credentials
+sudo chmod 0600 credentials/token
+export GHALET_VERSION=vX.Y.Z
+docker compose run --rm ghalet config validate --config /etc/ghalet/config.yaml
+docker compose up -d
+docker compose exec ghalet ghalet doctor --config /etc/ghalet/config.yaml
+```
+
+`GHALET_VERSION` には公開済みのリリースタグを指定します。
+イメージの provenance は
+`gh attestation verify oci://ghcr.io/songmu/ghalet:TAG --repo Songmu/ghalet`
+で確認できます。他の Docker ホストでは、コンテナ内で実際に見える所有者とモードを
+確認してください。トークンを誰でも読める状態にすることは解決策ではありません。
+
+設定と認証情報は読み取り専用でマウントします。名前付き volume は HOME / ステート、
+キャッシュ、ログを保持し、初期化時にはイメージのユーザーが所有します。
+同じ volume 群に対して複数のデーモンを起動しないでください。
+ステートを保持する場合は `docker compose down --volumes` を使わないでください。
+管理コマンドでも、デーモンと同じ `/etc/ghalet/config.yaml` を選択する必要があります。
+
+Compose では、シグナル転送と孤児プロセスの回収を行う小さな init プロセスを有効にし、
+通常の停止 / drain のために 15 分の猶予を設けています。
+コンテナを作り直す場合やイメージを変更する場合は、先に通常停止してください。
+
+```sh
+docker compose stop
+docker compose pull
+docker compose up -d
+```
+
+`runner.drainTimeout` を延ばす場合は `stop_grace_period` も延ばしてください。
+強制終了、コンテナの削除、ホスト障害ではジョブが中断される場合があります。
+永続化したレコードは診断用に残りますが、コンテナの置き換えで実行中の
+runner プロセスが復旧するわけではありません。
+
+ジョブはホストのツール環境ではなく、**この Linux コンテナ内**で実行します。
+macOS ジョブには引き続き macOS ネイティブの導入が必要です。
+コンテナ配布によって Docker actions、ジョブ / サービスコンテナ、
+ジョブごとの隔離に対応するわけではありません。
+サンプルは Docker ソケットをマウントせず、ホストの PID namespace を共有せず、
+特権モードも要求しません。同じユーザーで動く信頼済みジョブは、マウントした管理用の
+認証情報を読めるほか、HOME、ツール、キャッシュを共有する点には注意してください。
+
+## 配布物のビルド
+
+`release-build.yaml` は、Linux / macOS のアーカイブを goxz、
+Linux パッケージを nFPM で生成します。リリース用ファイルは `dist` に集約し、
+パッケージ生成後、その配下の全ファイルについて `SHA256SUMS` を一度だけ生成します。
+manifest 自身は対象から除外します。
+`packaging/build.sh` はアーカイブから同じ Linux バイナリを取り出し、
+`examples/ghalet.service` を元にパッケージ用 unit を生成して、
+コンテナのビルド用にはバイナリとライセンス文書だけを用意します。
+
+```sh
+go install github.com/Songmu/goxz/cmd/goxz@v0.13.0
+go install github.com/goreleaser/nfpm/v2/cmd/nfpm@v2.48.0
+VERSION=$(sed -n 's/^const Version = "\([^"]*\)"$/v\1/p' version.go)
+test -n "$VERSION"
+goxz -pv "$VERSION" -os linux,darwin -arch amd64,arm64 -static \
+  -d /tmp/ghalet-release ./cmd/ghalet
+sh packaging/build.sh "$VERSION" /tmp/ghalet-release /tmp/ghalet-release /tmp/ghalet-binaries
+docker buildx build --platform linux/amd64,linux/arm64 \
+  --build-context binaries=/tmp/ghalet-binaries .
+```
+
+Dockerfile は、バイナリとライセンス文書だけを含む明示的な名前付き context を使います。
+`.dockerignore` は、それ以外のチェックアウト内容を除外します。
+ローカル設定、認証情報、worktree、Git メタデータも対象です。
+リリース時には、パッケージをアーカイブや共通の checksum / provenance と共に公開し、
+別のジョブで GHCR イメージの公開と attestation を行います。
+独立した `test-packaging.yaml` はパッケージとイメージをビルド・検証しますが、
+公開は行わず、レジストリの認証情報も受け取りません。
+そのバージョンは、すでに tagpr の更新対象となっている `version.go` から取得します。
+
+初回のイメージ公開後、リポジトリ所有者は GHCR のパッケージ設定を確認し、
+匿名で pull できるようにパッケージを Public にする必要があります。
+リポジトリを公開しても、新規パッケージが自動的に Public になるわけではありません。

@@ -50,7 +50,7 @@ overrides:
       - libc6
       - libgcc-s1
       - libstdc++6
-      - libicu74 | libicu72
+      - libicu78 | libicu74 | libicu72
       - libssl3t64 | libssl3
       - libkrb5-3
       - zlib1g

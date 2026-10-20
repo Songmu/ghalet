@@ -306,6 +306,10 @@ runner 開始イベントとアーカイブのメタデータの `scope` は登�
 
 ## サービスとしての常駐化
 
+Linux パッケージや Docker Compose で導入する場合は、
+[パッケージとコンテナ](distribution.ja.md)を参照してください。
+以下はサービスを手動で導入する場合の手順です。
+
 Linux では、専用の `ghalet` ユーザーと書き込み可能な保存先を事前に作成し、
 `examples/ghalet.service` を `/etc/systemd/system/` にコピーして、
 `/etc/ghalet/config.yaml` に設定を配置します。workRoot、distributionRoot、
@@ -340,7 +344,7 @@ LaunchAgent はログイン時に起動し、ログイン前には起動しま�
 実際のログイン・サービス環境で、キーチェーンへのアクセスと停止動作を確認してください。
 
 Apple Silicon の Lima では、`examples/lima.yaml` が VZ、4 vCPU、8 GiB メモリー、
-80 GiB ディスク、ホストマウントなし、containerd なしの Ubuntu ARM64 VM と、
+80 GiB ディスク、ホストマウントなし、containerd なしの Ubuntu 26.04 ARM64 VM と、
 インストール・有効化済みの systemd サービスを用意します。
 プロビジョニングはホストの認証情報をコピーしません。
 Go の toolchain 選択機能を使い、公開済みの ghalet モジュールをビルドします。

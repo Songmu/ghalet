@@ -4,12 +4,6 @@
 version: 'v0.0.3'
 workflows:
     '.github/workflows/ghalet-integration.yaml': []
-    '.github/workflows/packaging.yaml':
-        - 'actions/checkout@v7.0.1'
-        - 'actions/setup-go@v7.0.0'
-        - 'docker/build-push-action@v7.4.0'
-        - 'docker/setup-buildx-action@v4.4.1'
-        - 'songmu/goxz@v0.13.0'
     '.github/workflows/release-build.yaml':
         - 'actions/attest@v4.2.2'
         - 'actions/checkout@v7.0.1'
@@ -35,6 +29,12 @@ workflows:
         - 'actions/checkout@v7.0.1'
         - 'actions/setup-go@v7.0.0'
         - 'songmu/tagpr@v1.21.3'
+    '.github/workflows/test-packaging.yaml':
+        - 'actions/checkout@v7.0.1'
+        - 'actions/setup-go@v7.0.0'
+        - 'docker/build-push-action@v7.4.0'
+        - 'docker/setup-buildx-action@v4.4.1'
+        - 'songmu/goxz@v0.13.0'
     '.github/workflows/test.yaml':
         - 'actions/checkout@v7.0.1'
         - 'actions/setup-go@v7.0.0'

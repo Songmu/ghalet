@@ -34,9 +34,9 @@ jobs:
         os: linux,darwin
         arch: amd64,arm64
         packages: ./cmd/ghalet
+        destination: dist
         static: true
         build-ldflags: -s -w -X github.com/Songmu/ghalet.Revision=${{ steps.build.outputs.revision }}
-        checksum: true
     - name: build Linux packages
       env:
         VERSION: ${{ github.ref_name }}
@@ -44,8 +44,13 @@ jobs:
       run: |
         go install github.com/goreleaser/nfpm/v2/cmd/nfpm@v2.48.0
         sh packaging/build.sh "$VERSION" "$OUTPUT_DIR" "$OUTPUT_DIR" "$RUNNER_TEMP/container-binaries"
-        cd "$OUTPUT_DIR"
-        sha256sum -- *.zip *.tar.gz *.deb *.rpm > SHA256SUMS
+    - name: generate release checksums
+      shell: bash
+      working-directory: ${{ steps.goxz.outputs.output-dir }}
+      run: |
+        find . -type f ! -path './SHA256SUMS' -printf '%P\0' |
+          LC_ALL=C sort -z |
+          xargs -0 -r sha256sum -- > SHA256SUMS
     - name: attest build provenance
       uses: actions/attest@v4.2.2
       with:

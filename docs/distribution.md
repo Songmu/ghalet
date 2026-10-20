@@ -1,5 +1,7 @@
 # Linux packages and containers
 
+[English](distribution.md) | [日本語](distribution.ja.md)
+
 Release tags publish amd64 and arm64 binaries, `.deb` and `.rpm` packages,
 and the multi-platform image `ghcr.io/songmu/ghalet:TAG`.
 Existing archives, `install.sh`, and `go install` remain available.
@@ -21,7 +23,7 @@ sudo dnf install ./PACKAGE.rpm
 Packages include the official runner's OS dependencies and `procps`.
 GitHub CLI is not required: the supplied configuration uses a PAT file.
 Install Git and the build tools your workflows need separately.
-The package smoke tests cover Ubuntu 24.04 hosts and Rocky Linux 9 containers on both
+The package smoke tests cover Ubuntu 26.04 hosts and Rocky Linux 9 containers on both
 architectures; other distributions need their own compatibility checks.
 
 Installation creates an unprivileged `ghalet` account, its HOME at
@@ -135,16 +137,20 @@ still read mounted management credentials and share HOME, tools, and caches.
 ## Building distribution artifacts
 
 `release-build.yaml` keeps goxz for Linux/macOS archives and uses nFPM for
-Linux packages. `packaging/build.sh` extracts the exact Linux binaries from
+Linux packages. All release files are collected in `dist`; after packaging,
+`SHA256SUMS` is generated once for every file below it, excluding the manifest
+itself. `packaging/build.sh` extracts the exact Linux binaries from
 those archives, generates the packaged unit from `examples/ghalet.service`,
 and stages only the binaries and license notices for the container build:
 
 ```sh
 go install github.com/Songmu/goxz/cmd/goxz@v0.13.0
 go install github.com/goreleaser/nfpm/v2/cmd/nfpm@v2.48.0
-goxz -pv v0.0.0 -os linux,darwin -arch amd64,arm64 -static \
+VERSION=$(sed -n 's/^const Version = "\([^"]*\)"$/v\1/p' version.go)
+test -n "$VERSION"
+goxz -pv "$VERSION" -os linux,darwin -arch amd64,arm64 -static \
   -d /tmp/ghalet-release ./cmd/ghalet
-sh packaging/build.sh v0.0.0 /tmp/ghalet-release /tmp/ghalet-release /tmp/ghalet-binaries
+sh packaging/build.sh "$VERSION" /tmp/ghalet-release /tmp/ghalet-release /tmp/ghalet-binaries
 docker buildx build --platform linux/amd64,linux/arm64 \
   --build-context binaries=/tmp/ghalet-binaries .
 ```
@@ -155,8 +161,9 @@ license notices.
 configuration, credentials, worktrees, and Git metadata.
 Release publication uploads packages alongside archives and their combined
 checksums/provenance, then a separate job publishes and attests the GHCR
-image. Pull-request checks build and test packages/images without publishing
-or receiving registry credentials.
+image. The separate `test-packaging.yaml` workflow builds and tests
+packages/images without publishing or receiving registry credentials.
+Its version comes from `version.go`, which tagpr already updates.
 
 After the first image publication, the repository owner must check the
 GHCR package settings and make the package public for anonymous pulls.

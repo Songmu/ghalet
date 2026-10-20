@@ -42,6 +42,10 @@ ghalet が増減するのは **単一ホスト上の runner プロセス** で�
 
 ## インストール
 
+systemd unit を含む Linux 向け `.deb` / `.rpm` パッケージと、
+GHCR のコンテナイメージもリリース時にビルドします。
+導入・設定・更新の手順は[パッケージとコンテナ](docs/distribution.ja.md)を参照してください。
+
 ```console
 # 最新版をインストール。デフォルトの配置先は ./bin/。
 % curl -sfL https://raw.githubusercontent.com/Songmu/ghalet/main/install.sh | sh -s

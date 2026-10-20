@@ -16,6 +16,13 @@ go vet ./...
 CI は Linux と macOS で、実際の GitHub 登録を使わずにテストを実行します。
 非 root ユーザーで実行してください。root ではプロセスのテストをスキップします。
 
+`test-packaging.yaml` は amd64 / arm64 の検証用アーカイブと deb/rpm をビルドし、
+Ubuntu 26.04 ホストと Rocky Linux 9 コンテナで導入・再導入・削除を確認します。
+Docker イメージも公開せずにビルドします。Ubuntu では導入した unit を検証し、
+パッケージ操作後にサービスが起動していないことも確認します。
+さらに、イメージ内で配布用設定を検証し、任意実行の公式 runner スモークテストを実行します。
+実際の GitHub ジョブや systemd 管理下での drain は検証しません。
+
 ## 任意実行の公式 runner スモークテスト
 
 ```sh

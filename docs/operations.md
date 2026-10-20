@@ -368,7 +368,7 @@ administrator-managed LaunchDaemon and set `runner.user`; do not assume a
 LaunchAgent can change users. Test keychain access and shutdown behavior in
 the actual login/service context.
 
-For Apple Silicon Lima, `examples/lima.yaml` supplies an Ubuntu ARM64 VM
+For Apple Silicon Lima, `examples/lima.yaml` supplies an Ubuntu 26.04 ARM64 VM
 with VZ, 4 vCPU, 8 GiB, 80 GiB, no host mounts, no containerd, installation
 and an enabled systemd service. Provisioning does not copy host credentials.
 It builds the published ghalet module with Go's toolchain selection.

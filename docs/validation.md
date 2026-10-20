@@ -16,8 +16,8 @@ go vet ./...
 CI runs the suite on Linux and macOS without real GitHub registrations.
 Run as a non-root user: process tests skip under root.
 
-The packaging workflow builds amd64/arm64 archives and deb/rpm packages,
-checks installation, reinstallation and removal on Ubuntu 24.04 hosts and
+The `test-packaging.yaml` workflow builds amd64/arm64 test archives and deb/rpm packages,
+checks installation, reinstallation and removal on Ubuntu 26.04 hosts and
 in Rocky Linux 9 containers, and builds the Docker image without publishing it.
 On Ubuntu it verifies the installed unit and that package operations leave
 the service inactive.
