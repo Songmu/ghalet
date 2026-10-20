@@ -36,6 +36,7 @@ type Options struct {
 	Name, Type, File, Config, ClientID string
 	Prompt, Stdin, NoDefault           bool
 	PromptOutput                       io.Writer
+	NoReplace                          bool
 }
 
 // Result describes the files installed by a successful registration.

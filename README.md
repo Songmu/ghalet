@@ -131,6 +131,7 @@ repository or organization registration, identified locally by its `id`.
 | `ghalet run` | Run the daemon in the foreground for all configured targets. |
 | `ghalet apply` | Drain targets, reload configuration, and reconcile registrations, attempting to delete unused scale sets. |
 | `ghalet config validate` | Validate configuration and local paths without contacting GitHub. |
+| `ghalet auth setup NAME --target ID` | Create and install a private GitHub App for one GitHub.com target using a browser. See [App setup](docs/app-setup.md) for local/SSH setup and resumption. |
 | `ghalet credential set NAME --prompt` | Save an owner-only credential file and update `defaults.credential`. See [ordinary credentials](docs/file-credentials.md) for App keys and replacement. |
 | `ghalet systemd credential set NAME --prompt` | Register an encrypted service PAT and update `defaults.credential` (Linux/root). See [credentials](docs/credentials.md) for App keys, automation and rotation. |
 | `ghalet list` | List accessible daemons, management UIDs, sockets and running snapshots; filter with `--config PATH`. |

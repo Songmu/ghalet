@@ -47,7 +47,7 @@ func ensureFileDirectory(directory string) error {
 	if err := fshelper.EnsureDirectory(directory, 0700); err != nil {
 		return err
 	}
-	return privatePath(directory, true)
+	return CheckPrivatePath(directory, true)
 }
 
 // SetFile registers an owner-only, unencrypted credential without changing a daemon.
@@ -62,7 +62,8 @@ func SetFile(ctx context.Context, options Options, input io.Reader) (Result, err
 	return setFile(ctx, directory, options, input)
 }
 
-func privatePath(path string, directory bool) error {
+// CheckPrivatePath verifies an owner-only file or directory owned by this user.
+func CheckPrivatePath(path string, directory bool) error {
 	if err := checkCredentialPath(path, directory); err != nil {
 		return err
 	}
@@ -93,7 +94,7 @@ func setFileWithWriter(ctx context.Context, directory string, options Options, i
 		return Result{}, err
 	}
 	defer lock.Close()
-	if err := privatePath(lockPath, false); err != nil {
+	if err := CheckPrivatePath(lockPath, false); err != nil {
 		return Result{}, err
 	}
 	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
@@ -106,7 +107,7 @@ func setFileWithWriter(ctx context.Context, directory string, options Options, i
 	path := filepath.Join(directory, options.Name+extension)
 	previousPath := path + ".previous"
 	for _, candidate := range []string{path, previousPath} {
-		if err := privatePath(candidate, false); err != nil && !errors.Is(err, os.ErrNotExist) {
+		if err := CheckPrivatePath(candidate, false); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return Result{}, err
 		}
 	}
@@ -115,6 +116,9 @@ func setFileWithWriter(ctx context.Context, directory string, options Options, i
 		return Result{}, err
 	}
 	defer clear(original.data)
+	if options.NoReplace && original.exists {
+		return Result{}, fmt.Errorf("credential already exists at %s; existing credential unchanged", path)
+	}
 	previous, err := snapshotCredentialFile(previousPath)
 	if err != nil {
 		return Result{}, err
