@@ -38,12 +38,12 @@ func Run(ctx context.Context, argv []string, outStream, errStream io.Writer) err
 	if command == "credential" {
 		return runCredential(ctx, argv, "", outStream, errStream, false)
 	}
-	if command == "auth" {
-		return auth(ctx, argv, "", outStream, errStream)
+	if command == "app" {
+		return app(ctx, argv, "", outStream, errStream, false)
 	}
 	dryRun := fs.Bool("dry-run", false, "show garbage collection without modifying files")
 	fs.Usage = func() {
-		fmt.Fprintln(errStream, "Usage: ghalet <run|apply|config validate|auth setup|credential set|systemd credential set|list|status|doctor|gc> [options]")
+		fmt.Fprintln(errStream, "Usage: ghalet <run|apply|config validate|app setup|credential set|systemd app setup|systemd credential set|list|status|doctor|gc> [options]")
 		fs.PrintDefaults()
 	}
 	if err := fs.Parse(argv); err != nil {
@@ -64,8 +64,8 @@ func Run(ctx context.Context, argv []string, outStream, errStream io.Writer) err
 		if command == "credential" {
 			return runCredential(ctx, remaining, *config, outStream, errStream, false)
 		}
-		if command == "auth" {
-			return auth(ctx, remaining, *config, outStream, errStream)
+		if command == "app" {
+			return app(ctx, remaining, *config, outStream, errStream, false)
 		}
 		if err := fs.Parse(remaining); err != nil {
 			return err

@@ -36,6 +36,21 @@ runner は自身の実行ディレクトリに到達するため `/var/lib/ghale
 その親ディレクトリ自体は変更できません。
 **本番設定の作成、サービスの自動起動の有効化、サービスの起動は行いません。**
 
+GitHub App の作成とサービス用の鍵の暗号化保存を行う場合:
+
+```sh
+sudo ghalet systemd app setup --scope OWNER/REPO
+sudo ghalet config validate --config /etc/ghalet/config.yaml
+sudo systemctl enable --now ghalet
+```
+
+Organization では `--scope ORG` を使います。設定がなければパッケージ用の runner ユーザーと
+ログパスを含めて作成し、既存の設定には target の追加・更新を行います。
+表示された URL をブラウザで開いてください。SSH では
+[App セットアップ](app-setup.ja.md#ssh-とブラウザの手動操作)のポート転送を使います。
+
+PAT を使う場合は、パッケージの設定例をコピーして編集します。
+
 ```sh
 sudo install -o root -g root -m 0600 \
   /usr/share/ghalet/config.yaml.example /etc/ghalet/config.yaml

@@ -131,7 +131,8 @@ repository or organization registration, identified locally by its `id`.
 | `ghalet run` | Run the daemon in the foreground for all configured targets. |
 | `ghalet apply` | Drain targets, reload configuration, and reconcile registrations, attempting to delete unused scale sets. |
 | `ghalet config validate` | Validate configuration and local paths without contacting GitHub. |
-| `ghalet auth setup NAME --target ID` | Create and install a private GitHub App for one GitHub.com target using a browser. See [App setup](docs/app-setup.md) for local/SSH setup and resumption. |
+| `ghalet app setup --scope OWNER/REPO` | Create and install a private GitHub App, deriving the target ID from scope and creating or updating its config. See [App setup](docs/app-setup.md) for organization scopes, SSH and resumption. |
+| `ghalet systemd app setup --scope OWNER/REPO` | Set up an App with encrypted service credentials and the target's runtime key reference (Linux/root). See [App setup](docs/app-setup.md#packaged-systemd-service). |
 | `ghalet credential set NAME --prompt` | Save an owner-only credential file and update `defaults.credential`. See [ordinary credentials](docs/file-credentials.md) for App keys and replacement. |
 | `ghalet systemd credential set NAME --prompt` | Register an encrypted service PAT and update `defaults.credential` (Linux/root). See [credentials](docs/credentials.md) for App keys, automation and rotation. |
 | `ghalet list` | List accessible daemons, management UIDs, sockets and running snapshots; filter with `--config PATH`. |
@@ -140,7 +141,7 @@ repository or organization registration, identified locally by its `id`.
 | `ghalet gc [--dry-run]` | Clean verified stopped executions and expired logs; preview with `--dry-run`. |
 
 `ghalet --version` prints the installed version. Management responses are
-JSON, except for the credential setup instructions. `systemd credential set`
+JSON, except for the App/credential setup instructions. `systemd app setup` and `systemd credential set`
 defaults to `/etc/ghalet/config.yaml`. Without `--config`, `status`, `doctor`,
 `apply`, and `gc` automatically select the single accessible daemon; multiple
 daemons require an explicit config. With none found, the per-user default

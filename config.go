@@ -185,6 +185,15 @@ func LoadConfig(path string) (*Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open config: %w", err)
 	}
+	return ParseConfig(path, content)
+}
+
+// ParseConfig resolves and validates configuration bytes without writing a file.
+func ParseConfig(path string, content []byte) (*Config, error) {
+	path, err := configPath(path)
+	if err != nil {
+		return nil, err
+	}
 	file, err := parser.ParseBytes(content, 0)
 	if err != nil {
 		return nil, fmt.Errorf("decode config: %w", err)

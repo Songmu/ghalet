@@ -14,12 +14,15 @@ import (
 )
 
 func systemd(ctx context.Context, args []string, config string, out, errOut io.Writer) error {
+	if len(args) > 0 && args[0] == "app" {
+		return app(ctx, args[1:], config, out, errOut, true)
+	}
 	if len(args) == 0 || args[0] != "credential" {
-		fmt.Fprintln(errOut, "Usage: ghalet systemd credential set NAME [--prompt|--file PATH|--stdin] [options]")
+		fmt.Fprintln(errOut, "Usage: ghalet systemd app setup --scope OWNER/REPO|ORG [options]\n       ghalet systemd credential set NAME [--prompt|--file PATH|--stdin] [options]")
 		if len(args) == 1 && (args[0] == "--help" || args[0] == "-h") {
 			return flag.ErrHelp
 		}
-		return errors.New("systemd requires the credential subcommand")
+		return errors.New("systemd requires the app or credential subcommand")
 	}
 	return credential(ctx, args[1:], config, out, errOut)
 }

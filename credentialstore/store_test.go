@@ -156,6 +156,17 @@ func (tools *credentialTestTools) run(ctx context.Context, tool string, args []s
 		}
 		_, err = io.WriteString(output, "encrypted:"+base64.StdEncoding.EncodeToString(data))
 		return err
+	case tool == "systemd-creds" && args[0] == "decrypt":
+		data, err := io.ReadAll(input)
+		if err != nil {
+			return err
+		}
+		plain, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(string(data), "encrypted:"))
+		if err != nil {
+			return err
+		}
+		_, err = output.Write(plain)
+		return err
 	case tool == "systemctl" && strings.Join(args, " ") == "daemon-reload":
 		if tools.onReload != nil {
 			tools.onReload()
@@ -167,6 +178,62 @@ func (tools *credentialTestTools) run(ctx context.Context, tool string, args []s
 		return nil
 	default:
 		return errors.New("unexpected command")
+	}
+}
+
+func TestEncryptedAppKeyReadAndNoReplace(t *testing.T) {
+	store, options, tools := testCredentialStore(t)
+	options.Name, options.Type, options.NoDefault, options.NoReplace = "app-key", "github-app", true, true
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})
+	result, err := store.set(t.Context(), options, bytes.NewReader(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cipher, err := os.ReadFile(result.EncryptedPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plain, err := store.read(t.Context(), options.Name)
+	if err != nil || !bytes.Equal(plain, bytes.TrimSpace(data)) {
+		t.Fatal("encrypted App key did not round-trip", err)
+	}
+	clear(plain)
+	input := bytes.NewReader(data)
+	if _, err := store.set(t.Context(), options, input); err == nil || !strings.Contains(err.Error(), "already exists") {
+		t.Fatal("setup replaced an existing encrypted credential", err)
+	}
+	current, err := os.ReadFile(result.EncryptedPath)
+	if err != nil || !bytes.Equal(current, cipher) || input.Len() != len(data) {
+		t.Fatal("exclusive registration consumed input or changed the key", err)
+	}
+	if _, err := os.Stat(result.EncryptedPath + ".previous"); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("exclusive registration rotated the credential", err)
+	}
+	if !strings.Contains(strings.Join(tools.calls, "\n"), "decrypt --name=app-key - -") {
+		t.Fatal("decryption did not bind the expected credential name")
+	}
+	toolsRun := store.run
+	store.run = func(ctx context.Context, tool string, args []string, input io.Reader, output io.Writer) error {
+		if tool == "systemd-creds" && args[0] == "decrypt" {
+			io.WriteString(output, "PRIVATE KEY must-not-leak")
+			return errors.New("decryption failed")
+		}
+		return toolsRun(ctx, tool, args, input, output)
+	}
+	if plain, err := store.read(t.Context(), options.Name); err == nil || plain != nil ||
+		strings.Contains(err.Error(), "must-not-leak") {
+		t.Fatal("failed decryption exposed plaintext", err)
+	}
+	store.run = toolsRun
+	if err := os.Remove(result.DropInPath); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.read(t.Context(), options.Name); err == nil || !strings.Contains(err.Error(), "drop-in is missing") {
+		t.Fatal("resume accepted a credential that the service will not load", err)
 	}
 }
 

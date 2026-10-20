@@ -63,18 +63,19 @@ func setupFixture(t *testing.T, scope, ownerType string) *fixture {
 	f := &fixture{
 		key: key, ownerType: ownerType, scope: scope, appOwner: "owner", permission: "write",
 		pem:     string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})),
-		options: Options{Name: "test-app", Config: filepath.Join(root, "config.yaml"), Yes: true},
+		options: Options{ID: "build", Scope: scope, Config: filepath.Join(root, "config.yaml"), Yes: true},
 	}
 	data := "# keep this comment\ndefaults:\n  credential: &shared\n    type: gh\ntargets:\n  - id: build\n    scope: " + scope + "\n  - id: other\n    scope: owner/other\n    credential: *shared\n"
 	if err := os.WriteFile(f.options.Config, []byte(data), 0600); err != nil {
 		t.Fatal(err)
 	}
-	f.options.Target = "build"
 	server := httptest.NewServer(http.HandlerFunc(f.apiHandler(t)))
 	t.Cleanup(server.Close)
 	f.service = service{
 		api:  apiClient{base: server.URL, http: server.Client()},
 		open: f.browser(t), saveKey: credentialstore.SetFile,
+		prepare:  func(context.Context) (string, error) { return credentialstore.PrepareDirectory() },
+		readKey:  func(_ context.Context, path string) ([]byte, error) { return readPrivate(path) },
 		interval: time.Millisecond, timeout: 2 * time.Second,
 	}
 	return f
@@ -170,10 +171,10 @@ func TestSetupRejectsKeyReplacementAfterVerification(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			keyPath := filepath.Join(directory, f.options.Name+".pem")
+			keyPath := filepath.Join(directory, f.options.ID+".pem")
 			rotate := func() {
 				_, err := credentialstore.SetFile(t.Context(), credentialstore.Options{
-					Name: f.options.Name, Type: "github-app", Stdin: true, NoDefault: true,
+					Name: f.options.ID, Type: "github-app", Stdin: true, NoDefault: true,
 				}, bytes.NewReader(replacement))
 				if err != nil {
 					t.Error("could not perform concurrent key replacement", err)
@@ -379,7 +380,7 @@ func TestSetupWithUnquotedNumericTargetID(t *testing.T) {
 	if err := os.WriteFile(f.options.Config, data, 0600); err != nil {
 		t.Fatal(err)
 	}
-	f.options.Target = "123"
+	f.options.ID = "123"
 	var output bytes.Buffer
 	result, err := f.run(t.Context(), f.options, nil, &output)
 	if err != nil {
@@ -513,7 +514,7 @@ func TestSetupDoesNotReplaceConcurrentCredential(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	keyPath := filepath.Join(stateDirectory, "credentials", f.options.Name+".pem")
+	keyPath := filepath.Join(stateDirectory, "credentials", f.options.ID+".pem")
 	existing := []byte("concurrently-registered-credential")
 	f.open = func(ctx context.Context, address string) error {
 		if err := browser(ctx, address); err != nil {
@@ -590,23 +591,23 @@ func TestSetupFailureRetainsAppAndConfiguration(t *testing.T) {
 }
 
 func TestSetupRejectsUnsupportedOptions(t *testing.T) {
-	for _, kind := range []string{"name", "listener", "target", "host", "orphan-key"} {
+	for _, kind := range []string{"id", "listener", "scope", "host", "orphan-key"} {
 		t.Run(kind, func(t *testing.T) {
 			f := setupFixture(t, "owner/repo", "User")
 			switch kind {
-			case "name":
-				f.options.Name = "../escape"
+			case "id":
+				f.options.ID = "../escape"
 			case "listener":
 				f.options.Listen = "0.0.0.0:8765"
-			case "target":
-				f.options.Target = ""
+			case "scope":
+				f.options.Scope = ""
 			case "host":
-				os.WriteFile(f.options.Config, []byte("targets:\n  - id: build\n    scope: https://github.example/owner/repo\n"), 0600)
+				f.options.Scope = "https://github.example/owner/repo"
 			case "orphan-key":
 				dir, _ := ghalet.StateDirectory()
 				path := filepath.Join(dir, "credentials")
 				os.MkdirAll(path, 0700)
-				os.WriteFile(filepath.Join(path, "test-app.pem"), []byte(f.pem), 0600)
+				os.WriteFile(filepath.Join(path, "build.pem"), []byte(f.pem), 0600)
 			}
 			if _, err := f.run(t.Context(), f.options, nil, io.Discard); err == nil {
 				t.Fatal("unsupported setup accepted")

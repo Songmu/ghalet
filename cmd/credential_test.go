@@ -68,7 +68,7 @@ func TestCredentialHelp(t *testing.T) {
 		if err := Run(t.Context(), args, &stdout, &stderr); !errors.Is(err, flag.ErrHelp) {
 			t.Fatal(args, err)
 		}
-		if stdout.Len() != 0 || !strings.Contains(stderr.String(), "Usage: ghalet systemd credential set") {
+		if stdout.Len() != 0 || !strings.Contains(stderr.String(), "ghalet systemd credential set") {
 			t.Fatal("help required privileges or wrote to stdout", stdout.String(), stderr.String())
 		}
 	}
@@ -79,8 +79,8 @@ func TestSystemdCredentialCommandRejectsInvalidArguments(t *testing.T) {
 		args []string
 		want string
 	}{
-		{[]string{"systemd"}, "systemd requires the credential subcommand"},
-		{[]string{"systemd", "unknown"}, "systemd requires the credential subcommand"},
+		{[]string{"systemd"}, "systemd requires the app or credential subcommand"},
+		{[]string{"systemd", "unknown"}, "systemd requires the app or credential subcommand"},
 		{[]string{"systemd", "credential"}, "systemd credential requires the set subcommand"},
 		{[]string{"systemd", "credential", "unknown"}, "systemd credential requires the set subcommand"},
 		{[]string{"systemd", "credential", "set", "default"}, "select exactly one"},

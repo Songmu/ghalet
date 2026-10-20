@@ -3,6 +3,10 @@ package credentialstore
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"encoding/pem"
 	"io"
 	"os"
 	"os/exec"
@@ -15,6 +19,7 @@ func TestSystemdCredentialEncryption(t *testing.T) {
 	if os.Getenv("GHALET_TEST_SYSTEMD_CREDENTIALS") != "1" || os.Geteuid() != 0 {
 		t.Skip("set GHALET_TEST_SYSTEMD_CREDENTIALS=1 as root on a disposable Linux host")
 	}
+
 	if _, err := exec.LookPath("systemd-creds"); err != nil {
 		t.Fatal(err)
 	}
@@ -59,5 +64,40 @@ func TestSystemdCredentialEncryption(t *testing.T) {
 	}
 	if err := runCredentialCommand(t.Context(), "systemd-creds", []string{"decrypt", "--name=different", cipherPath, "-"}, nil, io.Discard); err == nil {
 		t.Fatal("credential was accepted under a different name")
+	}
+}
+
+func TestSystemdAppKeyEncryption(t *testing.T) {
+	if os.Getenv("GHALET_TEST_SYSTEMD_CREDENTIALS") != "1" || os.Geteuid() != 0 {
+		t.Skip("set GHALET_TEST_SYSTEMD_CREDENTIALS=1 as root on a disposable Linux host")
+	}
+	store, options, _ := testCredentialStore(t)
+	options.Name, options.Type, options.NoDefault, options.NoReplace = "app-key", "github-app", true, true
+	store.run = func(ctx context.Context, tool string, args []string, input io.Reader, output io.Writer) error {
+		if tool == "systemctl" && strings.Join(args, " ") == "daemon-reload" {
+			return nil
+		}
+		return runCredentialCommand(ctx, tool, args, input, output)
+	}
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})
+	result, err := store.set(t.Context(), options, bytes.NewReader(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+	plain, err := store.read(t.Context(), options.Name)
+	if err != nil || !bytes.Equal(plain, bytes.TrimSpace(data)) {
+		t.Fatal("App key did not round-trip through systemd-creds", err)
+	}
+	clear(plain)
+	cipher, err := os.ReadFile(result.EncryptedPath)
+	if err != nil || bytes.Contains(cipher, []byte("PRIVATE KEY")) {
+		t.Fatal("plaintext App key was saved", err)
+	}
+	if _, err := store.set(t.Context(), options, bytes.NewReader(data)); err == nil {
+		t.Fatal("setup replaced an existing encrypted App key")
 	}
 }

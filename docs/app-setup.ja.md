@@ -2,34 +2,39 @@
 
 [English](app-setup.md) | [日本語](app-setup.ja.md)
 
-`ghalet auth setup NAME` は [GitHub の Manifest フロー][manifest]で、
+`ghalet app setup --scope OWNER/REPO` は [GitHub の Manifest フロー][manifest]で、
 個人または Organization が所有する非公開の GitHub App を作成します。
 事前の PAT、client secret、公開コールバックサービス、PEM のコピー＆ペーストは不要です。
-Linux / macOS で **GitHub.com の設定済み target 一つにつき一つの App** を扱います。
+Linux / macOS で **GitHub.com の target 一つにつき一つの App** を扱います。
 保存先は[暗号化されていない通常ファイル](file-credentials.ja.md)です。
-デーモンの起動や設定反映は行いません。
+`ghalet systemd app setup` は代わりにサービス用の暗号化認証情報を保存します。
+どちらもデーモンの起動や設定反映は行いません。従来の
+`ghalet auth setup NAME --target ID` は廃止し、これらのコマンドに置き換えます。
 
 ## ローカルでのセットアップ
 
-認証情報はまだ追加せず、利用する scope の設定を作成します。
-
-```yaml
-targets:
-  - id: project
-    scope: OWNER/REPO
-```
-
-Organization の target では `OWNER/REPO` の代わりに `ORG` を使います。
 デーモンと同じユーザー・StateDir の環境で実行してください。
 
 ```sh
-ghalet auth setup project-app --target project
+ghalet app setup --scope OWNER/REPO
+# Organization の target:
+ghalet app setup --scope ORG
+# 設定先と target ID を指定する場合:
+ghalet app setup --scope OWNER/REPO --config ./config.yaml --id build
 ```
 
 別の設定ファイルには `--config PATH` を使います。
 デフォルトは `~/.config/ghalet/config.yaml` です。
-target が一つだけなら `--target` は省略できます。複数 target・所有者には、
-別の認証情報名で個別に実行します。既存 App の権限を広げる処理は行いません。
+`--scope` は常に必須で、GitHub.com の Organization / リポジトリの HTTPS URL も使えます。
+確認後に設定ファイルの作成、または target の追加を行います。
+同じ scope の既存 target があれば再利用します。複数一致する場合の選択や、
+同じ scope に別の target を追加する場合は `--id` を指定します。
+一致する target と明示的な ID がなければ、scope を小文字にし、`/` と `.` を
+`-` に置き換えて ID を導出します。`Songmu/ghalet` なら `songmu-ghalet` で、
+認証情報名も同じです。ID の衝突や 64 文字超過では `--id` を指定してください。
+連番の付与や切り詰めは行いません。ID は `runs-on` に使う Scale Set 名の
+デフォルトにもなります。scope / ID ごとに個別に実行し、
+既存 App の権限を広げる処理は行いません。
 
 1. 端末で target、App の所有者、必要な書き込み権限を確認します。
    リポジトリでは `Administration`、Organization では `Self-hosted runners` です。
@@ -44,7 +49,7 @@ target が一つだけなら `--target` は省略できます。複数 target・
    target の設定変更を表示します。`y` で保存するか、辞退して後から再開します。
    `--yes` が省略するのは最後の設定保存の確認だけで、GitHub 側の承認は省略しません。
 
-他の target と `defaults.credential` は変更しません。選択した target に
+他の target と `defaults.credential` は変更しません。選択・追加した target に
 `type: github-app`、`clientId`、`privateKeyFile`、`installationId` を設定します。
 ユーザーの OAuth 認可や Webhook イベントは要求せず、Webhook の配信は無効です。
 作成した App は所有アカウント内だけで利用できます。
@@ -73,7 +78,7 @@ SSH ホストでは、ブラウザのあるマシンから固定ポートを転�
 ```sh
 ssh -L 8765:127.0.0.1:8765 runner-host
 # In that SSH session:
-ghalet auth setup project-app --target project \
+ghalet app setup --scope OWNER/REPO \
   --listen 127.0.0.1:8765 --no-browser
 ```
 
@@ -83,18 +88,48 @@ SSH 接続を維持したまま、表示された URL をローカルのブラ�
 同じホストで手動操作する場合は、SSH 転送なしで `--no-browser` を使えます。
 公開のコールバックや Webhook エンドポイントは不要です。
 
+## パッケージの systemd サービス
+
+Linux、root 権限、systemd 250 以降で実行します。
+
+```sh
+sudo ghalet systemd app setup --scope OWNER/REPO
+sudo ghalet config validate --config /etc/ghalet/config.yaml
+sudo systemctl enable --now ghalet
+```
+
+設定先のデフォルトは `/etc/ghalet/config.yaml` です。`--config PATH` で変更できますが、
+サービス unit の `ExecStart` や設定先は変更しません。
+設定を新規作成する場合は、パッケージ用の `runner.user: ghalet-runner` と
+`logs.root: /var/log/ghalet/runners` も設定します。既存の runner・ログ設定は保持します。
+サービス起動前に設定を確認してください。
+
+root でブラウザを起動しなくて済むよう、デフォルトでは URL を表示します。
+SSH では上記のポート転送を使い、systemd コマンドに
+`--listen 127.0.0.1:8765` を追加して、手元のブラウザで URL を開いてください。
+
+鍵は平文の PEM を書かずに、`/etc/ghalet/credentials/ID.cred` へ直接暗号化保存します。
+専用 drop-in が `LoadCredentialEncrypted` で読み込み、target の `privateKeyFile` は
+`/run/credentials/ghalet.service/ID` を参照します。再開用の公開情報は
+`/etc/ghalet/credentials/ID.app.json` に保存し、再開時の復号はメモリ上だけで行います。
+登録時に unit 定義を再読込しますが、サービスの起動・再起動は行いません。
+起動済みのサービスには通常停止・正常終了の確認・起動で認証情報を渡してください。
+`apply` では systemd の認証情報は更新されません。
+ホスト鍵の保護、バックアップ、ローテーションは[暗号化した認証情報](credentials.ja.md)を
+参照してください。
+
 ## 再開と認証情報の保存
 
-鍵は `<StateDir>/credentials/NAME.pem` に保存し、`NAME.app.json` に公開の App 識別情報・
+通常版では鍵を `<StateDir>/credentials/ID.pem` に保存し、`ID.app.json` に公開の App 識別情報・
 scope・鍵のパスを保持して再開できるようにします。
 両方とも `0600` で、認証ディレクトリは `0700` です。
 JSON に PEM、client secret、webhook secret は保存しません。
 PEM とバックアップは[通常ファイルの認証情報](file-credentials.ja.md)の説明どおり保護してください。
 
 一回の待機時間は最大 15 分です。中断、設定保存の辞退、インストールの承認後は、
-同じコマンド・設定・target・名前で再実行します。
+同じコマンド・設定・scope・任意指定の ID で再実行します。
 App 情報の保存後は既存の App と鍵を再利用し、App の再作成や鍵の交換は行いません。
-scope・所有者・鍵のパスの不一致、App 情報のない既存の鍵、同名のセットアップの同時実行、
+scope・所有者・鍵のパスの不一致、App 情報のない既存の鍵、同じ ID のセットアップの同時実行、
 設定ファイルの同時編集は拒否します。GitHub App を自動削除することはありません。
 
 GitHub で App 作成後、認証情報の保存前にコールバックや交換が失敗した場合は、
@@ -107,14 +142,10 @@ GitHub で App 作成後、認証情報の保存前にコールバックや交�
 コメントは保持しますが、YAML の書式やエイリアスが正規化される場合があります。
 インストール権限の検証で runner group のアクセス設定は変更しません。
 
-パッケージの systemd サービスでは、生成した PEM を
-[`ghalet systemd credential set`](credentials.ja.md#github-app-と追加の認証情報) で取り込みます。
-選択した target の明示的な `credential.privateKeyFile` を表示された systemd の
-実行時パスに変更するか、明示的な credential を削除して新しい共通設定を継承させ、
-`installationId` は保持します。共通設定だけを変更しても、ウィザードが明示した target の
-認証設定には優先しません。サービスの設定を検証してから起動し、
-暗号化登録の動作確認と復旧方法の確保後にだけ平文のコピーを削除してください。
-ブラウザでのセットアップと、権限が必要なサービスへの登録は別の操作です。
+既存 App の鍵には、新しい App を作らず
+[`ghalet systemd credential set`](credentials.ja.md#github-app-と追加の認証情報)を使います。
+`--no-default` を指定しなければ共通設定を更新しますが、
+target に明示された認証設定が引き続き優先されます。
 
 App の秘密鍵は有効期限がなく、installation token は自動更新します。
 鍵はポリシーや漏えいの疑いに応じて交換します。
