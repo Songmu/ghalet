@@ -74,7 +74,8 @@ func setupFixture(t *testing.T, scope, ownerType string) *fixture {
 	t.Cleanup(server.Close)
 	f.service = service{
 		api:  apiClient{base: server.URL, http: server.Client()},
-		open: f.browser(t), interval: time.Millisecond, timeout: 2 * time.Second,
+		open: f.browser(t), saveKey: credentialstore.SetFile,
+		interval: time.Millisecond, timeout: 2 * time.Second,
 	}
 	return f
 }

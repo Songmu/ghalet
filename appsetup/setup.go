@@ -48,6 +48,7 @@ type savedApp struct {
 type service struct {
 	api      apiClient
 	open     func(context.Context, string) error
+	saveKey  func(context.Context, credentialstore.Options, io.Reader) (credentialstore.Result, error)
 	interval time.Duration
 	timeout  time.Duration
 }
@@ -62,7 +63,8 @@ func Setup(ctx context.Context, options Options, input *os.File, output io.Write
 				return errors.New("GitHub API redirects are not allowed")
 			},
 		}},
-		open: openBrowser, interval: 2 * time.Second, timeout: 15 * time.Minute,
+		open: openBrowser, saveKey: credentialstore.SetFile,
+		interval: 2 * time.Second, timeout: 15 * time.Minute,
 	}).run(ctx, options, input, output)
 }
 
@@ -161,11 +163,20 @@ func (s service) run(ctx context.Context, options Options, input *os.File, outpu
 		if created.ID <= 0 || created.ClientID == "" || !identifier.MatchString(created.Slug) || created.PEM == "" {
 			return Result{}, errors.New("GitHub returned incomplete App credentials; inspect the created App before retrying")
 		}
-		// The consumed Manifest code cannot recover the key; finish local
-		// persistence even if installation or confirmation has been canceled.
-		stored, err := credentialstore.SetFile(context.WithoutCancel(ctx), credentialstore.Options{
+		// The consumed Manifest code cannot recover the key; don't abandon it
+		// on cancellation or while another credential operation holds the lock.
+		storeContext := context.WithoutCancel(ctx)
+		storeOptions := credentialstore.Options{
 			Name: options.Name, Type: "github-app", Stdin: true, NoDefault: true, NoReplace: true,
-		}, strings.NewReader(created.PEM))
+		}
+		var stored credentialstore.Result
+		for {
+			stored, err = s.saveKey(storeContext, storeOptions, strings.NewReader(created.PEM))
+			if !errors.Is(err, syscall.EWOULDBLOCK) {
+				break
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
 		created.PEM = ""
 		if err != nil {
 			return Result{}, fmt.Errorf("save created App key: %w; inspect App %s in GitHub before retrying", err, created.Slug)
