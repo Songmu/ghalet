@@ -161,7 +161,9 @@ func (s service) run(ctx context.Context, options Options, input *os.File, outpu
 		if created.ID <= 0 || created.ClientID == "" || !identifier.MatchString(created.Slug) || created.PEM == "" {
 			return Result{}, errors.New("GitHub returned incomplete App credentials; inspect the created App before retrying")
 		}
-		stored, err := credentialstore.SetFile(ctx, credentialstore.Options{
+		// The consumed Manifest code cannot recover the key; finish local
+		// persistence even if installation or confirmation has been canceled.
+		stored, err := credentialstore.SetFile(context.WithoutCancel(ctx), credentialstore.Options{
 			Name: options.Name, Type: "github-app", Stdin: true, NoDefault: true, NoReplace: true,
 		}, strings.NewReader(created.PEM))
 		created.PEM = ""
@@ -184,6 +186,9 @@ func (s service) run(ctx context.Context, options Options, input *os.File, outpu
 	}
 	if _, err := fmt.Fprintf(output, "Saved App: https://github.com/apps/%s\nKey (unencrypted, owner-only): %s\nSetup metadata: %s\n", state.Slug, state.KeyPath, metadataPath); err != nil {
 		return result, err
+	}
+	if err := ctx.Err(); err != nil {
+		return result, fmt.Errorf("setup interrupted: %w; App/key retained, rerun setup to resume", err)
 	}
 	if err := s.browse(ctx, options.NoBrowser, "https://github.com/apps/"+state.Slug+"/installations/new", output); err != nil {
 		return result, err
