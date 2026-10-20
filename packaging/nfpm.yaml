@@ -16,12 +16,11 @@ contents:
     expand: true
     file_info:
       mode: 0o755
-  - src: ${UNIT}
+  - src: packaging/ghalet.service
     dst: /usr/lib/systemd/system/ghalet.service
-    expand: true
     file_info:
       mode: 0o644
-  - src: examples/system-config.yaml
+  - src: packaging/config.yaml
     dst: /usr/share/ghalet/config.yaml.example
     file_info:
       mode: 0o644

@@ -26,17 +26,22 @@ Install Git and the build tools your workflows need separately.
 The package smoke tests cover Ubuntu 26.04 hosts and Rocky Linux 9 containers on both
 architectures; other distributions need their own compatibility checks.
 
-Installation creates an unprivileged `ghalet` account, its HOME at
-`/var/lib/ghalet`, storage directories, and a systemd unit. It does **not**
-create a live configuration, enable the service, or start it.
+Installation creates an unprivileged `ghalet-runner` account with HOME at
+`/var/lib/ghalet-runner`, storage directories, and a systemd unit. The controller
+runs as root to switch users; the package configuration sets
+`runner.user: ghalet-runner` so runners and jobs run without root privileges.
+Configuration, management credentials, caches, and saved logs are root-only.
+The runner can traverse `/var/lib/ghalet` to reach its own execution directories,
+but cannot modify that parent directory. Installation does **not** create a live
+configuration, enable the service, or start it.
 
 ```sh
-sudo install -o root -g ghalet -m 0640 \
+sudo install -o root -g root -m 0600 \
   /usr/share/ghalet/config.yaml.example /etc/ghalet/config.yaml
 sudoedit /etc/ghalet/config.yaml
-sudo install -o ghalet -g ghalet -m 0600 \
+sudo install -o root -g root -m 0600 \
   /path/to/pat-file /etc/ghalet/credentials/token
-sudo -u ghalet ghalet config validate --config /etc/ghalet/config.yaml
+sudo ghalet config validate --config /etc/ghalet/config.yaml
 sudo systemctl enable --now ghalet
 ```
 
@@ -48,17 +53,26 @@ Do not put credentials inline in YAML or in shell command arguments.
 
 The sample places executions and runner metadata under `/var/lib/ghalet`,
 downloads under `/var/cache/ghalet`, and saved runner logs under
-`/var/log/ghalet`. Daemon output goes to the journal:
+`/var/log/ghalet/runners` through `cleanup.logRoot`. Daemon stdout and stderr
+go to the journal; persistence, rotation, and retention follow the host's
+journald configuration.
 
 ```sh
 sudo journalctl -u ghalet -f
-sudo -u ghalet ghalet doctor --config /etc/ghalet/config.yaml
+sudo ghalet doctor --config /etc/ghalet/config.yaml
 ```
 
 For updates, stop the service normally and inspect any incomplete shutdown
 before replacing the package. Package upgrade scripts also stop the service,
 but never restart it automatically. Start it explicitly after the update;
 an existing enable-at-boot setting is preserved.
+
+When upgrading from the original shared-`ghalet`-user package, drain and clean up
+existing executions before upgrading. Existing configuration is not rewritten:
+add `runner.user: ghalet-runner` to `/etc/ghalet/config.yaml` before starting
+the new root-run service. Without it, startup refuses to run root jobs.
+Change management credential files to `root:root` with mode `0600`.
+The legacy `ghalet` account and retained files are not deleted automatically.
 
 ```sh
 sudo systemctl stop ghalet
@@ -67,7 +81,7 @@ sudo systemctl start ghalet
 ```
 
 Removal stops and disables the service. Configuration, credentials, state,
-logs, and the account remain, including after `apt purge`; remove them only
+logs, and the runner account remain, including after `apt purge`; remove them only
 after inspecting retained executions. Package operations never delete GitHub
 scale sets.
 

@@ -26,17 +26,22 @@ Git や workflow で使用するビルドツールは別途導入してくださ
 Rocky Linux 9 コンテナを対象としています。他のディストリビューションでは
 別途互換性の確認が必要です。
 
-導入時に、非特権の `ghalet` アカウント、その HOME となる `/var/lib/ghalet`、
-保存用ディレクトリ、systemd unit を作成します。
+導入時に、非特権の `ghalet-runner` アカウント、その HOME となる
+`/var/lib/ghalet-runner`、保存用ディレクトリ、systemd unit を作成します。
+管理プロセスはユーザー切り替えのため root で起動し、配布用設定の
+`runner.user: ghalet-runner` により runner とジョブを非 root で実行します。
+設定、管理用認証情報、キャッシュ、保存ログは root のみアクセス可能です。
+runner は自身の実行ディレクトリに到達するため `/var/lib/ghalet` を通過できますが、
+その親ディレクトリ自体は変更できません。
 **本番設定の作成、サービスの自動起動の有効化、サービスの起動は行いません。**
 
 ```sh
-sudo install -o root -g ghalet -m 0640 \
+sudo install -o root -g root -m 0600 \
   /usr/share/ghalet/config.yaml.example /etc/ghalet/config.yaml
 sudoedit /etc/ghalet/config.yaml
-sudo install -o ghalet -g ghalet -m 0600 \
+sudo install -o root -g root -m 0600 \
   /path/to/pat-file /etc/ghalet/credentials/token
-sudo -u ghalet ghalet config validate --config /etc/ghalet/config.yaml
+sudo ghalet config validate --config /etc/ghalet/config.yaml
 sudo systemctl enable --now ghalet
 ```
 
@@ -46,17 +51,25 @@ target の `credential` を変更し、所有者だけが読める秘密鍵フ�
 認証情報を YAML の値やシェルのコマンド引数に直接書かないでください。
 
 サンプル設定は、実行データと runner のメタデータを `/var/lib/ghalet`、
-ダウンロードを `/var/cache/ghalet`、保存する runner ログを `/var/log/ghalet`
-以下に配置します。デーモンの出力は journal に記録します。
+ダウンロードを `/var/cache/ghalet`、保存する runner ログを `cleanup.logRoot` により
+`/var/log/ghalet/runners` 以下に配置します。デーモンの標準出力と標準エラーは
+journal に記録し、永続化・ローテーション・保持期間はホストの journald 設定に従います。
 
 ```sh
 sudo journalctl -u ghalet -f
-sudo -u ghalet ghalet doctor --config /etc/ghalet/config.yaml
+sudo ghalet doctor --config /etc/ghalet/config.yaml
 ```
 
 更新時はサービスを通常停止し、停止が不完全なら状況を確認してからパッケージを置き換えます。
 パッケージの更新スクリプトもサービスを停止しますが、自動では再起動しません。
 更新後は明示的に起動してください。既存の OS 起動時の自動起動設定は保持します。
+
+従来の `ghalet` ユーザーを共用するパッケージから更新する場合は、先に既存の実行を
+drain し、後始末を完了してください。既存設定は書き換えないため、root で動く新しい
+サービスを起動する前に `/etc/ghalet/config.yaml` に `runner.user: ghalet-runner` を
+追加してください。未指定の場合は root でのジョブ実行を拒否して起動に失敗します。
+管理用認証ファイルは所有者を `root:root`、権限を `0600` に変更してください。
+従来の `ghalet` アカウントと保持されたファイルは自動削除しません。
 
 ```sh
 sudo systemctl stop ghalet
@@ -65,7 +78,7 @@ sudo systemctl start ghalet
 ```
 
 削除時はサービスを停止し、自動起動を無効化します。`apt purge` を使った場合も、
-設定、認証情報、ステート、ログ、アカウントは残します。
+設定、認証情報、ステート、ログ、runner アカウントは残します。
 保持された実行データを確認した後で、必要に応じて削除してください。
 パッケージ操作で GitHub の Scale Set を削除することはありません。
 

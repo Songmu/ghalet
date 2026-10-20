@@ -1,0 +1,22 @@
+[Unit]
+Description=GitHub Actions Runner Scale Set Process Manager
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=/etc/ghalet/config.yaml
+
+[Service]
+Type=simple
+User=root
+Group=root
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+ExecStart=/usr/bin/ghalet run --config /etc/ghalet/config.yaml
+StandardOutput=journal
+StandardError=journal
+Restart=on-failure
+RestartSec=10
+KillMode=mixed
+TimeoutStopSec=15min
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
