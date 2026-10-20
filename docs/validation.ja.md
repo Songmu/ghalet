@@ -44,7 +44,7 @@ runner が要求する OS の依存パッケージと、外向き HTTPS 通信�
 
 1. リポジトリのデフォルトブランチに[受け入れテスト用 workflow](../.github/workflows/ghalet-integration.yaml)
    を配置します。
-2. リポジトリ target をちょうど 1 つ、`minRunners: 0`、`preserveLogs: true`
+2. リポジトリ target をちょうど 1 つ、`minRunners: 0`、`logs.preserve: true`
    とする設定を用意します。
 3. runner の管理と、受け入れテスト用 workflow の起動・参照ができる認証情報を用意します。
 

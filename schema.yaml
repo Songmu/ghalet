@@ -143,19 +143,20 @@ properties:
           Explicit job environment; the parent's environment is not inherited.
           Identity variables, management credential variables, and
           ACTIONS_RUNNER_INPUT_* overrides are not allowed.
-  cleanup:
+  logs:
     type: object
+    description: Runner log archiving; daemon stdout and stderr are managed separately.
     additionalProperties: false
     properties:
-      preserveLogs:
+      preserve:
         type: boolean
         default: true
         description: Archive runner logs before cleanup.
-      logRetention:
+      retention:
         $ref: "#/$defs/duration"
         default: 7d
         description: Retention period for archived logs.
-      logRoot:
+      root:
         $ref: "#/$defs/path"
         description: |
           Log directory. Defaults to $XDG_STATE_HOME/ghalet/logs when

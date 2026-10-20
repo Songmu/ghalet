@@ -50,7 +50,7 @@ type Config struct {
 	Capacity    CapacityConfig `yaml:"capacity"`
 	Targets     []Target       `yaml:"targets"`
 	Runner      RunnerConfig   `yaml:"runner"`
-	Cleanup     CleanupConfig  `yaml:"cleanup"`
+	Logs        LogsConfig     `yaml:"logs"`
 	Path        string         `yaml:"-"`
 	secretNames map[string]bool
 }
@@ -127,10 +127,10 @@ type RunnerConfig struct {
 	Env              map[string]string `yaml:"env"`
 }
 
-type CleanupConfig struct {
-	PreserveLogs bool     `yaml:"preserveLogs"`
-	LogRetention Duration `yaml:"logRetention"`
-	LogRoot      string   `yaml:"logRoot"`
+type LogsConfig struct {
+	Preserve  bool     `yaml:"preserve"`
+	Retention Duration `yaml:"retention"`
+	Root      string   `yaml:"root"`
 }
 
 func configPath(path string) (string, error) {
@@ -186,15 +186,15 @@ func LoadConfig(path string) (*Config, error) {
 			StartupTimeout: Duration(2 * time.Minute), DrainTimeout: Duration(10 * time.Minute),
 			WorkRoot: "runs", DistributionRoot: "runners", CacheRoot: "downloads",
 		},
-		Cleanup: CleanupConfig{
-			PreserveLogs: true, LogRetention: Duration(7 * 24 * time.Hour),
-			LogRoot: logRoot,
+		Logs: LogsConfig{
+			Preserve: true, Retention: Duration(7 * 24 * time.Hour),
+			Root: logRoot,
 		},
 	}
 	if err := yaml.NodeToValue(file.Docs[0].Body, c, yaml.Strict()); err != nil {
 		return nil, fmt.Errorf("decode config: %w", err)
 	}
-	if c.Cleanup.LogRoot == "" && logRootErr != nil {
+	if c.Logs.Root == "" && logRootErr != nil {
 		return nil, fmt.Errorf("resolve default log directory: %w", logRootErr)
 	}
 	resolve := func(path string) string {
@@ -203,7 +203,7 @@ func LoadConfig(path string) (*Config, error) {
 		}
 		return filepath.Clean(path)
 	}
-	for _, path := range []*string{&c.Runner.WorkRoot, &c.Runner.DistributionRoot, &c.Runner.CacheRoot, &c.Cleanup.LogRoot} {
+	for _, path := range []*string{&c.Runner.WorkRoot, &c.Runner.DistributionRoot, &c.Runner.CacheRoot, &c.Logs.Root} {
 		if *path == "" {
 			return nil, errors.New("directory paths cannot be empty")
 		}
@@ -256,8 +256,8 @@ func (c *Config) Validate() error {
 	if !runnerVersion.MatchString(c.Runner.Version) {
 		return errors.New("runner.version must be a pinned numeric version (for example 2.338.0)")
 	}
-	if c.Runner.StartupTimeout <= 0 || c.Runner.DrainTimeout <= 0 || c.Cleanup.LogRetention <= 0 {
-		return errors.New("startupTimeout, drainTimeout and logRetention must be positive")
+	if c.Runner.StartupTimeout <= 0 || c.Runner.DrainTimeout <= 0 || c.Logs.Retention <= 0 {
+		return errors.New("runner.startupTimeout, runner.drainTimeout and logs.retention must be positive")
 	}
 	if c.Targets == nil {
 		return errors.New("targets must be specified; use targets: [] to remove all targets")
@@ -351,7 +351,7 @@ func (c *Config) validateEnvironment() error {
 }
 
 func (c *Config) validateDirectories() error {
-	paths := []string{c.Runner.WorkRoot, c.Runner.DistributionRoot, c.Runner.CacheRoot, c.Cleanup.LogRoot}
+	paths := []string{c.Runner.WorkRoot, c.Runner.DistributionRoot, c.Runner.CacheRoot, c.Logs.Root}
 	home, _ := os.UserHomeDir()
 	for i, path := range paths {
 		if !filepath.IsAbs(path) || path == "/" || within(path, c.Path) || (home != "" && within(path, home)) {

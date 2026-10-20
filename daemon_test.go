@@ -126,7 +126,7 @@ func TestEphemeralJobsNeverReuseExecutionDirectories(t *testing.T) {
 		if _, err := os.Stat(filepath.Dir(state.RunnerDir)); !os.IsNotExist(err) {
 			t.Fatal("completed execution was not cleaned")
 		}
-		if _, err := os.Stat(filepath.Join(d.config.Cleanup.LogRoot, "runs", state.RunID, "output.log")); err != nil {
+		if _, err := os.Stat(filepath.Join(d.config.Logs.Root, "runs", state.RunID, "output.log")); err != nil {
 			t.Fatal("ephemeral runner logs missing", err)
 		}
 	}
@@ -454,7 +454,7 @@ func TestRunnerExitStopsObservedDescendantsBeforeCollectingOutput(t *testing.T) 
 	if !run.Exited || !run.outputCollected() || d.occupied() != 0 || d.targets["build"].Forced {
 		t.Fatal("runner exit retained descendants/output or required forced drain")
 	}
-	data, err := os.ReadFile(filepath.Join(d.config.Cleanup.LogRoot, "runs", run.State.RunID, "output.log"))
+	data, err := os.ReadFile(filepath.Join(d.config.Logs.Root, "runs", run.State.RunID, "output.log"))
 	if err != nil || string(data) != "Listening for Jobs\n***-tail" {
 		t.Fatalf("final partial output was not flushed and redacted: %q (%v)", data, err)
 	}

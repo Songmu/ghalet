@@ -33,7 +33,7 @@ func TestArchiveBeforeDeletionAndIdempotentRetry(t *testing.T) {
 	if err := d.cleanup(run); err != nil {
 		t.Fatal(err)
 	}
-	archive := filepath.Join(d.config.Cleanup.LogRoot, "runs", state.RunID)
+	archive := filepath.Join(d.config.Logs.Root, "runs", state.RunID)
 	data, err := os.ReadFile(filepath.Join(archive, "output.log"))
 	if err != nil || strings.Contains(string(data), "management-secret") {
 		t.Fatal("logs were not archived with redaction", err)
@@ -64,8 +64,8 @@ func TestArchiveFailurePreservesOriginalAndReleasesProcessCapacity(t *testing.T)
 	fshelper.EnsureDirectory(state.RunnerDir, 0700)
 	source := filepath.Join(state.RunnerDir, "output.log")
 	os.WriteFile(source, []byte("must-survive"), 0600)
-	fshelper.EnsureDirectory(filepath.Dir(d.config.Cleanup.LogRoot), 0700)
-	os.WriteFile(d.config.Cleanup.LogRoot, []byte("not a directory"), 0600)
+	fshelper.EnsureDirectory(filepath.Dir(d.config.Logs.Root), 0700)
+	os.WriteFile(d.config.Logs.Root, []byte("not a directory"), 0600)
 	state.ProcessDone, state.Phase = true, "cleaning"
 	run := &activeRun{State: state}
 	d.runs[state.RunID] = run
@@ -81,7 +81,7 @@ func TestArchiveFailurePreservesOriginalAndReleasesProcessCapacity(t *testing.T)
 	if len(d.statusLocked().Problems) == 0 {
 		t.Fatal("incomplete cleanup is missing from diagnostics")
 	}
-	os.Remove(d.config.Cleanup.LogRoot)
+	os.Remove(d.config.Logs.Root)
 	response := d.gc(t.Context(), false)
 	if response.Error != "" || len(d.runs) != 0 {
 		t.Fatal("gc failed to retry the preserved archive", response.Error)
@@ -105,7 +105,7 @@ func TestArchiveRetryMustEstablishDurabilityBeforeDeletingOriginals(t *testing.T
 	if err := archiveLogs(d.config, state, d.secrets); err != nil {
 		t.Fatal(err)
 	}
-	archive := filepath.Join(d.config.Cleanup.LogRoot, "runs", state.RunID)
+	archive := filepath.Join(d.config.Logs.Root, "runs", state.RunID)
 	unsafe := filepath.Join(archive, "unsafe.log")
 	if err := os.Symlink(source, unsafe); err != nil {
 		t.Fatal(err)
@@ -136,7 +136,7 @@ func TestLogRetentionOnlyExpiresCompletedArchives(t *testing.T) {
 	if err := archiveLogs(c, state, &logreduct.Redactor{}); err != nil {
 		t.Fatal(err)
 	}
-	dir := filepath.Join(c.Cleanup.LogRoot, "runs", state.RunID)
+	dir := filepath.Join(c.Logs.Root, "runs", state.RunID)
 	metadata, _ := json.Marshal(archivedRun{RunID: state.RunID, TargetID: state.TargetID, ArchivedAt: time.Now().Add(-30 * 24 * time.Hour)})
 	os.WriteFile(filepath.Join(dir, "metadata.json"), metadata, 0600)
 	results, err := expireLogs(t.Context(), c, true)
@@ -158,14 +158,14 @@ func TestLogRetentionOnlyExpiresCompletedArchives(t *testing.T) {
 }
 
 func TestLogRetentionRejectsSymlinkedDirectoryAncestry(t *testing.T) {
-	for _, location := range []string{"runs", "logRoot", "ancestor"} {
+	for _, location := range []string{"runs", "logs.root", "ancestor"} {
 		t.Run(location, func(t *testing.T) {
 			c := testConfig(t)
 			state := testState(t, c)
 			if err := archiveLogs(c, state, &logreduct.Redactor{}); err != nil {
 				t.Fatal(err)
 			}
-			archive := filepath.Join(c.Cleanup.LogRoot, "runs", state.RunID)
+			archive := filepath.Join(c.Logs.Root, "runs", state.RunID)
 			data, err := json.Marshal(archivedRun{
 				RunID: state.RunID, TargetID: state.TargetID, ArchivedAt: time.Now().Add(-30 * 24 * time.Hour),
 			})
@@ -177,17 +177,17 @@ func TestLogRetentionRejectsSymlinkedDirectoryAncestry(t *testing.T) {
 			}
 			view := testDirectory(t)
 			link := filepath.Join(view, "linked")
-			source := c.Cleanup.LogRoot
+			source := c.Logs.Root
 			switch location {
 			case "runs":
 				source = filepath.Join(source, "runs")
-				c.Cleanup.LogRoot = view
+				c.Logs.Root = view
 				link = filepath.Join(view, "runs")
-			case "logRoot":
-				c.Cleanup.LogRoot = link
+			case "logs.root":
+				c.Logs.Root = link
 			case "ancestor":
 				source = filepath.Dir(source)
-				c.Cleanup.LogRoot = filepath.Join(link, "logs")
+				c.Logs.Root = filepath.Join(link, "logs")
 			}
 			if err := os.Symlink(source, link); err != nil {
 				t.Fatal(err)
@@ -207,7 +207,7 @@ func TestLogRetentionRejectsSymlinkedDirectoryAncestry(t *testing.T) {
 func TestLogRetentionDoesNotCreateMissingDirectories(t *testing.T) {
 	c := testConfig(t)
 	parent := filepath.Join(testDirectory(t), "missing")
-	c.Cleanup.LogRoot = filepath.Join(parent, "logs")
+	c.Logs.Root = filepath.Join(parent, "logs")
 	for _, dryRun := range []bool{true, false} {
 		if results, err := expireLogs(t.Context(), c, dryRun); err != nil || len(results) != 0 {
 			t.Fatal("missing retention directory was not a no-op", results, err)

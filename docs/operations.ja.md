@@ -268,7 +268,7 @@ listener を閉じた後、新設定の target を登録して listener の初�
 停止要求では apply を中断します。CLI が切断・タイムアウトしてもデーモン側では処理を
 継続するため、再試行前に `status` と `doctor` を確認してください。
 
-実行ユーザー、`workRoot`、`distributionRoot`、`cacheRoot`、`logRoot` の変更は、
+実行ユーザー、`workRoot`、`distributionRoot`、`cacheRoot`、`logs.root` の変更は、
 drain 前に拒否します。環境変数や systemd が復号した認証情報ファイルは稼働中サービスに
 属し、付属の unit でその入力を更新するにはサービスの再起動が必要です。
 通常の認証情報ファイルは apply で新クライアントを作る際に再読込します。
@@ -334,17 +334,18 @@ collector への依存はありません。
 runner 開始イベントとアーカイブのメタデータの `scope` は登録先 URL です。
 旧ステートの `scopeRef` は読み取り可能ですが、認証情報の選択や登録の識別には使いません。
 
-`preserveLogs: true` では、実行領域の削除前に `output.log` と `_diag/**/*.log` を
-`cleanup.logRoot/runs/RUN_ID` に退避します。`cleanup.logRoot` のデフォルトは
+`logs` は runner ログの保存設定で、デーモンの標準出力・標準エラーは対象外です。
+`logs.preserve: true` では、実行領域の削除前に `output.log` と `_diag/**/*.log` を
+`logs.root/runs/RUN_ID` に退避します。`logs.root` のデフォルトは
 `$XDG_STATE_HOME/ghalet/logs` です。`XDG_STATE_HOME` が未設定・空・相対パスの場合は
-`~/.local/state/ghalet/logs` になります。明示した `cleanup.logRoot` はこのデフォルトを
+`~/.local/state/ghalet/logs` になります。明示した `logs.root` はこのデフォルトを
 上書きします。相対値は引き続き選択した設定ファイルのディレクトリを基準に解決します。
 従来の設定相対の `logs` ディレクトリにあるアーカイブは、自動移動・期限切れ削除しません。
-デーモン停止中に移動するか、`cleanup.logRoot: logs` で以前のディレクトリを
+デーモン停止中に移動するか、`logs.root: logs` で以前のディレクトリを
 継続利用してください。認証情報と workspace の内容は退避しません。
 退避失敗時は元のログとステートを保持します。プロセス停止確認後のファイル削除だけの失敗は
 実行容量を占有せず、`gc` または次回起動で再試行します。
-`logRetention` は正常に保存済みのアーカイブだけを期限切れ削除し、毎時の確認も行います。
+`logs.retention` は正常に保存済みのアーカイブだけを期限切れ削除し、毎時の確認も行います。
 ディスク容量制限、空き容量監視、外部への自動ログ転送はありません。
 
 実行中の出力取得と診断ログの退避では、各行を改行抜きで 64 KiB に制限します。
@@ -370,7 +371,7 @@ Linux パッケージや Docker Compose で導入する場合は、
 Linux では、専用の `ghalet` ユーザーと書き込み可能な保存先を事前に作成し、
 `examples/ghalet.service` を `/etc/systemd/system/` にコピーして、
 `/etc/ghalet/config.yaml` に設定を配置します。workRoot、distributionRoot、
-cacheRoot、logRoot を、そのユーザーが書き込める適切なパスに設定してください。
+cacheRoot、logs.root を、そのユーザーが書き込める適切なパスに設定してください。
 そのユーザーで認証と設定検証を行い、`systemctl enable --now ghalet` を実行します。
 `KillMode=mixed` は最初の停止シグナルをコントローラーだけに送り、
 ジョブの drain と runner グループの停止を行ってから終了できるようにします。

@@ -56,7 +56,7 @@ target 間で共有します。パッケージのインストール・更新時�
 [運用ガイド](operations.ja.md#設定と認証情報)を参照してください。
 
 サンプル設定は、実行データと runner のメタデータを `/var/lib/ghalet`、
-ダウンロードを `/var/cache/ghalet`、保存する runner ログを `cleanup.logRoot` により
+ダウンロードを `/var/cache/ghalet`、保存する runner ログを `logs.root` により
 `/var/log/ghalet/runners` 以下に配置します。デーモンの標準出力と標準エラーは
 journal に記録し、永続化・ローテーション・保持期間はホストの journald 設定に従います。
 
