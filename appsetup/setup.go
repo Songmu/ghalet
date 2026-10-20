@@ -103,7 +103,7 @@ func (s service) run(ctx context.Context, options Options, input io.Reader, outp
 	}
 	address, err := url.Parse(target.URL)
 	if err != nil || address.Scheme != "https" || address.Host != "github.com" {
-		return Result{}, errors.New("App setup currently supports GitHub.com targets only")
+		return Result{}, errors.New("setup currently supports GitHub.com targets only")
 	}
 	scope := strings.Trim(address.Path, "/")
 	parts := strings.Split(scope, "/")
