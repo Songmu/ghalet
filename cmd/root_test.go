@@ -57,7 +57,7 @@ func TestConfigurationValidationCLI(t *testing.T) {
 	if err := Run(t.Context(), []string{"--version"}, &output, &output); err != nil || !strings.Contains(output.String(), "ghalet v") {
 		t.Fatal("version command failed")
 	}
-	for _, command := range []string{"run", "status", "doctor", "drain", "gc", "destroy"} {
+	for _, command := range []string{"run", "status", "doctor", "gc", "destroy"} {
 		if err := Run(t.Context(), []string{command, "--config", filepath.Join(testDirectory(t), "missing.yaml")}, &output, &output); err == nil {
 			t.Fatalf("%s accepted a missing config", command)
 		}
@@ -69,6 +69,28 @@ func TestConfigurationRejectsLegacyScopeFlag(t *testing.T) {
 	err := Run(t.Context(), []string{"destroy", "--scope", "repository"}, &output, &output)
 	if err == nil || !strings.Contains(err.Error(), "flag provided but not defined: -scope") {
 		t.Fatal("legacy --scope flag was not rejected", err)
+	}
+}
+
+func TestStandaloneDrainIsNotSupported(t *testing.T) {
+	t.Setenv("HOME", testDirectory(t))
+	for _, args := range [][]string{
+		{"drain"},
+		{"drain", "--target", "build"},
+		{"drain", "--config", "missing.yaml"},
+		{"--config", "missing.yaml", "drain", "--target", "build"},
+	} {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			var output, stderr bytes.Buffer
+			err := Run(t.Context(), args, &output, &stderr)
+			if err == nil || err.Error() != "a supported command is required" {
+				t.Fatal("standalone drain was not rejected", err)
+			}
+			if output.Len() != 0 || !strings.Contains(stderr.String(), "Usage: ghalet") ||
+				strings.Contains(stderr.String(), "drain") {
+				t.Fatal("unexpected output for unsupported drain", output.String(), stderr.String())
+			}
+		})
 	}
 }
 
@@ -139,7 +161,7 @@ func TestHelpAndInvalidArguments(t *testing.T) {
 }
 
 func TestCommandDispatchAndFlagPlacement(t *testing.T) {
-	for _, name := range []string{"run", "validate", "status", "doctor", "drain", "gc", "destroy"} {
+	for _, name := range []string{"run", "validate", "status", "doctor", "gc", "destroy"} {
 		t.Run(name, func(t *testing.T) {
 			var output, stderr bytes.Buffer
 			command := []string{name}

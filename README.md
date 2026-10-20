@@ -108,14 +108,13 @@ In another terminal:
 ```sh
 ghalet status
 ghalet doctor
-ghalet drain --target project
 ```
 
-`drain` stops new job acceptance for that target and waits for accepted work;
-it leaves the daemon running. To stop the whole daemon, press Ctrl-C in
-its terminal. Both use the configured drain deadline, after which remaining
-jobs may be forcibly stopped. Restart the daemon to resume a drained target
-or apply configuration changes.
+To stop the daemon, press Ctrl-C in its terminal. Normal shutdown stops new
+job acceptance for all targets and waits for accepted work, using the
+configured drain deadline. After that deadline, remaining jobs may be
+forcibly stopped. Before starting again to apply configuration changes,
+verify that shutdown completed successfully.
 
 ## Commands
 
@@ -128,7 +127,6 @@ repository or organization registration, identified locally by its `id`.
 | `ghalet config validate` | Check configuration syntax, values and local path constraints without registering runners or contacting GitHub. |
 | `ghalet status` | Read the running daemon's state and capacity snapshot. A successful response does not mean the daemon is healthy. |
 | `ghalet doctor` | Check the running daemon for diagnostic problems; exit nonzero when a problem is found. |
-| `ghalet drain [--target ID]` | Stop accepting new work and wait for accepted jobs, for one target or all targets. The daemon stays running. |
 | `ghalet gc [--dry-run]` | Recheck retained executions, clean up those verified safe to remove, and expire saved logs; use `--dry-run` to inspect without changes. |
 | `ghalet destroy --target ID --scale-set NAME` | Drain and delete an explicitly selected scale set after interactive `yes` confirmation. For an organization, also select `--runner-group NAME`. Runner groups are never deleted. |
 

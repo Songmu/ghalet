@@ -77,11 +77,6 @@ func Doctor(ctx context.Context, path string) (*Status, error) {
 	return requestStatus(ctx, path, controlRequest{Command: "doctor"})
 }
 
-// Drain stops accepting work and waits for the selected target, or all targets.
-func Drain(ctx context.Context, path, target string) (*Status, error) {
-	return requestStatus(ctx, path, controlRequest{Command: "drain", Target: target})
-}
-
 // GC cleans stopped executions and expired logs, returning partial results on error.
 func GC(ctx context.Context, path string, dryRun bool) ([]OperationResult, error) {
 	path, err := selectedConfigPath(path)

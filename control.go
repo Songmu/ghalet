@@ -179,8 +179,6 @@ func (d *daemon) handle(ctx context.Context, request controlRequest) controlResp
 			response.Error = fmt.Sprintf("%d diagnostic problem(s); inspect targets and executions before restarting", len(status.Problems))
 		}
 		return response
-	case "drain":
-		return d.drain(ctx, request.Target)
 	case "gc":
 		return d.gc(ctx, request.DryRun)
 	case "destroy-plan":
