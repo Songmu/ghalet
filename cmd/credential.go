@@ -244,8 +244,13 @@ func (s credentialStore) set(ctx context.Context, options credentialOptions, inp
 		return nil
 	}
 	rollback := func(cause error) error {
+		restoreFailed := false
 		for i := len(changes) - 1; i >= 0; i-- {
 			original := changes[i]
+			if original.path == previousPath && restoreFailed {
+				cause = errors.Join(cause, fmt.Errorf("previous encrypted credential retained at %s", previousPath))
+				continue
+			}
 			var err error
 			if original.exists {
 				err = fshelper.WriteFileAtomic(original.path, original.data, original.mode)
@@ -253,6 +258,7 @@ func (s credentialStore) set(ctx context.Context, options credentialOptions, inp
 				err = os.Remove(original.path)
 			}
 			if err != nil {
+				restoreFailed = true
 				cause = errors.Join(cause, fmt.Errorf("restore %s: %w", original.path, err))
 			}
 		}
@@ -271,6 +277,13 @@ func (s credentialStore) set(ctx context.Context, options credentialOptions, inp
 	}
 	if err := write(cipher, encrypted.Bytes(), 0600); err != nil {
 		return rollback(err)
+	}
+	currentDropIn, err := snapshotCredentialFile(dropInPath)
+	if err != nil {
+		return rollback(fmt.Errorf("recheck systemd drop-in %s: %w", dropInPath, err))
+	}
+	if currentDropIn.exists != dropIn.exists || !bytes.Equal(currentDropIn.data, dropIn.data) {
+		return rollback(errors.New("systemd drop-in changed during credential input; refusing to overwrite it"))
 	}
 	if err := write(dropIn, dropInData, 0644); err != nil {
 		return rollback(err)

@@ -160,6 +160,7 @@ type credentialTestTools struct {
 	reloadErrors int
 	promptError  bool
 	onEncrypt    func()
+	onReload     func()
 	version      string
 }
 
@@ -194,6 +195,9 @@ func (tools *credentialTestTools) run(ctx context.Context, tool string, args []s
 		_, err = io.WriteString(output, "encrypted:"+base64.StdEncoding.EncodeToString(data))
 		return err
 	case tool == "systemctl" && strings.Join(args, " ") == "daemon-reload":
+		if tools.onReload != nil {
+			tools.onReload()
+		}
 		if tools.reloadErrors > 0 {
 			tools.reloadErrors--
 			return errors.New("reload failed")
@@ -366,6 +370,119 @@ func TestCredentialNonDefaultAndAppInput(t *testing.T) {
 		if _, err := store.readSecret(t.Context(), options, strings.NewReader(invalid)); err == nil {
 			t.Fatal("invalid key accepted")
 		}
+	}
+}
+
+func TestCredentialRollbackPreservesBackupOnRestoreFailure(t *testing.T) {
+	store, options, tools := testCredentialStore(t)
+	if err := store.set(t.Context(), options, strings.NewReader("old-secret"), io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	cipherPath := filepath.Join(store.directory, "default.cred")
+	oldCipher, err := os.ReadFile(cipherPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldConfig, err := os.ReadFile(options.config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tools.reloadErrors = 1
+	tools.onReload = func() {
+		tools.onReload = nil
+		// Block ciphertext restoration without preventing backup removal.
+		if err := os.Rename(cipherPath, cipherPath+".new"); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Mkdir(cipherPath, 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var out bytes.Buffer
+	err = store.set(t.Context(), options, strings.NewReader("new-secret"), &out)
+	previousPath := cipherPath + ".previous"
+	if err == nil || !strings.Contains(err.Error(), "restore "+cipherPath+":") ||
+		!strings.Contains(err.Error(), "previous encrypted credential retained at "+previousPath) {
+		t.Fatal("restore failure and recovery path were not reported", err)
+	}
+	backup, err := os.ReadFile(previousPath)
+	if err != nil || !bytes.Equal(backup, oldCipher) {
+		t.Fatal("recovery ciphertext was lost", err)
+	}
+	info, err := os.Stat(previousPath)
+	if err != nil || info.Mode().Perm() != 0600 {
+		t.Fatal("incorrect recovery backup permissions", info, err)
+	}
+	current, err := os.ReadFile(options.config)
+	if err != nil || !bytes.Equal(current, oldConfig) {
+		t.Fatal("configuration was not restored", err)
+	}
+	if out.Len() != 0 {
+		t.Fatal("reported success after rollback failure", out.String())
+	}
+}
+
+func TestCredentialDropInChangesDuringInputAreNotOverwritten(t *testing.T) {
+	for _, change := range []string{"edited", "created", "removed"} {
+		t.Run(change, func(t *testing.T) {
+			store, options, tools := testCredentialStore(t)
+			if change != "created" {
+				if err := store.set(t.Context(), options, strings.NewReader("old-secret"), io.Discard); err != nil {
+					t.Fatal(err)
+				}
+			}
+			cipherPath := filepath.Join(store.directory, "default.cred")
+			var oldCipher credentialFile
+			if change != "created" {
+				var err error
+				oldCipher, err = snapshotCredentialFile(cipherPath)
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			oldConfig, err := os.ReadFile(options.config)
+			if err != nil {
+				t.Fatal(err)
+			}
+			path := filepath.Join(store.dropIns, "credential-default.conf")
+			edited := []byte("[Service]\n# Concurrent local configuration\n")
+			tools.onEncrypt = func() {
+				if change == "removed" {
+					if err := os.Remove(path); err != nil {
+						t.Fatal(err)
+					}
+				} else if err := os.WriteFile(path, edited, 0644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			var out bytes.Buffer
+			err = store.set(t.Context(), options, strings.NewReader("new-secret"), &out)
+			if err == nil || !strings.Contains(err.Error(), "systemd drop-in changed during credential input") {
+				t.Fatal("concurrent drop-in change was not reported", err)
+			}
+			current, err := os.ReadFile(path)
+			if change == "removed" {
+				if !errors.Is(err, os.ErrNotExist) {
+					t.Fatal("removed drop-in was recreated", err)
+				}
+			} else if err != nil || !bytes.Equal(current, edited) {
+				t.Fatal("concurrent drop-in edits were lost", err)
+			}
+			cipher, err := snapshotCredentialFile(cipherPath)
+			if err != nil || cipher.exists != oldCipher.exists || !bytes.Equal(cipher.data, oldCipher.data) {
+				t.Fatal("ciphertext was not restored", err)
+			}
+			if _, err := os.Stat(cipherPath + ".previous"); !errors.Is(err, os.ErrNotExist) {
+				t.Fatal("failed update left a rollback backup", err)
+			}
+			current, err = os.ReadFile(options.config)
+			if err != nil || !bytes.Equal(current, oldConfig) {
+				t.Fatal("configuration was changed", err)
+			}
+			if out.Len() != 0 {
+				t.Fatal("reported success after concurrent drop-in change", out.String())
+			}
+		})
 	}
 }
 

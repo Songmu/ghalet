@@ -131,7 +131,8 @@ ciphertext is retained at `/etc/ghalet/credentials/NAME.cred.previous`.
 Another update is refused until that backup is resolved. Unexpected changes
 to the command's drop-in are not overwritten. Failures during file updates
 or daemon reload attempt to restore the prior files and report any rollback
-errors explicitly.
+errors explicitly. If file restoration fails, the previous ciphertext backup
+is retained and its path is included in the error.
 
 Credentials and the SDK's PAT/key are not hot-reloaded. Drain must complete
 successfully before restart; do not restart after forced or incomplete drain.
