@@ -29,8 +29,7 @@ func writeApplyConfig(t *testing.T, c *Config) {
 			"version": c.Runner.Version, "user": c.Runner.User,
 			"startupTimeout": time.Duration(c.Runner.StartupTimeout).String(),
 			"drainTimeout":   time.Duration(c.Runner.DrainTimeout).String(),
-			"workRoot":       c.Runner.WorkRoot, "distributionRoot": c.Runner.DistributionRoot,
-			"cacheRoot": c.Runner.CacheRoot, "env": c.Runner.Env,
+			"env":            c.Runner.Env,
 		},
 		"logs": map[string]any{
 			"preserve": c.Logs.Preserve, "root": c.Logs.Root,
@@ -140,7 +139,7 @@ func TestApplyKeepsScaleSetReferencedByActualID(t *testing.T) {
 }
 
 func TestApplyRejectsInvalidOrRestartOnlyChangesBeforeDrain(t *testing.T) {
-	for _, field := range []string{"syntax", "user", "workRoot", "cacheRoot", "distributionRoot", "logs.root"} {
+	for _, field := range []string{"syntax", "user", "state home", "cache home", "logs.root"} {
 		t.Run(field, func(t *testing.T) {
 			d, api := testDaemon(t)
 			useFakeManagement(d, api)
@@ -149,12 +148,10 @@ func TestApplyRejectsInvalidOrRestartOnlyChangesBeforeDrain(t *testing.T) {
 			switch field {
 			case "user":
 				next.Runner.User = "another-user"
-			case "workRoot":
-				next.Runner.WorkRoot += "-new"
-			case "cacheRoot":
-				next.Runner.CacheRoot += "-new"
-			case "distributionRoot":
-				next.Runner.DistributionRoot += "-new"
+			case "state home":
+				t.Setenv("XDG_STATE_HOME", testDirectory(t))
+			case "cache home":
+				t.Setenv("XDG_CACHE_HOME", testDirectory(t))
 			case "logs.root":
 				next.Logs.Root += "-new"
 			}

@@ -9,6 +9,12 @@ Type=simple
 User=ghalet
 Group=ghalet
 Environment=PATH=/usr/local/bin:/usr/bin:/bin
+Environment=XDG_STATE_HOME=/var/lib
+Environment=XDG_CACHE_HOME=/var/cache
+StateDirectory=ghalet
+StateDirectoryMode=0711
+CacheDirectory=ghalet
+CacheDirectoryMode=0700
 ExecStart=/usr/local/bin/ghalet run --config /etc/ghalet/config.yaml
 ExecReload=/usr/local/bin/ghalet apply --config /etc/ghalet/config.yaml
 TimeoutStartSec=15min

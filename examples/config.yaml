@@ -45,9 +45,6 @@ targets:
 #   user: "" # Empty: current user. Root must set a non-root user.
 #   startupTimeout: 2m # Runner readiness deadline.
 #   drainTimeout: 10m # Grace period before forced stop.
-#   workRoot: runs # Runs and recovery state.
-#   distributionRoot: runners # Pinned runner metadata.
-#   cacheRoot: downloads # Runner archives.
 #   env: {} # Explicit job env; the parent's env is not inherited.
 
 # logs: # Runner log archives; daemon stdout/stderr are managed separately.

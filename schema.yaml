@@ -121,18 +121,6 @@ properties:
         $ref: "#/$defs/duration"
         default: 10m
         description: Grace period before forced stop.
-      workRoot:
-        $ref: "#/$defs/path"
-        default: runs
-        description: Directory for runs and recovery state.
-      distributionRoot:
-        $ref: "#/$defs/path"
-        default: runners
-        description: Directory for pinned runner metadata.
-      cacheRoot:
-        $ref: "#/$defs/path"
-        default: downloads
-        description: Directory for runner archives.
       env:
         type: object
         propertyNames:

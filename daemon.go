@@ -870,7 +870,6 @@ func (d *daemon) prepare(ctx context.Context, target *targetRuntime, run *active
 	start := time.Now()
 	if err := d.distribution.Prepare(ctx, runnerdist.Config{
 		Version: d.config.Runner.Version, CacheRoot: d.config.Runner.CacheRoot,
-		DistributionRoot: d.config.Runner.DistributionRoot,
 	}, state.RunnerDir); err != nil {
 		return fmt.Errorf("prepare runner: %w", err)
 	}

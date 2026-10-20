@@ -99,6 +99,8 @@ func TestRemovedCommandsAreNotSupported(t *testing.T) {
 
 func TestVersionFlagPlacementDoesNotStartDaemon(t *testing.T) {
 	path := writeConfig(t)
+	stateHome := testDirectory(t)
+	t.Setenv("XDG_STATE_HOME", stateHome)
 	missing := filepath.Join(filepath.Dir(path), "missing.yaml")
 	t.Setenv("GHALET_TEST_TOKEN", "")
 	ctx, cancel := context.WithCancel(t.Context())
@@ -123,7 +125,7 @@ func TestVersionFlagPlacementDoesNotStartDaemon(t *testing.T) {
 			}
 		})
 	}
-	if _, err := os.Stat(filepath.Join(filepath.Dir(path), "runs")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(stateHome, "ghalet", "runs")); !os.IsNotExist(err) {
 		t.Fatal("version query touched daemon execution directories", err)
 	}
 }

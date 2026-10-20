@@ -227,7 +227,6 @@ func (d *daemon) validateApply(next *Config) error {
 	current := d.config
 	if next.Runner.User != current.Runner.User ||
 		next.Runner.WorkRoot != current.Runner.WorkRoot ||
-		next.Runner.DistributionRoot != current.Runner.DistributionRoot ||
 		next.Runner.CacheRoot != current.Runner.CacheRoot ||
 		next.Logs.Root != current.Logs.Root {
 		return errors.New("changing the execution user or managed directories requires a normal stop/restart")

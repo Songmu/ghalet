@@ -43,6 +43,15 @@ are based on the selected config's directory, not the shell's current
 directory. Use absolute paths in service definitions; `~` is not expanded
 inside YAML.
 
+Execution directories and recovery state use `$XDG_STATE_HOME/ghalet/runs`
+(default: `~/.local/state/ghalet/runs`). Runner archives and their official
+SHA-256 digests share `$XDG_CACHE_HOME/ghalet/runners`
+(default: `~/.cache/ghalet/runners`). Unset, empty, or relative XDG values use
+these HOME-based defaults. Paths follow the controller's environment, not
+`runner.user` or the config directory. Only one daemon can own a given execution
+root; separate instances need distinct `XDG_STATE_HOME` values.
+These paths are not YAML settings.
+
 Edit the file and run `ghalet apply` to change targets, limits, credentials,
 runner versions, environment, timeouts, or log policy. Execution-user and
 managed-directory changes require a normal stop/restart.
@@ -184,9 +193,10 @@ resolves `latest`, and runner self-update remains disabled.
 The pinned archive is fetched from `actions/runner` releases, checked against
 the release asset's official SHA-256 digest, and checked again whenever the
 cached archive is reused. Releases without an official asset digest fail
-closed. `distributionRoot` stores the pinned digest and `cacheRoot` the
-archive; each execution gets an independent extraction. A corrupt cache is
-not silently replaced: remove the indicated bad archive, then restart.
+closed. The runner cache stores both the pinned digest and the archive;
+each execution gets an independent extraction into its execution directory.
+A corrupt cache is not silently replaced: remove the indicated bad archive,
+then restart.
 Automatic runner updates are disabled on the explicit scale set.
 
 ## Capacity, retries and shutdown
@@ -287,8 +297,8 @@ capacity. Concurrent apply requests are rejected; shutdown interrupts apply.
 If the CLI disconnects or times out, the daemon continues the request; inspect
 `status` and `doctor` before retrying.
 
-The execution user, `workRoot`, `distributionRoot`, `cacheRoot`, and `logs.root`
-cannot change through apply. These changes are rejected before drain.
+The execution user and `logs.root` cannot change through apply.
+These changes are rejected before drain.
 Environment variables and systemd's decrypted credential files belong to the
 running service; the provided units require a restart to refresh those inputs. Ordinary
 credential files are reread when apply creates new clients.
@@ -318,6 +328,7 @@ runtime state. If disconnected, direct GC must acquire the same
 OS workRoot lock and the config's control-address lock. A failed socket
 connection alone never permits bypassing an existing daemon. Lock files
 are not PID files and may remain after a process exits.
+Offline GC must use the same XDG environment as the service to find its state.
 
 After a crash, records are matched to current explicit registrations, process
 UID/group/kernel start identity and, for live executions, GitHub runner IDs.
@@ -398,10 +409,12 @@ For packaged Linux installation or Docker Compose, see
 [packages and containers](distribution.md). The instructions below cover
 manual service installation.
 
-For Linux, precreate a dedicated `ghalet` user and writable storage paths,
+For Linux, precreate a dedicated `ghalet` user,
 copy `examples/ghalet.service` into `/etc/systemd/system/`, and place the
-configuration at `/etc/ghalet/config.yaml`. Set workRoot, distributionRoot,
-cacheRoot and logs.root to suitable user-writable paths. Authenticate as that
+configuration at `/etc/ghalet/config.yaml`. The unit sets `XDG_STATE_HOME=/var/lib`
+and `XDG_CACHE_HOME=/var/cache`; `StateDirectory` and `CacheDirectory` create
+`/var/lib/ghalet` and `/var/cache/ghalet` for the service user. Set `logs.root`
+only if overriding the default state-based log directory. Authenticate as that
 user, run configuration validation, then `systemctl enable --now ghalet`.
 `KillMode=mixed` sends the initial stop signal only to the controller, allowing
 it to drain jobs and terminate runner groups before exiting. The finite

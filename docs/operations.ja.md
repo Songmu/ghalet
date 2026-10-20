@@ -39,6 +39,16 @@ CLI の更新時はデーモンも再起動してください。旧デーモン�
 シェルのカレントディレクトリではなく、選択した設定ファイルのディレクトリです。
 サービス定義には絶対パスを使ってください。YAML 内の `~` は展開されません。
 
+実行ディレクトリと復旧状態は `$XDG_STATE_HOME/ghalet/runs`
+（デフォルト: `~/.local/state/ghalet/runs`）、runner のアーカイブと公式 SHA-256
+ダイジェストは共通の `$XDG_CACHE_HOME/ghalet/runners`
+（デフォルト: `~/.cache/ghalet/runners`）に保存します。
+XDG 変数が未設定・空・相対パスの場合は、これらの HOME 基準のデフォルトを使います。
+保存先は `runner.user` や設定ファイルの場所ではなく、管理プロセスの環境に従います。
+同じ実行領域を使えるデーモンは 1 つだけです。複数起動する場合は
+`XDG_STATE_HOME` を分けてください。
+これらの保存先は YAML では設定できません。
+
 target、上限、認証情報、runner バージョン、環境変数、タイムアウト、ログ保存方針は、
 設定を編集して `ghalet apply` で反映します。実行ユーザーと管理ディレクトリの変更には
 通常停止・再起動が必要です。ファイルを編集するだけでは稼働中の設定は変わりません。
@@ -173,8 +183,8 @@ runner の自己更新は無効のままです。
 固定バージョンのアーカイブは `actions/runner` のリリースから取得し、
 リリースアセットの公式 SHA-256 ダイジェストで検証します。
 キャッシュ済みアーカイブの再利用時にも再検証します。公式ダイジェストのない
-リリースはエラーにして使用しません。`distributionRoot` に固定ダイジェスト、
-`cacheRoot` にアーカイブを保存し、実行ごとに独立して展開します。
+リリースはエラーにして使用しません。runner キャッシュに固定ダイジェストと
+アーカイブを保存し、実行ごとの独立した実行ディレクトリに展開します。
 破損キャッシュを黙って置き換えることはありません。示された不正なアーカイブを削除して
 再起動してください。明示した Scale Set では runner の自動更新を無効にします。
 
@@ -268,7 +278,7 @@ listener を閉じた後、新設定の target を登録して listener の初�
 停止要求では apply を中断します。CLI が切断・タイムアウトしてもデーモン側では処理を
 継続するため、再試行前に `status` と `doctor` を確認してください。
 
-実行ユーザー、`workRoot`、`distributionRoot`、`cacheRoot`、`logs.root` の変更は、
+実行ユーザーと `logs.root` の変更は、
 drain 前に拒否します。環境変数や systemd が復号した認証情報ファイルは稼働中サービスに
 属し、付属の unit でその入力を更新するにはサービスの再起動が必要です。
 通常の認証情報ファイルは apply で新クライアントを作る際に再読込します。
@@ -297,6 +307,7 @@ ghalet gc --config /path/to/config.yaml
 設定の制御アドレスのロックを取得する必要があります。
 ソケットへの接続失敗だけでは、既存デーモンを迂回する根拠にはなりません。
 ロックファイルは PID ファイルではなく、プロセス終了後も残ることがあります。
+オフライン GC でサービスの状態を参照するには、サービスと同じ XDG 環境を指定してください。
 
 クラッシュ後は、記録を現在明示している登録、プロセスの UID・グループ・カーネルの
 開始識別情報、および生存中の実行では GitHub runner ID と照合します。
@@ -368,10 +379,12 @@ Linux パッケージや Docker Compose で導入する場合は、
 [パッケージとコンテナ](distribution.ja.md)を参照してください。
 以下はサービスを手動で導入する場合の手順です。
 
-Linux では、専用の `ghalet` ユーザーと書き込み可能な保存先を事前に作成し、
+Linux では、専用の `ghalet` ユーザーを事前に作成し、
 `examples/ghalet.service` を `/etc/systemd/system/` にコピーして、
-`/etc/ghalet/config.yaml` に設定を配置します。workRoot、distributionRoot、
-cacheRoot、logs.root を、そのユーザーが書き込める適切なパスに設定してください。
+`/etc/ghalet/config.yaml` に設定を配置します。unit は `XDG_STATE_HOME=/var/lib` と
+`XDG_CACHE_HOME=/var/cache` を指定し、`StateDirectory` と `CacheDirectory` で
+`/var/lib/ghalet` と `/var/cache/ghalet` をサービスユーザー用に作成します。
+`logs.root` は、state 配下のデフォルト保存先を変更する場合のみ指定してください。
 そのユーザーで認証と設定検証を行い、`systemctl enable --now ghalet` を実行します。
 `KillMode=mixed` は最初の停止シグナルをコントローラーだけに送り、
 ジョブの drain と runner グループの停止を行ってから終了できるようにします。

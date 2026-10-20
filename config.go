@@ -117,14 +117,13 @@ type ScalingConfig struct {
 }
 
 type RunnerConfig struct {
-	Version          string            `yaml:"version"`
-	User             string            `yaml:"user"`
-	StartupTimeout   Duration          `yaml:"startupTimeout"`
-	DrainTimeout     Duration          `yaml:"drainTimeout"`
-	WorkRoot         string            `yaml:"workRoot"`
-	DistributionRoot string            `yaml:"distributionRoot"`
-	CacheRoot        string            `yaml:"cacheRoot"`
-	Env              map[string]string `yaml:"env"`
+	Version        string            `yaml:"version"`
+	User           string            `yaml:"user"`
+	StartupTimeout Duration          `yaml:"startupTimeout"`
+	DrainTimeout   Duration          `yaml:"drainTimeout"`
+	WorkRoot       string            `yaml:"-"`
+	CacheRoot      string            `yaml:"-"`
+	Env            map[string]string `yaml:"env"`
 }
 
 type LogsConfig struct {
@@ -150,6 +149,17 @@ func configPath(path string) (string, error) {
 	return filepath.Clean(absolute), nil
 }
 
+func xdgHome(name, fallback string) (string, error) {
+	if path := os.Getenv(name); filepath.IsAbs(path) {
+		return filepath.Clean(path), nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, fallback), nil
+}
+
 func LoadConfig(path string) (*Config, error) {
 	path, err := configPath(path)
 	if err != nil {
@@ -167,35 +177,29 @@ func LoadConfig(path string) (*Config, error) {
 		return nil, errors.New("config must contain exactly one YAML document")
 	}
 	base := filepath.Dir(path)
-	stateHome := os.Getenv("XDG_STATE_HOME")
-	var logRootErr error
-	if !filepath.IsAbs(stateHome) {
-		stateHome, logRootErr = os.UserHomeDir()
-		if logRootErr == nil {
-			stateHome = filepath.Join(stateHome, ".local", "state")
-		}
+	stateHome, err := xdgHome("XDG_STATE_HOME", filepath.Join(".local", "state"))
+	if err != nil {
+		return nil, fmt.Errorf("resolve state directory: %w", err)
 	}
-	logRoot := ""
-	if logRootErr == nil {
-		logRoot = filepath.Join(stateHome, "ghalet", "logs")
+	cacheHome, err := xdgHome("XDG_CACHE_HOME", ".cache")
+	if err != nil {
+		return nil, fmt.Errorf("resolve runner cache directory: %w", err)
 	}
 	c := &Config{
 		Path: path, Capacity: CapacityConfig{MaxRunners: 2},
 		Runner: RunnerConfig{
 			Version:        defaultRunnerVersion,
 			StartupTimeout: Duration(2 * time.Minute), DrainTimeout: Duration(10 * time.Minute),
-			WorkRoot: "runs", DistributionRoot: "runners", CacheRoot: "downloads",
+			WorkRoot:  filepath.Join(stateHome, "ghalet", "runs"),
+			CacheRoot: filepath.Join(cacheHome, "ghalet", "runners"),
 		},
 		Logs: LogsConfig{
 			Preserve: true, Retention: Duration(7 * 24 * time.Hour),
-			Root: logRoot,
+			Root: filepath.Join(stateHome, "ghalet", "logs"),
 		},
 	}
 	if err := yaml.NodeToValue(file.Docs[0].Body, c, yaml.Strict()); err != nil {
 		return nil, fmt.Errorf("decode config: %w", err)
-	}
-	if c.Logs.Root == "" && logRootErr != nil {
-		return nil, fmt.Errorf("resolve default log directory: %w", logRootErr)
 	}
 	resolve := func(path string) string {
 		if !filepath.IsAbs(path) {
@@ -203,12 +207,10 @@ func LoadConfig(path string) (*Config, error) {
 		}
 		return filepath.Clean(path)
 	}
-	for _, path := range []*string{&c.Runner.WorkRoot, &c.Runner.DistributionRoot, &c.Runner.CacheRoot, &c.Logs.Root} {
-		if *path == "" {
-			return nil, errors.New("directory paths cannot be empty")
-		}
-		*path = resolve(*path)
+	if c.Logs.Root == "" {
+		return nil, errors.New("directory paths cannot be empty")
 	}
+	c.Logs.Root = resolve(c.Logs.Root)
 	resolveCredential := func(cred *Credential) {
 		if cred.TokenFile != "" {
 			cred.TokenFile = resolve(cred.TokenFile)
@@ -351,7 +353,7 @@ func (c *Config) validateEnvironment() error {
 }
 
 func (c *Config) validateDirectories() error {
-	paths := []string{c.Runner.WorkRoot, c.Runner.DistributionRoot, c.Runner.CacheRoot, c.Logs.Root}
+	paths := []string{c.Runner.WorkRoot, c.Runner.CacheRoot, c.Logs.Root}
 	home, _ := os.UserHomeDir()
 	for i, path := range paths {
 		if !filepath.IsAbs(path) || path == "/" || within(path, c.Path) || (home != "" && within(path, home)) {

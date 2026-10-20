@@ -8,9 +8,6 @@ targets:
       tokenFile: /etc/ghalet/credentials/token # Owner-only file, normally chmod 600.
 
 runner:
-  workRoot: /var/lib/ghalet/runs
-  distributionRoot: /var/lib/ghalet/runners
-  cacheRoot: /var/cache/ghalet/downloads
 
 logs:
   root: /var/log/ghalet/runners

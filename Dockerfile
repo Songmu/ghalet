@@ -16,6 +16,7 @@ COPY --from=binaries --chmod=0755 /${TARGETARCH}/ghalet /usr/bin/ghalet
 COPY --from=binaries /licenses/ /usr/share/doc/ghalet/
 
 ENV HOME=/var/lib/ghalet
+ENV XDG_STATE_HOME=/var/lib XDG_CACHE_HOME=/var/cache
 USER ghalet
 WORKDIR /var/lib/ghalet
 ENTRYPOINT ["/usr/bin/ghalet"]

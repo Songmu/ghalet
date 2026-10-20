@@ -49,10 +49,10 @@ func TestOfficialRunnerJITInputSmoke(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := os.MkdirAll(d.config.Runner.DistributionRoot, 0700); err != nil {
+		if err := os.MkdirAll(d.config.Runner.CacheRoot, 0700); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(filepath.Join(d.config.Runner.DistributionRoot, filepath.Base(digestFile)), digest, 0600); err != nil {
+		if err := os.WriteFile(filepath.Join(d.config.Runner.CacheRoot, filepath.Base(digestFile)), digest, 0600); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -61,7 +61,6 @@ func TestOfficialRunnerJITInputSmoke(t *testing.T) {
 	defer cancel()
 	if err := d.distribution.Prepare(ctx, runnerdist.Config{
 		Version: d.config.Runner.Version, CacheRoot: d.config.Runner.CacheRoot,
-		DistributionRoot: d.config.Runner.DistributionRoot,
 	}, dest); err != nil {
 		t.Fatal(err)
 	}
