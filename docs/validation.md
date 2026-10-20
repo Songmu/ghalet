@@ -48,7 +48,7 @@ dedicated repository/scale set, with no existing managed executions.
 1. Install [the integration workflow](../.github/workflows/ghalet-integration.yaml)
    in the repository's default branch.
 2. Prepare a configuration with exactly one repository target,
-   `minRunners: 0` and `preserveLogs: true`.
+   `minRunners: 0` and `logs.preserve: true`.
 3. Supply credentials that can administer runners and dispatch/read the
    integration workflow.
 

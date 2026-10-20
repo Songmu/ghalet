@@ -12,5 +12,5 @@ runner:
   distributionRoot: /var/lib/ghalet/runners
   cacheRoot: /var/cache/ghalet/downloads
 
-cleanup:
-  logRoot: /var/log/ghalet/runners
+logs:
+  root: /var/log/ghalet/runners

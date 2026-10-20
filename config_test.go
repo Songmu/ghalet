@@ -32,10 +32,10 @@ func TestConfigLogRootDefaults(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if c.Cleanup.LogRoot != tc.want {
-				t.Fatalf("got %q, want %q", c.Cleanup.LogRoot, tc.want)
+			if c.Logs.Root != tc.want {
+				t.Fatalf("got %q, want %q", c.Logs.Root, tc.want)
 			}
-			if _, err := os.Stat(c.Cleanup.LogRoot); !os.IsNotExist(err) {
+			if _, err := os.Stat(c.Logs.Root); !os.IsNotExist(err) {
 				t.Fatalf("loading config must not create the log directory: %v", err)
 			}
 		})
@@ -47,7 +47,7 @@ func TestConfigLogRootOverride(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", testDirectory(t))
 	for _, root := range []string{"logs", "custom/logs", filepath.Join(testDirectory(t), "logs")} {
 		t.Run(root, func(t *testing.T) {
-			path := writeConfig(t, testYAML+"cleanup:\n  logRoot: "+root+"\n")
+			path := writeConfig(t, testYAML+"logs:\n  root: "+root+"\n")
 			c, err := LoadConfig(path)
 			if err != nil {
 				t.Fatal(err)
@@ -56,8 +56,37 @@ func TestConfigLogRootOverride(t *testing.T) {
 			if !filepath.IsAbs(want) {
 				want = filepath.Join(filepath.Dir(path), want)
 			}
-			if c.Cleanup.LogRoot != want {
-				t.Fatalf("got %q, want %q", c.Cleanup.LogRoot, want)
+			if c.Logs.Root != want {
+				t.Fatalf("got %q, want %q", c.Logs.Root, want)
+			}
+		})
+	}
+}
+
+func TestConfigLogs(t *testing.T) {
+	testYAML := readFixture(t, "config/base.yaml")
+	for _, tc := range []struct {
+		name, logs string
+		preserve   bool
+		retention  time.Duration
+	}{
+		{"omitted", "", true, 7 * 24 * time.Hour},
+		{"empty mapping", "logs: {}\n", true, 7 * 24 * time.Hour},
+		{"preservation disabled", "logs:\n  preserve: false\n", false, 7 * 24 * time.Hour},
+		{"custom retention", "logs:\n  retention: 1.5d\n", true, 36 * time.Hour},
+		{"all fields", "logs:\n  preserve: false\n  retention: 2d\n  root: archived-logs\n", false, 48 * time.Hour},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := writeConfig(t, testYAML+tc.logs)
+			c, err := LoadConfig(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if c.Logs.Preserve != tc.preserve || c.Logs.Retention != Duration(tc.retention) {
+				t.Fatalf("unexpected log settings: %+v", c.Logs)
+			}
+			if tc.name == "all fields" && c.Logs.Root != filepath.Join(filepath.Dir(path), "archived-logs") {
+				t.Fatalf("unexpected log root: %q", c.Logs.Root)
 			}
 		})
 	}
@@ -86,19 +115,19 @@ func TestConfigLogRootWithoutHome(t *testing.T) {
 				}
 			}
 			for _, tc := range []struct {
-				name, cleanup, wantErr string
-				root                   string
+				name, logs, wantErr string
+				root                string
 			}{
 				{name: "omitted", wantErr: "resolve default log directory"},
-				{name: "empty mapping", cleanup: "cleanup: {}\n", wantErr: "resolve default log directory"},
-				{name: "empty path", cleanup: "cleanup:\n  logRoot: \"\"\n", wantErr: "empty"},
+				{name: "empty mapping", logs: "logs: {}\n", wantErr: "resolve default log directory"},
+				{name: "empty path", logs: "logs:\n  root: \"\"\n", wantErr: "empty"},
 				{name: "relative override", root: "custom/logs"},
 				{name: "absolute override", root: filepath.Join(testDirectory(t), "logs")},
 			} {
 				t.Run(tc.name, func(t *testing.T) {
-					content := testYAML + tc.cleanup
+					content := testYAML + tc.logs
 					if tc.root != "" {
-						content += "cleanup:\n  logRoot: " + tc.root + "\n"
+						content += "logs:\n  root: " + tc.root + "\n"
 					}
 					path := writeConfig(t, content)
 					c, err := LoadConfig(path)
@@ -124,8 +153,8 @@ func TestConfigLogRootWithoutHome(t *testing.T) {
 					} else if !filepath.IsAbs(want) {
 						want = filepath.Join(filepath.Dir(path), want)
 					}
-					if c.Cleanup.LogRoot != want {
-						t.Fatalf("got %q, want %q", c.Cleanup.LogRoot, want)
+					if c.Logs.Root != want {
+						t.Fatalf("got %q, want %q", c.Logs.Root, want)
 					}
 				})
 			}
@@ -138,7 +167,7 @@ func TestConfigDefaultsAndRelativePaths(t *testing.T) {
 	c := testConfig(t)
 	if c.Capacity.MaxRunners != 2 || c.Runner.StartupTimeout != Duration(2*time.Minute) ||
 		c.Runner.DrainTimeout != Duration(10*time.Minute) ||
-		!c.Cleanup.PreserveLogs || c.Cleanup.LogRetention != Duration(7*24*time.Hour) {
+		!c.Logs.Preserve || c.Logs.Retention != Duration(7*24*time.Hour) {
 		t.Fatalf("unexpected defaults: %+v", c)
 	}
 	if c.Runner.WorkRoot != filepath.Join(filepath.Dir(c.Path), "runs") {
@@ -532,7 +561,11 @@ func TestConfigRejectsInvalidInput(t *testing.T) {
 		"min exceeds max":          strings.Replace(testYAML, "minRunners: 0", "minRunners: 3", 1),
 		"zero max":                 strings.Replace(testYAML, "maxRunners: 2", "maxRunners: 0", 1),
 		"min exceeds global":       strings.Replace(testYAML, "minRunners: 0", "minRunners: 2", 1) + "capacity:\n  maxRunners: 1\n",
-		"zero startup timeout":     testYAML + "cleanup:\n  logRetention: 0s\n",
+		"zero log retention":       testYAML + "logs:\n  retention: 0s\n",
+		"old cleanup namespace":    testYAML + "cleanup: {}\n",
+		"old log preservation":     testYAML + "logs:\n  preserveLogs: false\n",
+		"old log retention":        testYAML + "logs:\n  logRetention: 7d\n",
+		"old log root":             testYAML + "logs:\n  logRoot: logs\n",
 		"two PAT inputs":           strings.Replace(testYAML, "tokenEnv: GHALET_TEST_TOKEN", "tokenEnv: GHALET_TEST_TOKEN\n      tokenFile: token", 1),
 		"inline token":             strings.Replace(testYAML, "tokenEnv: GHALET_TEST_TOKEN", "token: secret", 1),
 		"App installation":         strings.Replace(testYAML, "id: build", "id: build\n    installationId: 10", 1),
@@ -541,7 +574,7 @@ func TestConfigRejectsInvalidInput(t *testing.T) {
 		"identity env":             strings.Replace(testYAML, `"2.338.0"`, "\"2.338.0\"\n  env:\n    HOME: /tmp", 1),
 		"overlapping roots":        strings.Replace(testYAML, `"2.338.0"`, "\"2.338.0\"\n  cacheRoot: runs/downloads", 1),
 		"root directory":           strings.Replace(testYAML, `"2.338.0"`, "\"2.338.0\"\n  workRoot: /", 1),
-		"empty log root":           testYAML + "cleanup:\n  logRoot: \"\"\n",
+		"empty log root":           testYAML + "logs:\n  root: \"\"\n",
 	}
 	for name, input := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -581,18 +614,18 @@ func TestConfigDurationDecoding(t *testing.T) {
 		{"1h30m", 90 * time.Minute},
 	} {
 		t.Run(tc.input, func(t *testing.T) {
-			c, err := LoadConfig(writeConfig(t, testYAML+"cleanup:\n  logRetention: "+tc.input+"\n"))
+			c, err := LoadConfig(writeConfig(t, testYAML+"logs:\n  retention: "+tc.input+"\n"))
 			if err != nil {
 				t.Fatal(err)
 			}
-			if c.Cleanup.LogRetention != Duration(tc.want) {
-				t.Fatalf("got %v, want %v", time.Duration(c.Cleanup.LogRetention), tc.want)
+			if c.Logs.Retention != Duration(tc.want) {
+				t.Fatalf("got %v, want %v", time.Duration(c.Logs.Retention), tc.want)
 			}
 		})
 	}
 	for _, input := range []string{"0s", "-1d", "invalid", "2562048d", "2562048h", "true", "[7d]", "{days: 7}", "1h1d", "2m1d", "1d2h"} {
 		t.Run(input, func(t *testing.T) {
-			if _, err := LoadConfig(writeConfig(t, testYAML+"cleanup:\n  logRetention: "+input+"\n")); err == nil {
+			if _, err := LoadConfig(writeConfig(t, testYAML+"logs:\n  retention: "+input+"\n")); err == nil {
 				t.Fatal("invalid duration was accepted")
 			}
 		})

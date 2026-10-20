@@ -50,7 +50,7 @@ targets:
 #   cacheRoot: downloads # Runner archives.
 #   env: {} # Explicit job env; the parent's env is not inherited.
 
-# cleanup:
-#   preserveLogs: true # Archive logs before cleanup.
-#   logRetention: 7d # Log retention (d, h, m, s).
-#   logRoot: /absolute/path/to/logs # Default: $XDG_STATE_HOME/ghalet/logs or ~/.local/state/ghalet/logs.
+# logs: # Runner log archives; daemon stdout/stderr are managed separately.
+#   preserve: true # Archive logs before cleanup.
+#   retention: 7d # Log retention (d, h, m, s).
+#   root: /absolute/path/to/logs # Default: $XDG_STATE_HOME/ghalet/logs or ~/.local/state/ghalet/logs.

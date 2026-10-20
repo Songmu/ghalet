@@ -223,7 +223,7 @@ func TestRunnerGuardPreservesRunnerExitAndKillsRemainingChildren(t *testing.T) {
 			if run.ExitError != wantError || !run.Exited || !run.outputCollected() || d.occupied() != 0 {
 				t.Fatal("guard exit replaced runner exit or left unfinished observers", run.ExitError)
 			}
-			data, err := os.ReadFile(filepath.Join(d.config.Cleanup.LogRoot, "runs", run.State.RunID, "output.log"))
+			data, err := os.ReadFile(filepath.Join(d.config.Logs.Root, "runs", run.State.RunID, "output.log"))
 			if err != nil || string(data) != "Listening for Jobs\nfinal output" {
 				t.Fatalf("guard lost final runner output: %q (%v)", data, err)
 			}

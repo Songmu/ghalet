@@ -32,9 +32,9 @@ func writeApplyConfig(t *testing.T, c *Config) {
 			"workRoot":       c.Runner.WorkRoot, "distributionRoot": c.Runner.DistributionRoot,
 			"cacheRoot": c.Runner.CacheRoot, "env": c.Runner.Env,
 		},
-		"cleanup": map[string]any{
-			"preserveLogs": c.Cleanup.PreserveLogs, "logRoot": c.Cleanup.LogRoot,
-			"logRetention": time.Duration(c.Cleanup.LogRetention).String(),
+		"logs": map[string]any{
+			"preserve": c.Logs.Preserve, "root": c.Logs.Root,
+			"retention": time.Duration(c.Logs.Retention).String(),
 		},
 	})
 	if err != nil {
@@ -140,7 +140,7 @@ func TestApplyKeepsScaleSetReferencedByActualID(t *testing.T) {
 }
 
 func TestApplyRejectsInvalidOrRestartOnlyChangesBeforeDrain(t *testing.T) {
-	for _, field := range []string{"syntax", "user", "workRoot", "cacheRoot", "distributionRoot", "logRoot"} {
+	for _, field := range []string{"syntax", "user", "workRoot", "cacheRoot", "distributionRoot", "logs.root"} {
 		t.Run(field, func(t *testing.T) {
 			d, api := testDaemon(t)
 			useFakeManagement(d, api)
@@ -155,8 +155,8 @@ func TestApplyRejectsInvalidOrRestartOnlyChangesBeforeDrain(t *testing.T) {
 				next.Runner.CacheRoot += "-new"
 			case "distributionRoot":
 				next.Runner.DistributionRoot += "-new"
-			case "logRoot":
-				next.Cleanup.LogRoot += "-new"
+			case "logs.root":
+				next.Logs.Root += "-new"
 			}
 			writeApplyConfig(t, next)
 			if field == "syntax" {
@@ -247,7 +247,7 @@ func TestApplyPreservesRetainedExecutionContext(t *testing.T) {
 	d.clientFactory = func(context.Context, Target) (scaleAPI, error) { return newAPI, nil }
 	next := nextConfig(d)
 	next.Targets[0].ScaleSetName = "new"
-	next.Cleanup.PreserveLogs = false
+	next.Logs.Preserve = false
 	writeApplyConfig(t, next)
 	response := d.apply(t.Context())
 	if response.Error == "" || run.Target != oldTarget || run.Config != oldConfig ||
@@ -258,7 +258,7 @@ func TestApplyPreservesRetainedExecutionContext(t *testing.T) {
 	if err := d.cleanup(run); err != nil {
 		t.Fatal("old execution could not be cleaned after apply", err)
 	}
-	if _, err := os.Stat(filepath.Join(oldConfig.Cleanup.LogRoot, "runs", state.RunID, "metadata.json")); err != nil {
+	if _, err := os.Stat(filepath.Join(oldConfig.Logs.Root, "runs", state.RunID, "metadata.json")); err != nil {
 		t.Fatal("retained execution used the new log policy", err)
 	}
 }

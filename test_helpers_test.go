@@ -49,7 +49,7 @@ func writeConfig(t *testing.T, content string) string {
 
 func testConfig(t *testing.T) *Config {
 	t.Helper()
-	c, err := LoadConfig(writeConfig(t, readFixture(t, "config/base.yaml")+"cleanup:\n  logRoot: logs\n"))
+	c, err := LoadConfig(writeConfig(t, readFixture(t, "config/base.yaml")+"logs:\n  root: logs\n"))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -51,7 +51,8 @@ cp /usr/share/ghalet/config.yaml.example /etc/ghalet/config.yaml
 config_sum=$(sha256sum < /etc/ghalet/config.yaml)
 /usr/bin/ghalet config validate --config /etc/ghalet/config.yaml
 grep -qx '  user: ghalet-runner' /etc/ghalet/config.yaml
-grep -qx '  logRoot: /var/log/ghalet/runners' /etc/ghalet/config.yaml
+grep -qx 'logs:' /etc/ghalet/config.yaml
+grep -qx '  root: /var/log/ghalet/runners' /etc/ghalet/config.yaml
 grep -q 'tokenFile: /run/credentials/ghalet.service/default' /etc/ghalet/config.yaml
 touch /var/lib/ghalet/retained-state /etc/ghalet/credentials/retained-credential \
   /var/log/ghalet/retained-log

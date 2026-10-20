@@ -296,7 +296,7 @@ func TestGCWaitsForOutputCollectionBeforeArchiving(t *testing.T) {
 	if response := d.gc(t.Context(), false); response.Error != "" || d.runs[state.RunID] != nil {
 		t.Fatal("gc did not resume after output collection", response.Error)
 	}
-	data, err := os.ReadFile(filepath.Join(d.config.Cleanup.LogRoot, "runs", state.RunID, "output.log"))
+	data, err := os.ReadFile(filepath.Join(d.config.Logs.Root, "runs", state.RunID, "output.log"))
 	if err != nil || string(data) != "complete output ***\n" {
 		t.Fatalf("gc archived incomplete or unredacted output: %q (%v)", data, err)
 	}

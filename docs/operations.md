@@ -287,7 +287,7 @@ capacity. Concurrent apply requests are rejected; shutdown interrupts apply.
 If the CLI disconnects or times out, the daemon continues the request; inspect
 `status` and `doctor` before retrying.
 
-The execution user, `workRoot`, `distributionRoot`, `cacheRoot`, and `logRoot`
+The execution user, `workRoot`, `distributionRoot`, `cacheRoot`, and `logs.root`
 cannot change through apply. These changes are rejected before drain.
 Environment variables and systemd's decrypted credential files belong to the
 running service; the provided units require a restart to refresh those inputs. Ordinary
@@ -358,19 +358,20 @@ The `scope` field in runner-start events and archive metadata is the
 registration URL. Legacy state `scopeRef` fields remain readable but do not
 select credentials or determine registration identity.
 
-With `preserveLogs: true`, `output.log` and `_diag/**/*.log` are archived to
-`cleanup.logRoot/runs/RUN_ID` before removing the execution. `cleanup.logRoot`
+The `logs` settings control runner log archives, not daemon stdout/stderr.
+With `logs.preserve: true`, `output.log` and `_diag/**/*.log` are archived to
+`logs.root/runs/RUN_ID` before removing the execution. `logs.root`
 defaults to `$XDG_STATE_HOME/ghalet/logs`, or
 `~/.local/state/ghalet/logs` when `XDG_STATE_HOME` is unset, empty, or relative.
-An explicit `cleanup.logRoot` overrides this default; relative values are
+An explicit `logs.root` overrides this default; relative values are
 still resolved against the selected config's directory. Existing archives
 in the old config-relative `logs` directory are not moved or expired
 automatically; move them while the daemon is stopped, or set
-`cleanup.logRoot: logs` to keep using that directory. Credentials and
+`logs.root: logs` to keep using that directory. Credentials and
 workspace contents are not archived. Failed archives preserve the original
 logs and state. Once processes are confirmed stopped, file-only cleanup
 failures do not hold execution capacity; `gc` or the next startup retries
-them. `logRetention` expires only complete saved archives (also checked
+them. `logs.retention` expires only complete saved archives (also checked
 hourly). There is no disk quota, disk-pressure monitor or automatic external
 log shipping.
 
@@ -400,7 +401,7 @@ manual service installation.
 For Linux, precreate a dedicated `ghalet` user and writable storage paths,
 copy `examples/ghalet.service` into `/etc/systemd/system/`, and place the
 configuration at `/etc/ghalet/config.yaml`. Set workRoot, distributionRoot,
-cacheRoot and logRoot to suitable user-writable paths. Authenticate as that
+cacheRoot and logs.root to suitable user-writable paths. Authenticate as that
 user, run configuration validation, then `systemctl enable --now ghalet`.
 `KillMode=mixed` sends the initial stop signal only to the controller, allowing
 it to drain jobs and terminate runner groups before exiting. The finite

@@ -94,10 +94,10 @@ type archivedRun struct {
 }
 
 func archiveLogs(c *Config, state *RunState, secret *logreduct.Redactor) error {
-	if !c.Cleanup.PreserveLogs {
+	if !c.Logs.Preserve {
 		return nil
 	}
-	base := filepath.Join(c.Cleanup.LogRoot, "runs")
+	base := filepath.Join(c.Logs.Root, "runs")
 	if err := fshelper.EnsureDirectory(base, 0700); err != nil {
 		return err
 	}
@@ -227,7 +227,7 @@ func syncLogArchive(path string) error {
 }
 
 func expireLogs(ctx context.Context, c *Config, dryRun bool) ([]OperationResult, error) {
-	base := filepath.Join(c.Cleanup.LogRoot, "runs")
+	base := filepath.Join(c.Logs.Root, "runs")
 	if err := fshelper.CheckDirectory(base); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil, nil
@@ -253,7 +253,7 @@ func expireLogs(ctx context.Context, c *Config, dryRun bool) ([]OperationResult,
 			results = append(results, OperationResult{Path: dir, Error: "invalid log archive metadata; retained"})
 			continue
 		}
-		if time.Since(archive.ArchivedAt) < time.Duration(c.Cleanup.LogRetention) {
+		if time.Since(archive.ArchivedAt) < time.Duration(c.Logs.Retention) {
 			continue
 		}
 		result := OperationResult{Path: dir, Action: "expire archived logs"}

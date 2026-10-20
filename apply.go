@@ -229,7 +229,7 @@ func (d *daemon) validateApply(next *Config) error {
 		next.Runner.WorkRoot != current.Runner.WorkRoot ||
 		next.Runner.DistributionRoot != current.Runner.DistributionRoot ||
 		next.Runner.CacheRoot != current.Runner.CacheRoot ||
-		next.Cleanup.LogRoot != current.Cleanup.LogRoot {
+		next.Logs.Root != current.Logs.Root {
 		return errors.New("changing the execution user or managed directories requires a normal stop/restart")
 	}
 	next.secretNames = make(map[string]bool)

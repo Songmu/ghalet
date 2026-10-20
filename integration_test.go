@@ -185,7 +185,7 @@ func TestGitHubEphemeralLifecycle(t *testing.T) {
 			response, err := controlCall(ctx, c.Path, controlRequest{Command: "status"})
 			return err == nil && response.Status != nil && response.Status.Occupied == 0 && len(response.Status.Runs) == 0
 		})
-		entries, err := os.ReadDir(filepath.Join(c.Cleanup.LogRoot, "runs"))
+		entries, err := os.ReadDir(filepath.Join(c.Logs.Root, "runs"))
 		if err != nil {
 			t.Fatal(err)
 		}
