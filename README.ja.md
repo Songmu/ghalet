@@ -120,40 +120,35 @@ ghalet doctor
 
 | コマンド | 用途 |
 | --- | --- |
-| `ghalet run` | フォアグラウンドでデーモンを起動し、設定された全 target のジョブ受付と runner プロセスを管理します。 |
-| `ghalet apply` | 設定を再読込し、全 target を drain して登録を反映し、受付を再開します。設定から削除・置換された target の未参照 Scale Set は削除を試みます。 |
-| `ghalet config validate` | runner の登録や GitHub への接続を行わず、設定の構文・値・ローカルパスの制約を検証します。 |
-| `ghalet systemd credential set NAME --prompt` | Linux の systemd サービス用 PAT を暗号化して登録し、`defaults.credential` を更新します。root 権限が必要です。App キー、自動構築、ローテーションは[認証情報](docs/credentials.ja.md)を参照してください。 |
-| `ghalet list` | アクセス可能で応答するデーモンの管理 UID、制御ソケット、稼働状態を一覧表示します。`--config PATH` で絞り込めます。 |
-| `ghalet status` | 稼働中デーモンの状態と容量のスナップショットを取得します。取得成功は正常稼働を意味しません。 |
-| `ghalet doctor` | 稼働中デーモンの問題を診断し、問題があれば非ゼロで終了します。 |
-| `ghalet gc [--dry-run]` | 保留中の実行を再検証し、安全に削除できるものの cleanup と保存ログの期限切れ削除を行います。`--dry-run` では変更せず確認できます。 |
+| `ghalet run` | 全 target のデーモンをフォアグラウンドで起動します。 |
+| `ghalet apply` | 全 target を drain して設定と登録を反映し、未使用 Scale Set の削除を試みます。 |
+| `ghalet config validate` | GitHub に接続せず、設定とローカルパスを検証します。 |
+| `ghalet systemd credential set NAME --prompt` | サービス用 PAT を暗号化登録し、`defaults.credential` を更新します（Linux・root 必須）。App キー、自動構築、ローテーションは[認証情報](docs/credentials.ja.md)を参照してください。 |
+| `ghalet list` | アクセス可能なデーモンの管理 UID、ソケット、稼働状態を一覧表示します。`--config PATH` で絞り込めます。 |
+| `ghalet status` | 状態と容量を取得します。取得成功は正常稼働を意味しません。 |
+| `ghalet doctor` | デーモンを診断し、問題があれば非ゼロで終了します。 |
+| `ghalet gc [--dry-run]` | 停止確認済みの実行と期限切れログを削除します。`--dry-run` で事前確認できます。 |
 
 `ghalet --version` でバージョンを表示します。認証情報のセットアップ案内を除き、
 管理コマンドの応答は JSON です。`systemd credential set` のデフォルト設定パスは
 `/etc/ghalet/config.yaml` です。`status`、`doctor`、`apply`、`gc` は `--config` を
 省略すると、アクセス可能なデーモンが 1 件なら自動選択し、複数なら設定の明示を求めます。
 見つからない場合は、`run` や `config validate` と同じくユーザーごとの
-`~/.config/ghalet/config.yaml` を使います。`apply` は新しい設定やデフォルト設定ではなく、
-選択したデーモン自身の設定ファイルを再読込します。
+`~/.config/ghalet/config.yaml` を使います。
 終了コード、オフラインでの保守、削除時の安全確認については
 [設定反映](docs/operations.ja.md#設定反映)と
 [診断と cleanup](docs/operations.ja.md#診断ガベージコレクション)を参照してください。
 
 ## 実行時の動作
 
-ホスト全体の同時実行上限はデフォルトで 2 です。target ごとに待機 runner の最小数と
-上限を設定でき、実際に割り当てられたジョブは待機用の warm pool より優先されます。
-通常停止では受付済みの処理を待ちます。クラッシュ後は小さなアトミックなステートファイルと
-カーネルのプロセス識別情報から復旧します。確認できない実行は保留し、
-停止対象のプロセスを推測しません。
+ホスト全体の同時実行上限はデフォルトで 2 です。target ごとの上限と待機用の warm pool を
+設定でき、割り当て済みジョブを優先します。クラッシュ後はアトミックなステートファイルと
+カーネルのプロセス識別情報から復旧し、確認できない実行は容量を予約したまま保留します。
 
 runner のアーカイブは固定バージョンを自動ダウンロードし、公式 SHA-256 ダイジェストで
-検証します。デーモンの標準出力は JSONL です。設定に応じて、実行領域の cleanup 前に
-runner ログを退避します。設定変更や障害状態の target の再試行には `apply` を使います。
-実行ユーザーや管理ディレクトリの変更には通常停止・再起動が必要です。
-通常停止では Scale Set を残し、`apply` では設定から参照されなくなったものの
-削除を試みます。runner group は削除しません。
+検証します。デーモンの標準出力は JSONL で、デフォルトでは cleanup 前に runner ログを
+退避します。再試行、復旧、ログ保存方針の詳細は[運用ガイド](docs/operations.ja.md)を
+参照してください。
 
 ## ドキュメント
 

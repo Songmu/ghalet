@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 
@@ -161,13 +162,9 @@ func newDaemon(c *Config) (*daemon, error) {
 	}
 	secret := &logreduct.Default
 	for _, entry := range os.Environ() {
-		for i := 0; i < len(entry); i++ {
-			if entry[i] == '=' {
-				if c.secretEnv(entry[:i]) {
-					secret.Add(entry[i+1:])
-				}
-				break
-			}
+		name, value, _ := strings.Cut(entry, "=")
+		if c.secretEnv(name) {
+			secret.Add(value)
 		}
 	}
 	ctx, cancel := context.WithCancel(context.Background())
