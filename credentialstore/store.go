@@ -70,6 +70,7 @@ func (options Options) Validate() error {
 
 // Set encrypts and registers a credential for the system ghalet service.
 // It reloads systemd configuration but never starts or restarts the service.
+// input supplies the secret stream or, for Prompt, the caller's terminal.
 func Set(ctx context.Context, options Options, input io.Reader) (Result, error) {
 	if err := options.Validate(); err != nil {
 		return Result{}, err
@@ -82,7 +83,7 @@ func Set(ctx context.Context, options Options, input io.Reader) (Result, error) 
 	}
 	if options.Prompt {
 		terminal := exec.CommandContext(ctx, "/bin/sh", "-c", "test -t 0")
-		terminal.Stdin = os.Stdin
+		terminal.Stdin = input
 		if terminal.Run() != nil {
 			return Result{}, errors.New("--prompt requires an interactive terminal; use --file or --stdin for automation")
 		}
@@ -288,7 +289,7 @@ func (s credentialStore) readSecret(ctx context.Context, options Options, input 
 		ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 		defer cancel()
 		var data bytes.Buffer
-		if err := s.run(ctx, "systemd-ask-password", []string{"--timeout=2min", "PAT for ghalet systemd credential " + options.Name + ":"}, nil, &data); err != nil {
+		if err := s.run(ctx, "systemd-ask-password", []string{"--timeout=2min", "PAT for ghalet systemd credential " + options.Name + ":"}, input, &data); err != nil {
 			clear(data.Bytes())
 			return nil, fmt.Errorf("PAT input canceled or failed: %w", err)
 		}

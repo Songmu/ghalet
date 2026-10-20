@@ -183,6 +183,26 @@ func testCredentialStore(t *testing.T) (credentialStore, Options, *credentialTes
 	return store, options, tools
 }
 
+func TestCredentialPromptReceivesCallerInput(t *testing.T) {
+	store, options, tools := testCredentialStore(t)
+	options.Prompt, options.Stdin = true, false
+	input := strings.NewReader("not-the-prompt-response")
+	store.run = func(ctx context.Context, tool string, args []string, reader io.Reader, output io.Writer) error {
+		if tool == "systemd-ask-password" && reader != input {
+			return errors.New("password prompt did not receive the caller's input")
+		}
+		return tools.run(ctx, tool, args, reader, output)
+	}
+	secret, err := store.readSecret(t.Context(), options, input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer clear(secret)
+	if string(secret) != "prompt-secret" {
+		t.Fatal("credential did not come from the password prompt")
+	}
+}
+
 func TestCredentialRegistrationAndRotation(t *testing.T) {
 	store, options, tools := testCredentialStore(t)
 	result, err := store.set(t.Context(), options, strings.NewReader("first-secret\n"))
