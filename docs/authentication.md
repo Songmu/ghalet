@@ -12,9 +12,9 @@ For other GitHub hosts, check that host's API documentation and policies.
 
 | Method | Advantages | Tradeoffs |
 | --- | --- | --- |
-| GitHub CLI (`gh`, default) | Reuses an existing login without a separate ghalet secret file; convenient for local trials | Shares that login's authority and lifecycle. Requires `gh` and a usable login/keychain in the daemon's environment; an OAuth login is not repository-scoped |
+| GitHub CLI (`gh`, default) | Reuses an existing login without a separate ghalet secret file; convenient for local trials | Shares the selected token's authority and lifecycle. Requires `gh` and access to a token through its environment or stored login/keychain; an OAuth login is not repository-scoped |
 | Fine-grained PAT (`pat`) | Select individual repositories and permissions; simple file-based setup | Tied to a person and one resource owner. Expiration, replacement and any organization approval need operator management |
-| GitHub App (`github-app`) | Installation identity rather than a person's login; selected repositories and permissions; SDK renews short-lived installation tokens | More initial setup, installation approval and ID/key management. The long-lived private key still needs protection and rotation |
+| GitHub App (`github-app`) | Installation identity rather than a person's login; selected repositories and permissions; SDK renews short-lived installation tokens | More initial setup, installation approval and ID/key management. The private key does not expire; protect it and replace it if compromised or required by policy |
 
 Use a dedicated App for shared or long-lived deployments, a fine-grained PAT
 for a simple dedicated setup, and `gh` for an existing interactive environment.
@@ -181,18 +181,22 @@ See [GitHub's private-key guidance][app-keys] and the
 
 ## Rotate credentials
 
-Automatic installation-token renewal is not private-key rotation. Likewise, the
-SDK's renewal of Actions service credentials does not extend a PAT's expiration
-or replace a revoked token. Schedule PAT replacement before expiration and App
-key rotation according to your policy.
+GitHub App private keys [do not expire][app-keys], so periodic manual replacement
+is not required to keep authentication working. Replace a key when required by
+your security policy or if compromise is suspected. The SDK automatically
+obtains new short-lived installation tokens; this is separate from replacing
+the private key.
 
-For the packaged service's encrypted credentials, use
+PATs still need replacement before expiration: the SDK's renewal of Actions
+service credentials does not extend a PAT's expiration or replace a revoked token.
+
+When replacing the packaged service's encrypted credentials, use
 [systemd rotation and rollback](credentials.md#rotation-and-rollback):
 register the replacement under the same name with `--no-default`, then stop
 normally, confirm successful shutdown, and start the service. `apply` cannot
 refresh systemd's decrypted credential files.
 
-For ordinary PAT files or App key files on Linux/macOS:
+For planned replacement of ordinary PAT files or App key files on Linux/macOS:
 
 1. Create a **new** PAT with the same minimum permissions and repository
    selection, or generate an **additional** private key on the existing App.
@@ -218,9 +222,16 @@ configuration rollbacks.
 
 For `tokenEnv`, changing your shell's variable does not change the running
 daemon's environment: update its launch environment and perform a normal
-stop/start, confirming successful shutdown first. For `gh`, replace or
-reauthorize the login as the daemon user and run `apply` so new clients obtain
-the current token. See [configuration apply](operations.md#applying-configuration).
+stop/start, confirming successful shutdown first.
+
+For `type: gh`, `GH_TOKEN` and `GITHUB_TOKEN` in the daemon's environment
+(in that order) [override the stored login][gh-environment]. If either supplies
+the token, update the daemon's launch environment and perform the same normal
+stop/start; changing the stored login or running `apply` alone does not replace
+that environment token. Only when no environment token overrides the stored
+login, replace or reauthorize the login as the daemon user and run `apply`
+so new clients obtain the current token.
+See [configuration apply](operations.md#applying-configuration).
 If a credential is exposed, revoke it immediately rather than using the routine
 overlap procedure; restore service with a clean replacement.
 
@@ -246,3 +257,4 @@ Do not fix an access error by granting every permission.
 [app-overview]: https://docs.github.com/en/apps/creating-github-apps/about-creating-github-apps/about-creating-github-apps
 [app-installation]: https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/authenticating-as-a-github-app-installation
 [gh-refresh]: https://cli.github.com/manual/gh_auth_refresh
+[gh-environment]: https://cli.github.com/manual/gh_help_environment

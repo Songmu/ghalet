@@ -12,9 +12,9 @@ API ドキュメントとポリシーを確認してください。
 
 | 方式 | メリット | 注意点 |
 | --- | --- | --- |
-| GitHub CLI（`gh`、デフォルト） | 既存のログインを使い、ghalet 専用のシークレットファイルなしで試せる | 既存ログインの権限と有効性を共有する。デーモンの環境で `gh` とログイン・キーチェーンを利用できる必要があり、OAuth ログインはリポジトリ単位に限定できない |
+| GitHub CLI（`gh`、デフォルト） | 既存のログインを使い、ghalet 専用のシークレットファイルなしで試せる | 選択されたトークンの権限と有効性を共有する。`gh` と、環境変数または保存済みログイン・キーチェーン経由でトークンを利用できる必要があり、OAuth ログインはリポジトリ単位に限定できない |
 | Fine-grained PAT（`pat`） | リポジトリと権限を選べ、ファイル参照で簡単に設定できる | 個人と一つの resource owner にひも付く。有効期限、再発行、必要に応じた Organization の承認を管理する必要がある |
-| GitHub App（`github-app`） | 個人のログインではなくインストールの識別情報で動作し、リポジトリと権限を選べる。短命な installation token は SDK が更新する | 初期登録、インストール承認、ID・鍵の管理が増える。長期利用する秘密鍵自体の保護とローテーションは必要 |
+| GitHub App（`github-app`） | 個人のログインではなくインストールの識別情報で動作し、リポジトリと権限を選べる。短命な installation token は SDK が更新する | 初期登録、インストール承認、ID・鍵の管理が増える。秘密鍵は期限なしで利用できるが、厳重に保護し、漏えいやポリシー上の必要があれば交換する |
 
 共有・長期運用には専用の App、単純な専用構成には fine-grained PAT、
 既存の対話環境で試す場合には `gh` を使います。
@@ -178,17 +178,21 @@ Installation token の取得・更新は ghalet の SDK が自動で行います
 
 ## 認証情報のローテーション
 
-Installation token の自動更新と、秘密鍵のローテーションは別です。
-SDK が Actions サービス用の認証情報を更新しても、PAT の有効期限が延びたり、
-失効した PAT が置き換わったりはしません。PAT は期限前に再発行し、
-App の鍵は運用ポリシーに従ってローテーションしてください。
+GitHub App の秘密鍵には[有効期限がない][app-keys]ため、
+認証を継続するための定期的な手動交換は不要です。セキュリティポリシーで要求される場合や、
+漏えいの疑いがある場合に交換します。短命な installation token の再取得は SDK が
+自動で行い、秘密鍵の交換とは別の処理です。
 
-パッケージのサービスで暗号化した認証情報を使う場合は、
+PAT は引き続き期限前の再発行が必要です。SDK が Actions サービス用の認証情報を
+更新しても、PAT の有効期限が延びたり、失効した PAT が置き換わったりはしません。
+
+パッケージのサービスで暗号化した認証情報を交換する場合は、
 [systemd のローテーションとロールバック](credentials.ja.md#ローテーションとロールバック)に従い、
 同じ名前に `--no-default` で新しい値を登録してから、通常停止・正常終了の確認・起動を行います。
 `apply` では systemd が復号した認証ファイルは更新されません。
 
-Linux / macOS で通常の PAT ファイルや App キーファイルを使う場合は、次の手順で更新します。
+Linux / macOS で通常の PAT ファイルや App キーファイルを計画的に交換する場合は、
+次の手順で更新します。
 
 1. 同じ最小権限・リポジトリ範囲の **新しい** PAT を作るか、既存 App に秘密鍵を
    **追加生成**します。必要な承認・SSO の設定も先に済ませます。
@@ -211,7 +215,14 @@ Linux / macOS で通常の PAT ファイルや App キーファイルを使う�
 
 `tokenEnv` では、シェルの変数を書き換えても稼働中のデーモンには反映されません。
 起動環境を更新し、通常停止と正常終了の確認後に起動してください。
-`gh` では、デーモンの実行ユーザーでログインを差し替え・再認可した後に `apply` し、
+
+`type: gh` では、デーモンの環境にある `GH_TOKEN`、`GITHUB_TOKEN` が
+[この順に保存済みログインより優先されます][gh-environment]。
+これらの環境変数からトークンを取得している場合も、起動環境を更新し、
+同様に通常停止と正常終了の確認後に起動してください。
+保存済みログインの変更や `apply` だけでは、環境変数のトークンは置き換わりません。
+環境変数のトークンが保存済みログインに優先していない場合に限り、
+デーモンの実行ユーザーでログインを差し替え・再認可した後に `apply` し、
 新しいクライアントに現在のトークンを取得させます。
 [設定反映](operations.ja.md#設定反映)も参照してください。
 認証情報が漏えいした場合は、通常の移行期間を設けず直ちに失効させ、
@@ -239,3 +250,4 @@ Runner group でも workflow のリポジトリが許可されている必要が
 [app-overview]: https://docs.github.com/ja/apps/creating-github-apps/about-creating-github-apps/about-creating-github-apps
 [app-installation]: https://docs.github.com/ja/apps/creating-github-apps/authenticating-with-a-github-app/authenticating-as-a-github-app-installation
 [gh-refresh]: https://cli.github.com/manual/gh_auth_refresh
+[gh-environment]: https://cli.github.com/manual/gh_help_environment
