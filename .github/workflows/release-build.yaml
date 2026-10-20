@@ -42,7 +42,7 @@ jobs:
         VERSION: ${{ github.ref_name }}
         OUTPUT_DIR: ${{ steps.goxz.outputs.output-dir }}
       run: |
-        go install github.com/goreleaser/nfpm/v2/cmd/nfpm@v2.48.0
+        go install "github.com/goreleaser/nfpm/v2/cmd/nfpm@$(cat packaging/nfpm.version)"
         sh packaging/build.sh "$VERSION" "$OUTPUT_DIR" "$OUTPUT_DIR" "$RUNNER_TEMP/container-binaries"
     - name: generate release checksums
       shell: bash

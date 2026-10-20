@@ -141,11 +141,17 @@ Linux packages. All release files are collected in `dist`; after packaging,
 `SHA256SUMS` is generated once for every file below it, excluding the manifest
 itself. `packaging/build.sh` extracts the exact Linux binaries from
 those archives, generates the packaged unit from `examples/ghalet.service`,
-and stages only the binaries and license notices for the container build:
+and stages only the binaries and license notices for the container build.
+
+The nFPM version is pinned in [`packaging/nfpm.version`](../packaging/nfpm.version).
+Renovate proposes weekly updates to nFPM and the bundled runner; Go modules,
+GitHub Actions, and Docker images remain managed by Dependabot.
+Enable this repository in the [Renovate GitHub App](https://github.com/apps/renovate)
+installation settings for automatic update PRs.
 
 ```sh
 go install github.com/Songmu/goxz/cmd/goxz@v0.13.0
-go install github.com/goreleaser/nfpm/v2/cmd/nfpm@v2.48.0
+go install "github.com/goreleaser/nfpm/v2/cmd/nfpm@$(cat packaging/nfpm.version)"
 VERSION=$(sed -n 's/^const Version = "\([^"]*\)"$/v\1/p' version.go)
 test -n "$VERSION"
 goxz -pv "$VERSION" -os linux,darwin -arch amd64,arm64 -static \

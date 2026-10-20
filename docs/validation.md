@@ -24,6 +24,9 @@ the service inactive.
 It validates the packaged configuration and runs the optional official
 runner smoke test inside the image. These checks do not exercise a live
 GitHub job or a systemd-managed drain.
+CI fetches the official runner digest with authenticated GitHub API access
+on the host, then mounts it read-only for `GHALET_TEST_RUNNER_DIGEST_FILE`.
+Archive verification still runs inside the container; no API token is passed in.
 
 ## Optional official runner smoke test
 

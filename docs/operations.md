@@ -145,9 +145,9 @@ packages are selected from the pinned version. Windows is not supported.
 
 `runner` is global and optional. Its version defaults to the numeric version
 bundled with ghalet; set `runner.version` to pin a different release.
-The scheduled `update-runner` workflow checks official stable releases weekly
-and opens a tested PR updating the bundled default and example. It also
-supports manual dispatch. Updating ghalet and restarting picks up the new
+Renovate checks official stable releases weekly and opens PRs updating the
+bundled default and example together; the regular CI validates these changes.
+Updating ghalet and restarting picks up the new
 default unless the configuration explicitly pins a version. Startup never
 resolves `latest`, and runner self-update remains disabled.
 

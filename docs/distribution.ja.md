@@ -144,9 +144,15 @@ manifest 自身は対象から除外します。
 `examples/ghalet.service` を元にパッケージ用 unit を生成して、
 コンテナのビルド用にはバイナリとライセンス文書だけを用意します。
 
+nFPM のバージョンは [`packaging/nfpm.version`](../packaging/nfpm.version) に固定します。
+Renovate が nFPM と組み込み runner の更新を毎週提案します。
+Go modules、GitHub Actions、Docker イメージは引き続き Dependabot で管理します。
+自動更新 PR を作成するには、[Renovate GitHub App](https://github.com/apps/renovate) の
+インストール設定で、このリポジトリを有効にしてください。
+
 ```sh
 go install github.com/Songmu/goxz/cmd/goxz@v0.13.0
-go install github.com/goreleaser/nfpm/v2/cmd/nfpm@v2.48.0
+go install "github.com/goreleaser/nfpm/v2/cmd/nfpm@$(cat packaging/nfpm.version)"
 VERSION=$(sed -n 's/^const Version = "\([^"]*\)"$/v\1/p' version.go)
 test -n "$VERSION"
 goxz -pv "$VERSION" -os linux,darwin -arch amd64,arm64 -static \

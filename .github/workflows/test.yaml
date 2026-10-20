@@ -39,6 +39,13 @@ jobs:
         go-version-file: go.mod
     - name: test
       run: go test -race -coverprofile coverage.out -covermode atomic ./...
+    - name: validate builds and example configuration
+      run: |
+        go vet ./...
+        go build ./...
+        GOOS=linux go build ./...
+        go run ./cmd/ghalet config validate --config examples/config.yaml
+        git diff --check
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v7.1.1
 

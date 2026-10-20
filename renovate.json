@@ -1,0 +1,30 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "enabledManagers": ["custom.regex"],
+  "ignorePaths": ["**/node_modules/**", "**/bower_components/**", "**/vendor/**"],
+  "schedule": ["before 6am on monday"],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Update the bundled GitHub Actions runner and its example",
+      "managerFilePatterns": ["/^config\\.go$/", "/^examples/config\\.yaml$/"],
+      "matchStrings": [
+        "(?:^|\\n)(?:const defaultRunnerVersion = \"|#   version: \")(?<currentValue>\\d+\\.\\d+\\.\\d+)\""
+      ],
+      "depNameTemplate": "actions/runner",
+      "datasourceTemplate": "github-releases",
+      "extractVersionTemplate": "^v(?<version>\\d+\\.\\d+\\.\\d+)$",
+      "versioningTemplate": "semver"
+    },
+    {
+      "customType": "regex",
+      "description": "Update the pinned nFPM build tool",
+      "managerFilePatterns": ["/^packaging/nfpm\\.version$/"],
+      "matchStrings": ["^(?<currentValue>v\\d+\\.\\d+\\.\\d+)\\s*$"],
+      "depNameTemplate": "github.com/goreleaser/nfpm/v2",
+      "datasourceTemplate": "go",
+      "versioningTemplate": "semver"
+    }
+  ]
+}
