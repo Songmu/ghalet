@@ -171,6 +171,11 @@ func storageDirectory(serviceEnv, xdgEnv, fallback string) (string, error) {
 	return filepath.Join(base, "ghalet"), nil
 }
 
+// StateDirectory returns the persistent application directory used by this process.
+func StateDirectory() (string, error) {
+	return storageDirectory("STATE_DIRECTORY", "XDG_STATE_HOME", filepath.Join(".local", "state"))
+}
+
 func LoadConfig(path string) (*Config, error) {
 	path, err := configPath(path)
 	if err != nil {
@@ -188,7 +193,7 @@ func LoadConfig(path string) (*Config, error) {
 		return nil, errors.New("config must contain exactly one YAML document")
 	}
 	base := filepath.Dir(path)
-	stateDir, err := storageDirectory("STATE_DIRECTORY", "XDG_STATE_HOME", filepath.Join(".local", "state"))
+	stateDir, err := StateDirectory()
 	if err != nil {
 		return nil, fmt.Errorf("resolve state directory: %w", err)
 	}

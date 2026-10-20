@@ -127,6 +127,7 @@ ghalet doctor
 | `ghalet run` | 全 target のデーモンをフォアグラウンドで起動します。 |
 | `ghalet apply` | 全 target を drain して設定と登録を反映し、未使用 Scale Set の削除を試みます。 |
 | `ghalet config validate` | GitHub に接続せず、設定とローカルパスを検証します。 |
+| `ghalet credential set NAME --prompt` | 所有者限定の認証ファイルを保存し、`defaults.credential` を更新します。App キーや交換は[通常ファイルの認証情報](docs/file-credentials.ja.md)を参照してください。 |
 | `ghalet systemd credential set NAME --prompt` | サービス用 PAT を暗号化登録し、`defaults.credential` を更新します（Linux・root 必須）。App キー、自動構築、ローテーションは[認証情報](docs/credentials.ja.md)を参照してください。 |
 | `ghalet list` | アクセス可能なデーモンの管理 UID、ソケット、稼働状態を一覧表示します。`--config PATH` で絞り込めます。 |
 | `ghalet status` | 状態と容量を取得します。取得成功は正常稼働を意味しません。 |

@@ -318,6 +318,9 @@ func (s credentialStore) readSecret(ctx context.Context, options Options, input 
 		}
 		input = file
 	}
+	if input == nil {
+		return nil, errors.New("credential input is required")
+	}
 	data, err := io.ReadAll(io.LimitReader(input, maxCredentialSize+1))
 	if err != nil {
 		clear(data)
@@ -400,6 +403,10 @@ func snapshotCredentialFile(path string) (credentialFile, error) {
 }
 
 func defaultCredentialConfig(data []byte, options Options) ([]byte, error) {
+	return credentialConfig(data, options, "/run/credentials/ghalet.service/"+options.Name)
+}
+
+func credentialConfig(data []byte, options Options, path string) ([]byte, error) {
 	file, err := parser.ParseBytes(data, parser.ParseComments)
 	if err != nil {
 		return nil, errors.New("cannot parse the selected configuration")
@@ -416,7 +423,6 @@ func defaultCredentialConfig(data []byte, options Options) ([]byte, error) {
 		return nil, errors.New("configuration contains invalid or unknown fields; validate it before registering a credential")
 	}
 	cred := map[string]string{"type": options.Type}
-	path := "/run/credentials/ghalet.service/" + options.Name
 	if options.Type == "pat" {
 		cred["tokenFile"] = path
 	} else {
