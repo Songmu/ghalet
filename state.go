@@ -160,50 +160,50 @@ func (s stateStore) load() ([]recoveredState, error) {
 			record := recoveredState{Path: path}
 			if !run.IsDir() || run.Type()&os.ModeSymlink != 0 {
 				record.Err = errors.New("execution entry is not a real directory")
-				result = append(result, record)
-				continue
-			}
-			statePath := filepath.Join(path, "state.json")
-			info, err := os.Lstat(statePath)
-			if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
-				record.Err = fmt.Errorf("missing or unsafe state file in %s", path)
-				result = append(result, record)
-				continue
-			}
-			file, err := os.Open(statePath)
-			if err != nil {
-				record.Err = err
 			} else {
-				var state RunState
-				input := &io.LimitedReader{R: file, N: maxStateBytes + 1}
-				decoder := json.NewDecoder(input)
-				decoder.DisallowUnknownFields()
-				err = decoder.Decode(&state)
-				var extra any
-				if err == nil && decoder.Decode(&extra) != io.EOF {
-					err = errors.New("state contains trailing data")
-				}
-				if input.N == 0 {
-					err = fmt.Errorf("state exceeds %d byte limit", maxStateBytes)
-				}
-				file.Close()
-				if err == nil {
-					var dir string
-					dir, err = s.directory(&state)
-					if err == nil && (dir != path || state.Schema != 1 || state.UID <= 0 ||
-						state.RunnerName == "" || state.Phase == "" || !filepath.IsAbs(state.Home)) {
-						err = errors.New("invalid state schema, identity, phase or location")
-					}
-				}
-				if err == nil {
-					record.State = &state
-				}
-				record.Err = err
+				record.State, record.Err = s.loadRun(path)
 			}
 			result = append(result, record)
 		}
 	}
 	return result, nil
+}
+
+func (s stateStore) loadRun(path string) (*RunState, error) {
+	statePath := filepath.Join(path, "state.json")
+	info, err := os.Lstat(statePath)
+	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+		return nil, fmt.Errorf("missing or unsafe state file in %s", path)
+	}
+	file, err := os.Open(statePath)
+	if err != nil {
+		return nil, err
+	}
+	var state RunState
+	input := &io.LimitedReader{R: file, N: maxStateBytes + 1}
+	decoder := json.NewDecoder(input)
+	decoder.DisallowUnknownFields()
+	err = decoder.Decode(&state)
+	var extra any
+	if err == nil && decoder.Decode(&extra) != io.EOF {
+		err = errors.New("state contains trailing data")
+	}
+	if input.N == 0 {
+		err = fmt.Errorf("state exceeds %d byte limit", maxStateBytes)
+	}
+	file.Close()
+	if err != nil {
+		return nil, err
+	}
+	dir, err := s.directory(&state)
+	if err != nil {
+		return nil, err
+	}
+	if dir != path || state.Schema != 1 || state.UID <= 0 ||
+		state.RunnerName == "" || state.Phase == "" || !filepath.IsAbs(state.Home) {
+		return nil, errors.New("invalid state schema, identity, phase or location")
+	}
+	return &state, nil
 }
 
 func (s stateStore) removeFiles(state *RunState) error {

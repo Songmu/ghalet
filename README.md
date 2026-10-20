@@ -124,14 +124,14 @@ repository or organization registration, identified locally by its `id`.
 
 | Command | Purpose |
 | --- | --- |
-| `ghalet run` | Run the daemon in the foreground, accepting jobs and managing runner processes for all configured targets. |
-| `ghalet apply` | Reload configuration, drain all targets, and reconcile registrations before resuming. Remove unused scale sets for targets removed or replaced in configuration. |
-| `ghalet config validate` | Check configuration syntax, values and local path constraints without registering runners or contacting GitHub. |
-| `ghalet systemd credential set NAME --prompt` | Register an encrypted PAT for the Linux systemd service and update `defaults.credential`. Requires root; see [credentials](docs/credentials.md) for App keys, automation and rotation. |
-| `ghalet list` | List accessible, responsive daemons with their management UID, control socket and running state. Use `--config PATH` to filter. |
-| `ghalet status` | Read the running daemon's state and capacity snapshot. A successful response does not mean the daemon is healthy. |
-| `ghalet doctor` | Check the running daemon for diagnostic problems; exit nonzero when a problem is found. |
-| `ghalet gc [--dry-run]` | Recheck retained executions, clean up those verified safe to remove, and expire saved logs; use `--dry-run` to inspect without changes. |
+| `ghalet run` | Run the daemon in the foreground for all configured targets. |
+| `ghalet apply` | Drain targets, reload configuration, and reconcile registrations, attempting to delete unused scale sets. |
+| `ghalet config validate` | Validate configuration and local paths without contacting GitHub. |
+| `ghalet systemd credential set NAME --prompt` | Register an encrypted service PAT and update `defaults.credential` (Linux/root). See [credentials](docs/credentials.md) for App keys, automation and rotation. |
+| `ghalet list` | List accessible daemons, management UIDs, sockets and running snapshots; filter with `--config PATH`. |
+| `ghalet status` | Read state and capacity; a successful response does not imply health. |
+| `ghalet doctor` | Diagnose the daemon; exit nonzero for any problem. |
+| `ghalet gc [--dry-run]` | Clean verified stopped executions and expired logs; preview with `--dry-run`. |
 
 `ghalet --version` prints the installed version. Management responses are
 JSON, except for the credential setup instructions. `systemd credential set`
@@ -139,26 +139,20 @@ defaults to `/etc/ghalet/config.yaml`. Without `--config`, `status`, `doctor`,
 `apply`, and `gc` automatically select the single accessible daemon; multiple
 daemons require an explicit config. With none found, the per-user default
 `~/.config/ghalet/config.yaml` is used, as it is for `run` and `config validate`.
-`apply` reloads the selected daemon's own config, not a new or default file.
 See [configuration apply](docs/operations.md#applying-configuration) and
 [diagnosis and cleanup](docs/operations.md#diagnosis-and-garbage-collection)
 for exit codes, offline maintenance and deletion safeguards.
 
 ## Runtime behavior
 
-The default host capacity is two. Targets support minimum idle runners and
-per-target limits; real assigned jobs take precedence over idle warm pools.
-Normal termination drains accepted work. Crashes recover from small atomic
-state files and kernel process identities, retaining uncertain executions
-rather than guessing which process to kill.
+Host capacity defaults to two, with per-target limits and optional idle warm
+pools. Assigned jobs take priority. Atomic state files and kernel process
+identities support crash recovery; unverifiable executions retain capacity.
 
 Runner archives are automatically downloaded for the pinned version and
-verified against official SHA-256 digests. Daemon stdout is JSONL; optional
-runner logs are archived before execution cleanup. Use `apply` to update
-configuration or retry faulted targets. Execution-user and managed-directory
-changes require a normal stop/restart. Normal shutdown retains scale sets;
-`apply` attempts to delete those no longer referenced by the configuration.
-Runner groups are never deleted.
+verified against official SHA-256 digests. Daemon stdout is JSONL; runner logs
+are archived before cleanup by default. See [operations](docs/operations.md)
+for retries, recovery and log policy.
 
 ## Documentation
 

@@ -65,10 +65,9 @@ targets:
     scope: OWNER/REPO
 ```
 
-Only targets that omit `credential` inherit the shared default. Explicit
-target credentials replace it completely, with no partial merge or fallback;
-`credential: {}` explicitly selects `gh`. Shared defaults select one
-authentication type, never a PAT and an App key simultaneously.
+Only targets that omit `credential` inherit the shared default;
+`credential: {}` selects `gh`. See [credential inheritance](operations.md#configuration-and-credentials)
+for override rules.
 
 Validate and start explicitly:
 
@@ -134,13 +133,10 @@ or daemon reload attempt to restore the prior files and report any rollback
 errors explicitly. If file restoration fails, the previous ciphertext backup
 is retained and its path is included in the error.
 
-`apply` recreates SDK clients and rereads ordinary credential files, but the
-provided systemd units do not refresh decrypted credentials on reload.
-Encrypted credential rotation still requires a restart.
-Normal service shutdown
-drains accepted work. Check the daemon's exit result and logs, not just the stop
-command's result; do not start again after forced or incomplete drain.
-All targets sharing the changed credential switch on the next service start.
+Unlike ordinary credential files reread by `apply`, encrypted systemd
+credentials refresh only on service start. Stop normally and verify successful
+shutdown as shown above; resolve [forced or incomplete drain](operations.md#capacity-retries-and-shutdown)
+before starting again. All targets sharing the credential switch together.
 After verifying authentication and runner operation for every affected target,
 revoke the old PAT or remove the old App key, then remove its rollback backup:
 

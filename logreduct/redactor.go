@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"log/slog"
+	"slices"
 	"strings"
 	"sync"
 )
@@ -136,13 +137,8 @@ func (s *Redactor) Release(values []string) {
 				continue
 			}
 			delete(s.refs, component)
-			for i, old := range s.values {
-				if old == component {
-					copy(s.values[i:], s.values[i+1:])
-					s.values[len(s.values)-1] = ""
-					s.values = s.values[:len(s.values)-1]
-					break
-				}
+			if i := slices.Index(s.values, component); i >= 0 {
+				s.values = slices.Delete(s.values, i, i+1)
 			}
 		}
 	}

@@ -59,16 +59,11 @@ these HOME-based defaults. Paths follow the controller's environment, not
 root; separate instances need distinct state directories.
 These paths are not YAML settings.
 
-Edit the file and run `ghalet apply` to change targets, limits, credentials,
-runner versions, environment, timeouts, or log policy. Execution-user and
-managed-directory changes require a normal stop/restart.
-Editing the file alone does not change the running configuration or the
-control address: it is derived from the normalized absolute config path.
-`status`, `doctor`, and connected management commands query the
-running snapshot even if the file's contents are now invalid or it was removed.
-`apply` always reloads the selected daemon's original config path, preserving
-its relative-path base and leaving the file unchanged. It fails if that file
-is missing or invalid, rather than substituting the caller's default config.
+Editing the file alone changes neither the running configuration nor the
+control address, which is derived from the normalized absolute config path.
+Connected management commands query the running snapshot even if the file
+is invalid or missing. See [applying configuration](#applying-configuration)
+for reloadable settings and restart requirements.
 
 `examples/config.yaml` includes repository, organization, `gh`, PAT and App
 examples. Each target contains its registration `scope`. The optional
@@ -91,18 +86,11 @@ and workflow `runs-on` label, including a shared name across scopes.
 IDs must be unique across all targets and contain 1-64 ASCII letters,
 digits, underscores or hyphens, starting with a letter or digit.
 App `installationId` belongs to the target, not its credential, so multiple
-installations can share a single App key. A minimal configuration is:
+installations can share a single App key.
 
-```yaml
-# yaml-language-server: $schema=https://raw.githubusercontent.com/Songmu/ghalet/main/schema.yaml
-
-targets:
-  - id: build
-    scope: OWNER/REPO
-```
-
-The optional first-line comment selects the repository's `schema.yaml` for
-editor completion and validation. No configuration version field is needed.
+The [commented example](../examples/config.yaml) includes an optional
+`yaml-language-server` comment selecting `schema.yaml` for editor completion
+and validation. No configuration version field is needed.
 Use `ghalet config validate` to also check constraints such as conflicting
 registrations, minimum capacities, and managed directory safety.
 
@@ -139,12 +127,9 @@ Group access policy and App installation access are separate. Create groups
 and grant their repository access in GitHub first: ghalet never creates,
 changes access to, or deletes runner groups.
 
-The selected SDK supports PAT/App-based renewal of management tokens. It
-does not expose a standalone one-time registration-token provider that can
-reacquire credentials indefinitely. A registration-token-only mode is
-therefore **not offered**; indefinite operation/restart with just such a token
-has not been demonstrated. This is an SDK/support limitation, not a claim
-that an alternative future protocol is impossible.
+The SDK supports PAT/App-based management-token renewal, but does not expose
+a renewable registration-token-only provider. No registration-token-only
+mode is offered.
 
 ## Direct execution and environment
 
@@ -204,7 +189,6 @@ closed. The runner cache stores both the pinned digest and the archive;
 each execution gets an independent extraction into its execution directory.
 A corrupt cache is not silently replaced: remove the indicated bad archive,
 then restart.
-Automatic runner updates are disabled on the explicit scale set.
 
 ## Capacity, retries and shutdown
 
@@ -238,6 +222,7 @@ Workflow results are not retried by ghalet.
 
 SIGINT/SIGTERM starts drain for all targets during normal shutdown.
 `apply` also drains all targets before switching configuration.
+Normal shutdown retains scale sets.
 New acquisitions and warm replenishment stop, but already assigned,
 unstarted jobs can still provision runners within both limits. The drain
 deadline starts at the request, not at each runner's start. The default
@@ -277,8 +262,13 @@ ghalet apply --config /path/to/config.yaml
 sudo systemctl reload ghalet
 ```
 
-`apply` requires a running daemon and waits for reconciliation. It validates
-the new configuration before stopping new job acceptance, drains all targets
+Edit the file and run `apply` to change targets, limits, credentials, runner
+versions, environment, timeouts or log policy. It requires a running daemon
+and reloads that daemon's original config path without modifying the file.
+Missing or invalid configuration fails rather than falling back to another file.
+
+`apply` waits for reconciliation. It validates the new configuration before
+stopping new job acceptance, drains all targets
 under the old limits/timeouts, closes their listeners, then registers targets
 from the new configuration and waits for their listener initialization.
 Unchanged scale sets are reused. Startup failures are reported by apply;
@@ -304,8 +294,8 @@ capacity. Concurrent apply requests are rejected; shutdown interrupts apply.
 If the CLI disconnects or times out, the daemon continues the request; inspect
 `status` and `doctor` before retrying.
 
-The execution user and `logs.root` cannot change through apply.
-These changes are rejected before drain.
+Execution-user and managed-directory changes require a normal stop/restart
+and are rejected before drain.
 Environment variables and systemd's decrypted credential files belong to the
 running service; the provided units require a restart to refresh those inputs. Ordinary
 credential files are reread when apply creates new clients.
@@ -396,10 +386,9 @@ log shipping.
 Live output capture and diagnostic-log archival limit each line to 64 KiB
 (excluding the newline). An oversized line is omitted in full and replaced
 with `[ghalet: log line over 64 KiB omitted]`; capture resumes at the next
-newline. This deliberately favors bounded daemon memory over preserving
-arbitrarily large log lines. No prefix is emitted, so a secret spanning the
-limit cannot leak through a partially retained line. Ordinary lines still
-support redaction and readiness detection across write boundaries.
+newline. This bounds memory without leaking a secret through a partial line.
+Ordinary lines still support redaction and readiness detection across write
+boundaries.
 
 Known management and JIT values are redacted. Nonblank lines of multiline
 values, including App private keys, are also masked independently, with
@@ -442,10 +431,9 @@ file in `~/Library/LaunchAgents/`. Use `launchctl bootstrap gui/$(id -u) FILE`.
 The 900-second service stop limit exceeds the default 10-minute drain by five
 minutes; increase it if changing the configured timeout. Zero would mean an
 infinite launchd stop wait and is deliberately avoided. `AbandonProcessGroup`
-is false so launchd also cleans up the controller's own group. Runner groups
-are separate: when launchd finally kills a stuck controller, their guards
-observe pipe EOF and kill their respective groups. The same mechanism handles
-controller crashes and SIGKILL outside launchd. This is not cgroup isolation:
+is false so launchd also cleans up the controller's own group. Separate runner
+groups use the [guards described above](#capacity-retries-and-shutdown).
+This is not cgroup isolation:
 trusted jobs must not kill their guard or escape its group, and kernel/host
 failure can interrupt supervision. LaunchAgents start at login, not before
 login, and do not prevent sleep. For another execution user, use an

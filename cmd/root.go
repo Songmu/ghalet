@@ -72,21 +72,25 @@ func Run(ctx context.Context, argv []string, outStream, errStream io.Writer) err
 	slog.SetDefault(slog.New(slog.NewJSONHandler(logStream, &slog.HandlerOptions{
 		ReplaceAttr: logreduct.Default.ReplaceAttr,
 	})))
-	commands := map[string]func() error{
-		"run":      func() error { return run(ctx, *config) },
-		"apply":    func() error { return apply(ctx, *config, outStream) },
-		"validate": func() error { return validate(*config, outStream) },
-		"list":     func() error { return list(ctx, *config, outStream) },
-		"status":   func() error { return status(ctx, *config, outStream) },
-		"doctor":   func() error { return doctor(ctx, *config, outStream) },
-		"gc":       func() error { return gc(ctx, *config, *dryRun, outStream) },
-	}
-	run, ok := commands[command]
-	if !ok {
+	switch command {
+	case "run":
+		return run(ctx, *config)
+	case "apply":
+		return apply(ctx, *config, outStream)
+	case "validate":
+		return validate(*config, outStream)
+	case "list":
+		return list(ctx, *config, outStream)
+	case "status":
+		return status(ctx, *config, outStream)
+	case "doctor":
+		return doctor(ctx, *config, outStream)
+	case "gc":
+		return gc(ctx, *config, *dryRun, outStream)
+	default:
 		fs.Usage()
 		return errors.New("a supported command is required")
 	}
-	return run()
 }
 
 func printVersion(out io.Writer) error {
