@@ -100,19 +100,17 @@ jobs:
       - run: uname -a
 ```
 
-別のターミナルから状態確認や drain を実行できます。
+別のターミナルから状態確認を実行できます。
 
 ```sh
 ghalet status
 ghalet doctor
-ghalet drain --target project
 ```
 
-`drain` は指定 target の新規ジョブ受付を止め、受付済みの処理を待ちます。
-デーモン自体は動き続けます。デーモン全体を停止するには、起動したターミナルで
-Ctrl-C を押してください。いずれも設定した drain の期限を使い、
-期限を超えたジョブは強制停止される場合があります。drain 済みの target の再開や
-設定変更の反映には、デーモンを再起動します。
+デーモンを停止するには、起動したターミナルで Ctrl-C を押してください。
+通常停止では全 target の新規ジョブ受付を止め、設定した drain の期限まで
+受付済みの処理を待ちます。期限を超えたジョブは強制停止される場合があります。
+設定変更を反映するために再起動する前に、停止が正常完了したことを確認してください。
 
 ## コマンド
 
@@ -126,7 +124,6 @@ Ctrl-C を押してください。いずれも設定した drain の期限を使
 | `ghalet systemd credential set NAME --prompt` | Linux の systemd サービス用 PAT を暗号化して登録し、`defaults.credential` を更新します。root 権限が必要です。App キー、自動構築、ローテーションは[認証情報](docs/credentials.ja.md)を参照してください。 |
 | `ghalet status` | 稼働中デーモンの状態と容量のスナップショットを取得します。取得成功は正常稼働を意味しません。 |
 | `ghalet doctor` | 稼働中デーモンの問題を診断し、問題があれば非ゼロで終了します。 |
-| `ghalet drain [--target ID]` | 指定 target、または全 target の新規受付を止め、受付済みジョブを待ちます。デーモンは動き続けます。 |
 | `ghalet gc [--dry-run]` | 保留中の実行を再検証し、安全に削除できるものの cleanup と保存ログの期限切れ削除を行います。`--dry-run` では変更せず確認できます。 |
 | `ghalet destroy --target ID --scale-set NAME` | 対話で `yes` を入力して承認した後、明示した Scale Set を drain・削除します。Organization では `--runner-group NAME` も指定します。runner group 自体は削除しません。 |
 

@@ -120,9 +120,9 @@ so configuration stays unchanged:
 
 ```sh
 sudo ghalet systemd credential set default --prompt --no-default
-sudo ghalet drain --config /etc/ghalet/config.yaml
-# Continue only after successful drain.
-sudo systemctl restart ghalet
+sudo systemctl stop ghalet
+# Check the daemon's exit result and logs; continue only after successful shutdown.
+sudo systemctl start ghalet
 ```
 
 App keys use the same command with `--type github-app --file /secure/new.pem`
@@ -134,8 +134,9 @@ or daemon reload attempt to restore the prior files and report any rollback
 errors explicitly. If file restoration fails, the previous ciphertext backup
 is retained and its path is included in the error.
 
-Credentials and the SDK's PAT/key are not hot-reloaded. Drain must complete
-successfully before restart; do not restart after forced or incomplete drain.
+Credentials and the SDK's PAT/key are not hot-reloaded. Normal service shutdown
+drains accepted work. Check the daemon's exit result and logs, not just the stop
+command's result; do not start again after forced or incomplete drain.
 All targets sharing the changed credential switch on the next service start.
 After verifying authentication and runner operation for every affected target,
 revoke the old PAT or remove the old App key, then remove its rollback backup:
@@ -144,12 +145,14 @@ revoke the old PAT or remove the old App key, then remove its rollback backup:
 sudo rm -- /etc/ghalet/credentials/default.cred.previous
 ```
 
-If the new credential fails, keep the old credential valid and restore its
-encrypted backup before restarting:
+If the new credential fails, keep the old credential valid. Stop normally,
+verify successful shutdown, restore its encrypted backup, then start again:
 
 ```sh
+sudo systemctl stop ghalet
+# Check the daemon's exit result and logs; continue only after successful shutdown.
 sudo mv -- /etc/ghalet/credentials/default.cred.previous /etc/ghalet/credentials/default.cred
-sudo systemctl restart ghalet
+sudo systemctl start ghalet
 ```
 
 Rollback of a rotation does not change YAML. When changing authentication

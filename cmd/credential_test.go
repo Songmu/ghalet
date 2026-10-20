@@ -141,7 +141,7 @@ func TestPrintCredentialResult(t *testing.T) {
 			if tc.rotation {
 				result.PreviousPath = result.EncryptedPath + ".previous"
 				want += "Previous encrypted credential: /etc/ghalet/credentials/default.cred.previous\n" +
-					"Drain successfully, restart ghalet, and verify all affected targets before revoking the old credential and deleting this backup.\n"
+					"Stop ghalet normally and verify successful shutdown from its exit result and logs, then start it and verify all affected targets before revoking the old credential and deleting this backup.\n"
 			} else {
 				want += "The service was not started or restarted. Validate the configuration before starting it.\n"
 			}

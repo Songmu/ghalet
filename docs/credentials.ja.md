@@ -115,9 +115,9 @@ target の `installationId` を指定します。同じパスを複数 target �
 
 ```sh
 sudo ghalet systemd credential set default --prompt --no-default
-sudo ghalet drain --config /etc/ghalet/config.yaml
-# drain が正常完了した場合だけ続けます。
-sudo systemctl restart ghalet
+sudo systemctl stop ghalet
+# デーモンの終了結果とログで正常終了を確認した場合だけ続けます。
+sudo systemctl start ghalet
 ```
 
 App キーの場合は、`--prompt` の代わりに
@@ -129,9 +129,10 @@ App キーの場合は、`--prompt` の代わりに
 以前のファイルへの復元を試み、復元自体の失敗も明示します。ファイルの復元に失敗した
 場合は旧暗号文のバックアップを保持し、エラーにそのパスを表示します。
 
-認証情報と SDK の PAT／鍵はホットリロードされません。
-再起動前に drain の正常完了を確認し、強制終了や不完全な drain の後には続行しないで
-ください。同じ認証情報を共有する全 target が、次のサービス起動で切り替わります。
+認証情報と SDK の PAT／鍵はホットリロードされません。サービスの通常停止時に
+受付済みの処理を drain します。停止コマンドの結果だけでなく、デーモンの終了結果と
+ログを確認し、強制終了や不完全な drain の後には起動しないでください。
+同じ認証情報を共有する全 target が、次のサービス起動で切り替わります。
 対象 target 全てで認証と runner の動作を確認したら、旧 PAT を失効させるか旧 App
 キーを削除し、ロールバック用の暗号文も削除します。
 
@@ -139,12 +140,14 @@ App キーの場合は、`--prompt` の代わりに
 sudo rm -- /etc/ghalet/credentials/default.cred.previous
 ```
 
-新しい認証情報で失敗した場合は、旧認証情報を有効なまま保ち、
-暗号化バックアップを戻してから再起動します。
+新しい認証情報で失敗した場合は、旧認証情報を有効なまま保ちます。通常停止と
+正常終了の確認後に暗号化バックアップを戻し、再び起動します。
 
 ```sh
+sudo systemctl stop ghalet
+# デーモンの終了結果とログで正常終了を確認した場合だけ続けます。
 sudo mv -- /etc/ghalet/credentials/default.cred.previous /etc/ghalet/credentials/default.cred
-sudo systemctl restart ghalet
+sudo systemctl start ghalet
 ```
 
 ローテーションのロールバックでは YAML は変えません。認証方式や App の識別情報を

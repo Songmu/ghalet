@@ -99,7 +99,7 @@ func printCredentialResult(out io.Writer, options credentialstore.Options, resul
 		}
 	}
 	if result.PreviousPath != "" {
-		_, err = fmt.Fprintf(out, "Previous encrypted credential: %s\nDrain successfully, restart ghalet, and verify all affected targets before revoking the old credential and deleting this backup.\n", result.PreviousPath)
+		_, err = fmt.Fprintf(out, "Previous encrypted credential: %s\nStop ghalet normally and verify successful shutdown from its exit result and logs, then start it and verify all affected targets before revoking the old credential and deleting this backup.\n", result.PreviousPath)
 	} else {
 		_, err = fmt.Fprintln(out, "The service was not started or restarted. Validate the configuration before starting it.")
 	}

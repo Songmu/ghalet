@@ -26,7 +26,7 @@ Configuration is immutable while a daemon is running. Stop it normally,
 edit the file, and restart it to change targets, paths, limits, users,
 credentials, or runner versions. Editing the file does not change the
 control address: it is derived from the normalized absolute config path.
-`status`, `doctor`, `drain`, and connected management commands query the
+`status`, `doctor`, and connected management commands query the
 running snapshot even if the file's contents are now invalid.
 
 `examples/config.yaml` includes repository, organization, `gh`, PAT and App
@@ -194,11 +194,12 @@ starts are rate-limited to one per second per target. A target that exhausts
 retries remains faulted until a normal stop/restart; other targets continue.
 Workflow results are not retried by ghalet.
 
-SIGINT/SIGTERM starts drain for all targets. `ghalet drain --target ID`
-drains only that target and leaves the daemon running. New acquisitions and
-warm replenishment stop, but already assigned, unstarted jobs can still
-provision runners within both limits. The drain deadline starts at the
-request, not at each runner's start. The default `drainTimeout` is 10 minutes.
+SIGINT/SIGTERM starts drain for all targets during normal shutdown.
+`destroy` drains the selected target before deleting its registration.
+New acquisitions and warm replenishment stop, but already assigned,
+unstarted jobs can still provision runners within both limits. The drain
+deadline starts at the request, not at each runner's start. The default
+`drainTimeout` is 10 minutes.
 After that deadline, preparation is canceled and verified process groups,
 including busy jobs, receive SIGTERM, followed by SIGKILL if they remain.
 The controller waits for runner process groups to stop and local exit/output
@@ -207,6 +208,13 @@ name or PID alone and continue to block shutdown until their groups are
 confirmed absent. Their records and diagnostics remain for inspection;
 absence alone does not authorize cleanup. Forced shutdown is reported as
 incomplete, not success.
+
+For configuration or credential changes, stop the daemon normally and
+verify successful shutdown before starting it again. In the foreground,
+check the exit status of `ghalet run`; under a service manager, check the
+daemon's exit result and logs rather than only the stop command's result.
+Do not proceed with a restart after forced or incomplete drain; inspect
+diagnostics and resolve retained executions or cleanup failures first.
 
 On native macOS, each new runner has a small foreground guard as its process
 group leader. The durable launch gate also supplies controller liveness:
@@ -232,7 +240,7 @@ ghalet destroy --config /path/to/config.yaml --target project --scale-set macmin
 Management-command responses are JSON. `status` returns zero when it
 retrieves a snapshot, including an unhealthy one. `doctor` is nonzero for
 any diagnostic problem.
-`drain`, `gc`, and `destroy` are nonzero for any failed/incomplete part and
+`gc` and `destroy` are nonzero for any failed/incomplete part and
 include individual results. A partial management failure does not terminate
 the daemon or roll back successful cleanup.
 

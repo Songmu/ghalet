@@ -461,21 +461,37 @@ func TestDestroyAPIPreservesIncompleteDrainSnapshot(t *testing.T) {
 	}
 }
 
-func TestDrainAPISelectsTarget(t *testing.T) {
+func TestControlRejectsStandaloneDrain(t *testing.T) {
 	d, _ := testDaemon(t)
-	useFakeManagement(d, &fakeScaleAPI{})
 	server, err := listenControl(d.config.Path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { server.close(); os.Remove(server.path + ".lock") })
 	go server.serve(d)
-	if _, err := Drain(t.Context(), d.config.Path, "missing"); err == nil {
+	for _, target := range []string{"", "build", "missing"} {
+		response, err := controlCall(t.Context(), d.config.Path, controlRequest{Command: "drain", Target: target})
+		if err != nil || response.Error != "unknown control command" || response.Status != nil {
+			t.Fatal("standalone drain was not rejected", response, err)
+		}
+		d.mu.Lock()
+		draining := d.targets["build"].Draining
+		d.mu.Unlock()
+		if draining {
+			t.Fatal("rejected control request started drain")
+		}
+	}
+}
+
+func TestDrainSelectsTarget(t *testing.T) {
+	d, _ := testDaemon(t)
+	useFakeManagement(d, &fakeScaleAPI{})
+	if response := d.drain(t.Context(), "missing"); response.Error == "" {
 		t.Fatal("unknown target was accepted")
 	}
-	status, err := Drain(t.Context(), d.config.Path, "build")
-	if err != nil || status == nil || len(status.Targets) != 1 || !status.Targets[0].Draining {
-		t.Fatal("selected target was not drained", status, err)
+	response := d.drain(t.Context(), "build")
+	if response.Error != "" || response.Status == nil || len(response.Status.Targets) != 1 || !response.Status.Targets[0].Draining {
+		t.Fatal("selected target was not drained", response)
 	}
 }
 
