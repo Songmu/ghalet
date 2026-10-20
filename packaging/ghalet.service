@@ -10,8 +10,8 @@ User=root
 Group=root
 Environment=PATH=/usr/local/bin:/usr/bin:/bin
 ExecStart=/usr/bin/ghalet run --config /etc/ghalet/config.yaml
-StandardOutput=append:/var/log/ghalet/ghalet.log
-StandardError=inherit
+StandardOutput=journal
+StandardError=journal
 Restart=on-failure
 RestartSec=10
 KillMode=mixed

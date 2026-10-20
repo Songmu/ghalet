@@ -30,8 +30,8 @@ for path in /etc/ghalet /etc/ghalet/credentials /var/cache/ghalet /var/log/ghale
 done
 grep -qx 'User=root' /usr/lib/systemd/system/ghalet.service
 grep -qx 'Group=root' /usr/lib/systemd/system/ghalet.service
-grep -qx 'StandardOutput=append:/var/log/ghalet/ghalet.log' /usr/lib/systemd/system/ghalet.service
-grep -qx 'StandardError=inherit' /usr/lib/systemd/system/ghalet.service
+grep -qx 'StandardOutput=journal' /usr/lib/systemd/system/ghalet.service
+grep -qx 'StandardError=journal' /usr/lib/systemd/system/ghalet.service
 grep -qx 'KillMode=mixed' /usr/lib/systemd/system/ghalet.service
 grep -qx 'TimeoutStopSec=15min' /usr/lib/systemd/system/ghalet.service
 grep -qx 'ExecStart=/usr/bin/ghalet run --config /etc/ghalet/config.yaml' \
@@ -48,7 +48,9 @@ cp /usr/share/ghalet/config.yaml.example /etc/ghalet/config.yaml
 config_sum=$(sha256sum < /etc/ghalet/config.yaml)
 /usr/bin/ghalet config validate --config /etc/ghalet/config.yaml
 grep -qx '  user: ghalet-runner' /etc/ghalet/config.yaml
-touch /var/lib/ghalet/retained-state /etc/ghalet/credentials/retained-credential
+grep -qx '  logRoot: /var/log/ghalet/runners' /etc/ghalet/config.yaml
+touch /var/lib/ghalet/retained-state /etc/ghalet/credentials/retained-credential \
+  /var/log/ghalet/retained-log
 chmod 0600 /etc/ghalet/credentials/retained-credential
 # shellcheck disable=SC2016
 su -s /bin/sh ghalet-runner -c '
@@ -61,22 +63,14 @@ su -s /bin/sh ghalet-runner -c '
   test ! -w /var/cache/ghalet &&
   test ! -w /var/log/ghalet
 '
-printf '%s\n' '{"msg":"package log rotation test"}' > /var/log/ghalet/ghalet.log
-chmod 0600 /var/log/ghalet/ghalet.log
-logrotate --force --state /var/lib/ghalet/logrotate.status /etc/logrotate.d/ghalet
-test ! -s /var/log/ghalet/ghalet.log
-grep -qx '{"msg":"package log rotation test"}' /var/log/ghalet/ghalet.log.1
-test "$(stat -c %U:%G:%a /var/log/ghalet/ghalet.log.1)" = root:root:600
-printf '%s\n' '# Retain local log rotation settings.' >> /etc/logrotate.d/ghalet
-logrotate_sum=$(sha256sum < /etc/logrotate.d/ghalet)
 
 case "$format" in
   deb) apt-get install -y --reinstall --no-install-recommends "$package" ;;
   rpm) dnf reinstall -y --setopt=install_weak_deps=False "$package" ;;
 esac
 test "$(sha256sum < /etc/ghalet/config.yaml)" = "$config_sum"
-test "$(sha256sum < /etc/logrotate.d/ghalet)" = "$logrotate_sum"
 test -e /var/lib/ghalet/retained-state
+test -e /var/log/ghalet/retained-log
 if [ -d /run/systemd/system ]; then
   test "$(systemctl show --property=ActiveState --value ghalet.service)" = inactive
 fi
@@ -90,5 +84,5 @@ test ! -e /usr/lib/systemd/system/ghalet.service
 test "$(sha256sum < /etc/ghalet/config.yaml)" = "$config_sum"
 test -e /var/lib/ghalet/retained-state
 test -e /etc/ghalet/credentials/retained-credential
-test -e /var/log/ghalet/ghalet.log.1
+test -e /var/log/ghalet/retained-log
 id ghalet-runner

@@ -52,15 +52,11 @@ target の `credential` を変更し、所有者だけが読める秘密鍵フ�
 
 サンプル設定は、実行データと runner のメタデータを `/var/lib/ghalet`、
 ダウンロードを `/var/cache/ghalet`、保存する runner ログを `cleanup.logRoot` により
-`/var/log/ghalet/runners` 以下に配置します。systemd unit はデーモンの標準出力と
-標準エラーを `/var/log/ghalet/ghalet.log` に追記します。同梱の logrotate 設定で
-日次ローテーションし、14 世代を保持して古いログを圧縮します。
-管理プロセスの再起動やジョブの中断を避けるため `copytruncate` を使いますが、
-ローテーション時に少数のログが欠落する可能性があります。
-サービスの起動・停止などのメッセージは引き続き journal で確認できます。
+`/var/log/ghalet/runners` 以下に配置します。デーモンの標準出力と標準エラーは
+journal に記録し、永続化・ローテーション・保持期間はホストの journald 設定に従います。
 
 ```sh
-sudo tail -F /var/log/ghalet/ghalet.log
+sudo journalctl -u ghalet -f
 sudo ghalet doctor --config /etc/ghalet/config.yaml
 ```
 

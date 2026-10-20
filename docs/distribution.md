@@ -53,15 +53,12 @@ Do not put credentials inline in YAML or in shell command arguments.
 
 The sample places executions and runner metadata under `/var/lib/ghalet`,
 downloads under `/var/cache/ghalet`, and saved runner logs under
-`/var/log/ghalet/runners` through `cleanup.logRoot`. The systemd unit appends
-daemon stdout and stderr to `/var/log/ghalet/ghalet.log`. The packaged logrotate
-configuration rotates that file daily, retaining 14 archives and compressing
-older archives. It uses `copytruncate` to avoid restarting the controller or
-interrupting jobs; a small number of log records may be lost during rotation.
-Service lifecycle messages remain available in the journal.
+`/var/log/ghalet/runners` through `cleanup.logRoot`. Daemon stdout and stderr
+go to the journal; persistence, rotation, and retention follow the host's
+journald configuration.
 
 ```sh
-sudo tail -F /var/log/ghalet/ghalet.log
+sudo journalctl -u ghalet -f
 sudo ghalet doctor --config /etc/ghalet/config.yaml
 ```
 
