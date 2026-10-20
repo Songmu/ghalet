@@ -8,6 +8,7 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"html"
 	"io"
@@ -25,6 +26,7 @@ import (
 	"github.com/Songmu/ghalet"
 	"github.com/Songmu/ghalet/credentialstore"
 	"github.com/golang-jwt/jwt/v5"
+	"golang.org/x/sys/unix"
 )
 
 type fixture struct {
@@ -127,9 +129,31 @@ func (f *fixture) apiHandler(t *testing.T) http.HandlerFunc {
 	}
 }
 
-type confirmationReader func([]byte) (int, error)
+type confirmationOutput struct {
+	io.Writer
+	onPrompt func()
+}
 
-func (read confirmationReader) Read(data []byte) (int, error) { return read(data) }
+func (output confirmationOutput) Write(data []byte) (int, error) {
+	if bytes.Contains(data, []byte("Write these configuration changes?")) {
+		output.onPrompt()
+	}
+	return output.Writer.Write(data)
+}
+
+func confirmationInput(t *testing.T, answer string) *os.File {
+	t.Helper()
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { reader.Close() })
+	defer writer.Close()
+	if _, err := io.WriteString(writer, answer); err != nil {
+		t.Fatal(err)
+	}
+	return reader
+}
 
 func TestSetupRejectsKeyReplacementAfterVerification(t *testing.T) {
 	for _, stage := range []string{"polling", "confirmation"} {
@@ -154,18 +178,17 @@ func TestSetupRejectsKeyReplacementAfterVerification(t *testing.T) {
 					t.Error("could not perform concurrent key replacement", err)
 				}
 			}
-			var input io.Reader
+			var input *os.File
+			var buffer bytes.Buffer
+			var output io.Writer = &buffer
 			if stage == "polling" {
 				f.onLookup = rotate
 			} else {
 				f.options.Yes = false
-				input = confirmationReader(func(data []byte) (int, error) {
-					rotate()
-					return copy(data, "yes\n"), io.EOF
-				})
+				input = confirmationInput(t, "yes\n")
+				output = confirmationOutput{Writer: &buffer, onPrompt: rotate}
 			}
-			var output bytes.Buffer
-			_, err = f.run(t.Context(), f.options, input, &output)
+			_, err = f.run(t.Context(), f.options, input, output)
 			if err == nil || !strings.Contains(err.Error(), "key changed during setup") {
 				t.Fatal("setup committed an unverified replacement key", err)
 			}
@@ -345,12 +368,125 @@ func TestManifestSetup(t *testing.T) {
 	}
 }
 
+func TestSetupWithUnquotedNumericTargetID(t *testing.T) {
+	f := setupFixture(t, "owner/repo", "User")
+	data, err := os.ReadFile(f.options.Config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data = bytes.Replace(data, []byte("id: build"), []byte("id: 123"), 1)
+	if err := os.WriteFile(f.options.Config, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	f.options.Target = "123"
+	var output bytes.Buffer
+	result, err := f.run(t.Context(), f.options, nil, &output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config, err := ghalet.LoadConfig(f.options.Config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Target != "123" || config.Targets[0].ID != "123" ||
+		config.Targets[0].InstallationID != 123 || config.Targets[0].Credential.ClientID != "Iv1.test" ||
+		config.Targets[1].Credential.Type != "gh" || config.Defaults.Credential.Type != "gh" {
+		t.Fatal("numeric target ID did not select the correct configuration mapping")
+	}
+}
+
+func TestUnansweredConfirmationIsInterruptible(t *testing.T) {
+	for _, stage := range []string{"cancellation", "deadline"} {
+		t.Run(stage, func(t *testing.T) {
+			f := setupFixture(t, "owner/repo", "User")
+			f.options.Yes = false
+			before, err := os.ReadFile(f.options.Config)
+			if err != nil {
+				t.Fatal(err)
+			}
+			reader, writer, err := os.Pipe()
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer reader.Close()
+			defer writer.Close()
+			fd := reader.Fd()
+			flags, err := unix.FcntlInt(fd, unix.F_GETFL, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			prompted := make(chan struct{})
+			output := confirmationOutput{Writer: io.Discard, onPrompt: func() { close(prompted) }}
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			done := make(chan error, 1)
+			go func() {
+				_, err := f.run(ctx, f.options, reader, output)
+				done <- err
+			}()
+			select {
+			case <-prompted:
+			case err := <-done:
+				t.Fatal("setup failed before reaching confirmation", err)
+			case <-time.After(5 * time.Second):
+				cancel()
+				reader.Close()
+				<-done
+				t.Fatal("setup did not reach confirmation")
+			}
+			wantError := context.DeadlineExceeded
+			if stage == "cancellation" {
+				cancel()
+				wantError = context.Canceled
+			}
+			select {
+			case err := <-done:
+				if !errors.Is(err, wantError) {
+					t.Fatal("unanswered confirmation did not preserve the context error", err)
+				}
+			case <-time.After(5 * time.Second):
+				cancel()
+				reader.Close()
+				<-done
+				t.Fatal("confirmation remained blocked after cancellation/deadline")
+			}
+			currentFlags, err := unix.FcntlInt(fd, unix.F_GETFL, 0)
+			if err != nil || currentFlags != flags {
+				t.Fatal("confirmation closed the caller's input or changed its flags", err)
+			}
+			after, err := os.ReadFile(f.options.Config)
+			if err != nil || !bytes.Equal(before, after) {
+				t.Fatal("interrupted confirmation changed configuration", err)
+			}
+			if _, err := unix.FcntlInt(fd, unix.F_SETFL, flags|unix.O_NONBLOCK); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := io.WriteString(writer, "after\n"); err != nil {
+				t.Fatal(err)
+			}
+			var input [6]byte
+			n, err := unix.Read(int(fd), input[:])
+			if err != nil || string(input[:n]) != "after\n" {
+				t.Fatal("a confirmation reader consumed input after setup returned", err)
+			}
+			if _, err := unix.FcntlInt(fd, unix.F_SETFL, flags); err != nil {
+				t.Fatal(err)
+			}
+			f.options.Yes = true
+			result, err := f.run(t.Context(), f.options, nil, io.Discard)
+			if err != nil || result.InstallationID != 123 || f.conversions.Load() != 1 {
+				t.Fatal("setup lock was not released or saved App/key could not be reused", err)
+			}
+		})
+	}
+}
+
 func TestSetupResumeAfterDecline(t *testing.T) {
 	f := setupFixture(t, "owner/repo", "User")
 	f.options.Yes = false
 	before, _ := os.ReadFile(f.options.Config)
 	var output bytes.Buffer
-	first, err := f.run(t.Context(), f.options, strings.NewReader("n\n"), &output)
+	first, err := f.run(t.Context(), f.options, confirmationInput(t, "n\n"), &output)
 	if err == nil || !strings.Contains(err.Error(), "not changed") {
 		t.Fatal("declined configuration was applied", err)
 	}

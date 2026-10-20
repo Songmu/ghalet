@@ -28,6 +28,14 @@ func configSnapshot(path string) ([]byte, error) {
 }
 
 func targetConfig(data []byte, target string, state savedApp, installationID int64) ([]byte, error) {
+	var identities struct {
+		Targets []struct {
+			ID string `yaml:"id"`
+		} `yaml:"targets"`
+	}
+	if err := yaml.Unmarshal(data, &identities); err != nil {
+		return nil, errors.New("cannot decode target IDs for configuration update")
+	}
 	var document yaml.MapSlice
 	comments := yaml.CommentMap{}
 	if err := yaml.UnmarshalWithOptions(data, &document, yaml.UseOrderedMap(), yaml.CommentToMap(comments)); err != nil {
@@ -42,18 +50,15 @@ func targetConfig(data []byte, target string, state savedApp, installationID int
 		if !ok {
 			return nil, errors.New("configuration targets must be a sequence")
 		}
+		if len(targets) != len(identities.Targets) {
+			return nil, errors.New("configuration target mappings do not match decoded target IDs")
+		}
 		for i, value := range targets {
 			mapping, ok := value.(yaml.MapSlice)
 			if !ok {
 				return nil, errors.New("configuration target must be a mapping")
 			}
-			match := false
-			for _, entry := range mapping {
-				if entry.Key == "id" && entry.Value == target {
-					match = true
-				}
-			}
-			if !match {
+			if identities.Targets[i].ID != target {
 				continue
 			}
 			credential := yaml.MapSlice{

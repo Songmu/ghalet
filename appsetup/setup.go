@@ -3,7 +3,6 @@
 package appsetup
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"crypto/sha256"
@@ -54,7 +53,8 @@ type service struct {
 }
 
 // Setup creates or resumes an App registration, then confirms and updates a target.
-func Setup(ctx context.Context, options Options, input io.Reader, output io.Writer) (Result, error) {
+// input supplies confirmation and remains open when setup returns.
+func Setup(ctx context.Context, options Options, input *os.File, output io.Writer) (Result, error) {
 	return (service{
 		api: apiClient{base: "https://api.github.com", http: &http.Client{
 			Timeout: 30 * time.Second,
@@ -66,7 +66,7 @@ func Setup(ctx context.Context, options Options, input io.Reader, output io.Writ
 	}).run(ctx, options, input, output)
 }
 
-func (s service) run(ctx context.Context, options Options, input io.Reader, output io.Writer) (Result, error) {
+func (s service) run(ctx context.Context, options Options, input *os.File, output io.Writer) (Result, error) {
 	if err := (credentialstore.Options{Name: options.Name, Type: "github-app", Stdin: true, NoDefault: true}).Validate(); err != nil {
 		return Result{}, err
 	}
@@ -207,12 +207,9 @@ func (s service) run(ctx context.Context, options Options, input io.Reader, outp
 		if _, err := fmt.Fprint(output, "Write these configuration changes? [y/N] "); err != nil {
 			return result, err
 		}
-		if input == nil {
-			return result, errors.New("confirmation input is required (or use --yes)")
-		}
-		answer, err := bufio.NewReader(input).ReadString('\n')
-		if err != nil && !errors.Is(err, io.EOF) {
-			return result, errors.New("cannot read setup confirmation")
+		answer, err := readConfirmation(ctx, input)
+		if err != nil {
+			return result, fmt.Errorf("cannot read setup confirmation: %w; App/key retained, rerun setup to resume", err)
 		}
 		if !strings.EqualFold(strings.TrimSpace(answer), "y") && !strings.EqualFold(strings.TrimSpace(answer), "yes") {
 			return result, errors.New("configuration not changed; App/key retained, rerun setup to resume")
