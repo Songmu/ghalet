@@ -1,4 +1,4 @@
-package cmd
+package credentialstore
 
 import (
 	"bytes"
@@ -30,10 +30,9 @@ func TestSystemdCredentialEncryption(t *testing.T) {
 		}
 		return runCredentialCommand(ctx, tool, args, input, output)
 	}
-	var out bytes.Buffer
 	cipherPath := filepath.Join(store.directory, "default.cred")
 	for _, secret := range []string{"first-test-pat", "rotated-test-pat"} {
-		if err := store.set(t.Context(), options, strings.NewReader(secret), &out); err != nil {
+		if _, err := store.set(t.Context(), options, strings.NewReader(secret)); err != nil {
 			t.Fatal(err)
 		}
 		var plain bytes.Buffer
@@ -44,8 +43,8 @@ func TestSystemdCredentialEncryption(t *testing.T) {
 			t.Fatal("credential did not round-trip")
 		}
 		data, err := os.ReadFile(cipherPath)
-		if err != nil || bytes.Contains(data, []byte(secret)) || strings.Contains(out.String(), secret) {
-			t.Fatal("plaintext was saved or printed", err)
+		if err != nil || bytes.Contains(data, []byte(secret)) {
+			t.Fatal("plaintext was saved", err)
 		}
 	}
 	if reloads != 2 {

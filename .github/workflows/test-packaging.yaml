@@ -75,7 +75,7 @@ jobs:
         done
     - name: test encrypted credential registration and rotation
       run: |
-        go test -c -o "$RUNNER_TEMP/credential-tests" ./cmd
+        go test -c -o "$RUNNER_TEMP/credential-tests" ./credentialstore
         sudo env GHALET_TEST_SYSTEMD_CREDENTIALS=1 \
           "$RUNNER_TEMP/credential-tests" -test.run '^TestSystemdCredentialEncryption$' -test.v
     - name: set up Docker buildx
