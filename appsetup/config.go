@@ -84,6 +84,11 @@ func setMapping(mapping *yaml.MapSlice, key string, value any) {
 }
 
 func writeConfig(path string, before, after []byte) error {
+	lock, err := fshelper.LockFile(path + ".lock")
+	if err != nil {
+		return err
+	}
+	defer lock.Close()
 	current, err := configSnapshot(path)
 	if err != nil {
 		return err

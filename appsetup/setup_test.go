@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/Songmu/ghalet"
+	"github.com/Songmu/ghalet/credentialstore"
 	"github.com/golang-jwt/jwt/v5"
 )
 
@@ -41,6 +42,7 @@ type fixture struct {
 	status      int
 	localURL    string
 	onInstall   func()
+	onLookup    func()
 }
 
 func setupFixture(t *testing.T, scope, ownerType string) *fixture {
@@ -98,6 +100,9 @@ func (f *fixture) apiHandler(t *testing.T) http.HandlerFunc {
 			if r.URL.Path != installationPath(f.scope) {
 				t.Error("installation lookup used wrong scope")
 			}
+			if f.onLookup != nil {
+				f.onLookup()
+			}
 			if f.status != 0 {
 				w.WriteHeader(f.status)
 				fmt.Fprint(w, "response-secret-must-not-leak")
@@ -119,6 +124,85 @@ func (f *fixture) apiHandler(t *testing.T) http.HandlerFunc {
 			t.Errorf("unexpected API request %s", r.URL.Path)
 			http.NotFound(w, r)
 		}
+	}
+}
+
+type confirmationReader func([]byte) (int, error)
+
+func (read confirmationReader) Read(data []byte) (int, error) { return read(data) }
+
+func TestSetupRejectsKeyReplacementAfterVerification(t *testing.T) {
+	for _, stage := range []string{"polling", "confirmation"} {
+		t.Run(stage, func(t *testing.T) {
+			f := setupFixture(t, "owner/repo", "User")
+			before, _ := os.ReadFile(f.options.Config)
+			key, err := rsa.GenerateKey(rand.Reader, 2048)
+			if err != nil {
+				t.Fatal(err)
+			}
+			replacement := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})
+			directory, err := credentialstore.Directory()
+			if err != nil {
+				t.Fatal(err)
+			}
+			keyPath := filepath.Join(directory, f.options.Name+".pem")
+			rotate := func() {
+				_, err := credentialstore.SetFile(t.Context(), credentialstore.Options{
+					Name: f.options.Name, Type: "github-app", Stdin: true, NoDefault: true,
+				}, bytes.NewReader(replacement))
+				if err != nil {
+					t.Error("could not perform concurrent key replacement", err)
+				}
+			}
+			var input io.Reader
+			if stage == "polling" {
+				f.onLookup = rotate
+			} else {
+				f.options.Yes = false
+				input = confirmationReader(func(data []byte) (int, error) {
+					rotate()
+					return copy(data, "yes\n"), io.EOF
+				})
+			}
+			var output bytes.Buffer
+			_, err = f.run(t.Context(), f.options, input, &output)
+			if err == nil || !strings.Contains(err.Error(), "key changed during setup") {
+				t.Fatal("setup committed an unverified replacement key", err)
+			}
+			after, _ := os.ReadFile(f.options.Config)
+			if !bytes.Equal(before, after) {
+				t.Fatal("key replacement failure changed configuration")
+			}
+			current, err := os.ReadFile(keyPath)
+			if err != nil || !bytes.Equal(bytes.TrimSpace(current), bytes.TrimSpace(replacement)) {
+				t.Fatal("setup overwrote the concurrently replaced key", err)
+			}
+		})
+	}
+}
+
+func TestSetupFinalCommitHonorsCredentialLock(t *testing.T) {
+	f := setupFixture(t, "owner/repo", "User")
+	before, _ := os.ReadFile(f.options.Config)
+	f.onInstall = func() {
+		directory, err := credentialstore.Directory()
+		if err != nil {
+			t.Fatal(err)
+		}
+		lock, err := credentialstore.LockDirectory(directory)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { lock.Close() })
+		f.installed.Store(true)
+	}
+	var output bytes.Buffer
+	if _, err := f.run(t.Context(), f.options, nil, &output); err == nil {
+		t.Fatal("setup committed while credential replacement held the store lock")
+	}
+	after, _ := os.ReadFile(f.options.Config)
+	if !bytes.Equal(before, after) {
+		t.Fatal("failed credential lock changed configuration")
 	}
 }
 

@@ -77,6 +77,15 @@ func CheckPrivatePath(path string, directory bool) error {
 	return nil
 }
 
+// LockDirectory prevents ordinary credential replacement until the returned
+// file is closed. Acquire it before a configuration lock when using both.
+func LockDirectory(directory string) (*os.File, error) {
+	if err := CheckPrivatePath(directory, true); err != nil {
+		return nil, err
+	}
+	return fshelper.LockFile(filepath.Join(directory, ".lock"))
+}
+
 func setFile(ctx context.Context, directory string, options Options, input io.Reader) (Result, error) {
 	return setFileWithWriter(ctx, directory, options, input, fshelper.WriteFileAtomic)
 }
@@ -88,18 +97,11 @@ func setFileWithWriter(ctx context.Context, directory string, options Options, i
 	if err := ensureFileDirectory(directory); err != nil {
 		return Result{}, err
 	}
-	lockPath := filepath.Join(directory, ".lock")
-	lock, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR|syscall.O_NOFOLLOW, 0600)
+	lock, err := LockDirectory(directory)
 	if err != nil {
 		return Result{}, err
 	}
 	defer lock.Close()
-	if err := CheckPrivatePath(lockPath, false); err != nil {
-		return Result{}, err
-	}
-	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
-		return Result{}, fmt.Errorf("another credential operation is in progress: %w", err)
-	}
 	extension := ".pat"
 	if options.Type == "github-app" {
 		extension = ".pem"
@@ -194,6 +196,11 @@ func setFileWithWriter(ctx context.Context, directory string, options Options, i
 		return cause
 	}
 	if !options.NoDefault {
+		configLock, err := fshelper.LockFile(options.Config + ".lock")
+		if err != nil {
+			return Result{}, err
+		}
+		defer configLock.Close()
 		current, err := os.ReadFile(options.Config)
 		if err != nil || !bytes.Equal(current, config.data) {
 			return Result{}, errors.New("configuration changed during credential input; existing credentials unchanged")

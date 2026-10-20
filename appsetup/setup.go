@@ -6,6 +6,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -190,7 +191,7 @@ func (s service) run(ctx context.Context, options Options, input io.Reader, outp
 	if _, err := fmt.Fprintln(output, "Waiting for installation on the target; rerun the same command to resume if interrupted."); err != nil {
 		return result, err
 	}
-	installed, err := s.waitInstallation(ctx, state, permission)
+	installed, verifiedKey, err := s.waitInstallation(ctx, state, permission)
 	if err != nil {
 		return result, fmt.Errorf("installation not configured: %w; App/key retained, rerun the same command to resume", err)
 	}
@@ -219,6 +220,20 @@ func (s service) run(ctx context.Context, options Options, input io.Reader, outp
 	}
 	if err := ctx.Err(); err != nil {
 		return result, err
+	}
+	credentialLock, err := credentialstore.LockDirectory(directory)
+	if err != nil {
+		return result, err
+	}
+	defer credentialLock.Close()
+	key, err := readPrivate(state.KeyPath)
+	if err != nil {
+		return result, err
+	}
+	matches := sha256.Sum256(key) == verifiedKey
+	clear(key)
+	if !matches {
+		return result, errors.New("saved App key changed during setup; configuration not changed; restore the matching App key before retrying")
 	}
 	if err := writeConfig(config.Path, before, after); err != nil {
 		return result, err
@@ -260,33 +275,33 @@ func readPrivate(path string) ([]byte, error) {
 	return data, nil
 }
 
-func (s service) waitInstallation(ctx context.Context, state savedApp, permission string) (installation, error) {
+func (s service) waitInstallation(ctx context.Context, state savedApp, permission string) (installation, [sha256.Size]byte, error) {
 	key, err := readPrivate(state.KeyPath)
 	if err != nil {
-		return installation{}, err
+		return installation{}, [sha256.Size]byte{}, err
 	}
 	defer clear(key)
 	for {
 		token, err := appToken(state.ClientID, key)
 		if err != nil {
-			return installation{}, err
+			return installation{}, [sha256.Size]byte{}, err
 		}
 		var installed installation
 		err = s.api.request(ctx, http.MethodGet, installationPath(state.Scope), token, &installed)
 		if err == nil {
 			if installed.ID <= 0 || installed.AppID != state.ID || !strings.EqualFold(installed.Account.Login, state.Owner) ||
 				installed.Permissions[permission] != "write" || installed.SuspendedAt != nil {
-				return installation{}, errors.New("installation is suspended or does not match the App, owner, or required write permission")
+				return installation{}, [sha256.Size]byte{}, errors.New("installation is suspended or does not match the App, owner, or required write permission")
 			}
-			return installed, nil
+			return installed, sha256.Sum256(key), nil
 		}
 		var status httpError
 		if !errors.As(err, &status) || status != httpError(http.StatusNotFound) {
-			return installation{}, err
+			return installation{}, [sha256.Size]byte{}, err
 		}
 		select {
 		case <-ctx.Done():
-			return installation{}, ctx.Err()
+			return installation{}, [sha256.Size]byte{}, ctx.Err()
 		case <-time.After(s.interval):
 		}
 	}

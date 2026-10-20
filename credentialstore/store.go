@@ -241,6 +241,13 @@ func (s credentialStore) set(ctx context.Context, options Options, input io.Read
 		}
 		return cause
 	}
+	if !options.NoDefault {
+		configLock, err := fshelper.LockFile(options.Config + ".lock")
+		if err != nil {
+			return result, err
+		}
+		defer configLock.Close()
+	}
 	if cipher.exists {
 		if err := write(previous, cipher.data, 0600); err != nil {
 			return result, err
