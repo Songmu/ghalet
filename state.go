@@ -54,6 +54,21 @@ type RunState struct {
 
 type stateStore struct{ root string }
 
+func ensureExecutionDirectory(path string) error {
+	if err := fshelper.EnsureDirectory(path, 0755); err != nil {
+		return err
+	}
+	info, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	// Upgrade only the legacy managed mode, not custom ancestor permissions.
+	if info.Mode() == os.ModeDir|0711 {
+		return os.Chmod(path, 0755)
+	}
+	return nil
+}
+
 func newID() (string, error) {
 	var bytes [16]byte
 	if _, err := rand.Read(bytes[:]); err != nil {
@@ -91,12 +106,22 @@ func (s stateStore) directory(state *RunState) (string, error) {
 	return dir, nil
 }
 
-func (s stateStore) save(state *RunState) error {
+func (s stateStore) ensureDirectory(state *RunState) (string, error) {
 	dir, err := s.directory(state)
 	if err != nil {
-		return err
+		return "", err
 	}
-	if err := fshelper.EnsureDirectory(dir, 0711); err != nil {
+	for _, path := range []string{s.root, filepath.Dir(dir), dir} {
+		if err := ensureExecutionDirectory(path); err != nil {
+			return "", err
+		}
+	}
+	return dir, nil
+}
+
+func (s stateStore) save(state *RunState) error {
+	dir, err := s.ensureDirectory(state)
+	if err != nil {
 		return err
 	}
 	state.UpdatedAt = time.Now().UTC()
@@ -207,11 +232,8 @@ func (s stateStore) loadRun(path string) (*RunState, error) {
 }
 
 func (s stateStore) removeFiles(state *RunState) error {
-	dir, err := s.directory(state)
+	dir, err := s.ensureDirectory(state)
 	if err != nil {
-		return err
-	}
-	if err := fshelper.EnsureDirectory(dir, 0711); err != nil {
 		return err
 	}
 	root, err := os.OpenRoot(dir)

@@ -40,7 +40,7 @@ provision:
       Group=ghalet
       Environment=PATH=/usr/local/bin:/usr/bin:/bin
       StateDirectory=ghalet
-      StateDirectoryMode=0711
+      StateDirectoryMode=0755
       CacheDirectory=ghalet
       CacheDirectoryMode=0700
       ExecStart=/usr/local/bin/ghalet run --config /etc/ghalet/config.yaml
