@@ -8,6 +8,10 @@ PAT の作成、GitHub App の登録、GitHub の最小権限は
 systemd を使わず Linux / macOS で直接起動する場合は、
 [通常ファイルへの保存](file-credentials.ja.md)を使ってください。
 
+新しい App の作成から鍵の暗号化保存までを一続きに行うには、
+[`ghalet systemd app setup --scope OWNER/REPO`](app-setup.ja.md#パッケージの-systemd-サービス)を
+使います。以下のコマンドは既存の PAT・App キーの取り込み用です。
+
 `ghalet systemd credential set` は、パッケージの `ghalet.service` 用に名前付きの
 PAT または GitHub App の秘密鍵を登録します。Linux、root 権限、systemd 250 以降、
 `systemd-creds`、`systemctl` が必要です。`--prompt` には

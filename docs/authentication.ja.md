@@ -126,7 +126,8 @@ OAuth の scope 更新で PAT の権限は増えません。
 ## GitHub App の作成とインストール
 
 作成・鍵の保存・インストールの検出を案内する
-[`ghalet auth setup`](app-setup.ja.md) を利用できます。
+[`ghalet app setup --scope OWNER/REPO`](app-setup.ja.md) を利用できます。
+パッケージのサービスでは `ghalet systemd app setup` を使います。
 手動で登録する場合は以下の手順に従ってください。
 
 [GitHub の App 登録ガイド][app-guide]に沿って作成します。

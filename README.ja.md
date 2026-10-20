@@ -127,7 +127,8 @@ ghalet doctor
 | `ghalet run` | 全 target のデーモンをフォアグラウンドで起動します。 |
 | `ghalet apply` | 全 target を drain して設定と登録を反映し、未使用 Scale Set の削除を試みます。 |
 | `ghalet config validate` | GitHub に接続せず、設定とローカルパスを検証します。 |
-| `ghalet auth setup NAME --target ID` | ブラウザで GitHub.com の target 一つ用の非公開 GitHub App を作成・インストールします。ローカル・SSH での手順と再開は [App セットアップ](docs/app-setup.ja.md)を参照してください。 |
+| `ghalet app setup --scope OWNER/REPO` | 非公開 GitHub App を作成・インストールし、scope から target ID を導出して設定を作成・更新します。Organization、SSH、再開は [App セットアップ](docs/app-setup.ja.md)を参照してください。 |
+| `ghalet systemd app setup --scope OWNER/REPO` | App のセットアップ、サービス用の暗号化認証情報の保存、target の実行時の鍵の参照設定を行います（Linux/root）。[App セットアップ](docs/app-setup.ja.md#パッケージの-systemd-サービス)を参照してください。 |
 | `ghalet credential set NAME --prompt` | 所有者限定の認証ファイルを保存し、`defaults.credential` を更新します。App キーや交換は[通常ファイルの認証情報](docs/file-credentials.ja.md)を参照してください。 |
 | `ghalet systemd credential set NAME --prompt` | サービス用 PAT を暗号化登録し、`defaults.credential` を更新します（Linux・root 必須）。App キー、自動構築、ローテーションは[認証情報](docs/credentials.ja.md)を参照してください。 |
 | `ghalet list` | アクセス可能なデーモンの管理 UID、ソケット、稼働状態を一覧表示します。`--config PATH` で絞り込めます。 |
@@ -135,8 +136,8 @@ ghalet doctor
 | `ghalet doctor` | デーモンを診断し、問題があれば非ゼロで終了します。 |
 | `ghalet gc [--dry-run]` | 停止確認済みの実行と期限切れログを削除します。`--dry-run` で事前確認できます。 |
 
-`ghalet --version` でバージョンを表示します。認証情報のセットアップ案内を除き、
-管理コマンドの応答は JSON です。`systemd credential set` のデフォルト設定パスは
+`ghalet --version` でバージョンを表示します。App・認証情報のセットアップ案内を除き、
+管理コマンドの応答は JSON です。`systemd app setup` と `systemd credential set` のデフォルト設定パスは
 `/etc/ghalet/config.yaml` です。`status`、`doctor`、`apply`、`gc` は `--config` を
 省略すると、アクセス可能なデーモンが 1 件なら自動選択し、複数なら設定の明示を求めます。
 見つからない場合は、`run` や `config validate` と同じくユーザーごとの

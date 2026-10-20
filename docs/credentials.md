@@ -8,6 +8,10 @@ credentials for the packaged Linux service.
 For direct Linux/macOS execution without systemd, use
 [ordinary credential files](file-credentials.md).
 
+To create a new App and configure its encrypted key in one flow, use
+[`ghalet systemd app setup --scope OWNER/REPO`](app-setup.md#packaged-systemd-service).
+The commands below import existing PATs and App keys.
+
 `ghalet systemd credential set` registers a named PAT or GitHub App private key
 for the packaged `ghalet.service`. It requires Linux, root, systemd 250 or later,
 `systemd-creds`, and `systemctl`; `--prompt` also requires

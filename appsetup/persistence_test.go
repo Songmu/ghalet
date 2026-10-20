@@ -167,12 +167,12 @@ func TestConversionWaitsForCredentialStoreLock(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("setup did not save credentials after the store lock was released")
 	}
-	keyPath := filepath.Join(directory, f.options.Name+".pem")
+	keyPath := filepath.Join(directory, f.options.ID+".pem")
 	key, err := readPrivate(keyPath)
 	if err != nil || !bytes.Equal(bytes.TrimSpace(key), bytes.TrimSpace([]byte(f.pem))) {
 		t.Fatal("store lock contention lost the original converted App key", err)
 	}
-	state, err := loadApp(filepath.Join(directory, f.options.Name+".app.json"))
+	state, err := loadApp(filepath.Join(directory, f.options.ID+".app.json"))
 	if err != nil || state.ID != 77 || state.ClientID != "Iv1.test" || state.KeyPath != keyPath {
 		t.Fatal("store lock contention lost resumption metadata", err)
 	}

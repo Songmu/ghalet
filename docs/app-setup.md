@@ -2,34 +2,39 @@
 
 [English](app-setup.md) | [日本語](app-setup.ja.md)
 
-`ghalet auth setup NAME` creates a private, user-owned or organization-owned
+`ghalet app setup --scope OWNER/REPO` creates a private, user-owned or organization-owned
 GitHub App using [GitHub's Manifest flow][manifest]. No preexisting PAT, client
 secret, hosted callback service or PEM copy/paste is required. This wizard
-supports **GitHub.com and one configured target per App** on Linux/macOS.
+supports **GitHub.com and one target per App** on Linux/macOS.
 It stores an [ordinary, unencrypted credential file](file-credentials.md);
-it does not start or reconfigure the daemon.
+`ghalet systemd app setup` stores an encrypted service credential instead.
+Neither command starts or reconfigures the daemon. These commands replace
+`ghalet auth setup NAME --target ID`; the old command is no longer accepted.
 
 ## Local setup
 
-Create a configuration with the intended scope, without adding credentials yet:
-
-```yaml
-targets:
-  - id: project
-    scope: OWNER/REPO
-```
-
-Use `ORG` instead of `OWNER/REPO` for an organization target. Then run as the
-daemon user, with the same state-directory environment:
+Run as the daemon user, with the same state-directory environment:
 
 ```sh
-ghalet auth setup project-app --target project
+ghalet app setup --scope OWNER/REPO
+# Organization target:
+ghalet app setup --scope ORG
+# Optional configuration path and target ID:
+ghalet app setup --scope OWNER/REPO --config ./config.yaml --id build
 ```
 
 Select another configuration with `--config PATH`. The default is
-`~/.config/ghalet/config.yaml`. `--target` can be omitted if there is exactly
-one target. Multiple targets/owners require separate setup invocations and
-credential names; the wizard does not broaden an existing App's permissions.
+`~/.config/ghalet/config.yaml`. `--scope` is always required; it also accepts
+an HTTPS GitHub.com organization or repository URL.
+The wizard creates the configuration or adds the target only after confirmation.
+Existing targets with the same scope are reused; use `--id` to select one when
+multiple targets match, or to create another target for that scope.
+Without a match or explicit ID, the ID is the lowercase scope with `/` and `.`
+replaced by `-`: `Songmu/ghalet` becomes `songmu-ghalet`. The credential uses
+the same ID. Collisions and IDs exceeding 64 characters require an explicit
+`--id`; setup never adds numeric suffixes or truncates IDs. The ID also defaults
+the scale set name used by `runs-on`. Each scope/ID is set up separately;
+the wizard does not broaden an existing App's permissions.
 
 1. Review the target, App owner and requested write permission in the terminal:
    repository `Administration`, or organization `Self-hosted runners`.
@@ -45,7 +50,7 @@ credential names; the wizard does not broaden an existing App's permissions.
    Answer `y` to save, or decline and resume later. `--yes` skips only this
    final configuration confirmation, not GitHub's approvals.
 
-Other targets and `defaults.credential` are not changed. The selected target
+Other targets and `defaults.credential` are not changed. The selected or added target
 gets `type: github-app`, `clientId`, `privateKeyFile` and `installationId`.
 No user OAuth authorization or webhook events are requested; webhook delivery
 is disabled. The generated App is private to its owning account.
@@ -74,7 +79,7 @@ fixed port from the browser's machine:
 ```sh
 ssh -L 8765:127.0.0.1:8765 runner-host
 # In that SSH session:
-ghalet auth setup project-app --target project \
+ghalet app setup --scope OWNER/REPO \
   --listen 127.0.0.1:8765 --no-browser
 ```
 
@@ -84,19 +89,53 @@ accepts only loopback IP addresses, never `0.0.0.0` or a public interface.
 For local manual operation, `--no-browser` works without SSH forwarding.
 No public callback or webhook endpoint is needed.
 
+## Packaged systemd service
+
+On Linux with root and systemd 250 or later:
+
+```sh
+sudo ghalet systemd app setup --scope OWNER/REPO
+sudo ghalet config validate --config /etc/ghalet/config.yaml
+sudo systemctl enable --now ghalet
+```
+
+The default configuration is `/etc/ghalet/config.yaml`; `--config PATH` selects
+another file but does not change the service unit's `ExecStart` or its config path.
+When creating a configuration, setup includes `runner.user: ghalet-runner` and
+`logs.root: /var/log/ghalet/runners` for the package service. Existing runner/log
+settings are preserved. Review the configuration before starting the service.
+
+Browser URLs are printed by default so the browser need not run as root.
+For SSH, use the port forwarding above and add `--listen 127.0.0.1:8765`
+to the systemd command. Open the URLs in the browser on your own machine.
+
+The key is encrypted directly into `/etc/ghalet/credentials/ID.cred`, without
+writing a plaintext PEM. A dedicated drop-in loads it with
+`LoadCredentialEncrypted`, and the target's `privateKeyFile` points to
+`/run/credentials/ghalet.service/ID`. Public resume metadata is
+`/etc/ghalet/credentials/ID.app.json`. Resume decrypts the key only into memory.
+Registration reloads unit definitions but never starts or restarts the service.
+The encrypted key and resume metadata are saved before service provisioning.
+If drop-in creation or unit reload fails, they are retained; fix the reported
+problem and rerun the same setup command to retry without creating another App.
+An already running service requires a normal stop, successful-shutdown check,
+and start to receive updated credentials; `apply` does not refresh systemd credentials.
+See [encrypted credentials](credentials.md) for host-key protection, backups
+and rotation.
+
 ## Resume and credential storage
 
-The key is stored as `<StateDir>/credentials/NAME.pem`; `NAME.app.json` retains
+For ordinary setup, the key is stored as `<StateDir>/credentials/ID.pem`; `ID.app.json` retains
 the public App identity, scope and key path so setup can resume. Both files are
 `0600` under the `0700` credential directory. The JSON does not contain the PEM,
 client secret or webhook secret. Protect the PEM and its backups as described
 in [ordinary credential files](file-credentials.md).
 
 Each attempt waits up to 15 minutes. Rerun the same command, configuration,
-target and name after interruption, declined confirmation or installation
+scope and optional ID after interruption, declined confirmation or installation
 approval. Once metadata is saved, setup reuses that App/key without creating
 another App or rotating the key. It refuses mismatched scopes, owners, key
-paths, orphaned existing keys, concurrent setup for the same name, or concurrent
+paths, orphaned existing keys, concurrent setup for the same ID, or concurrent
 configuration edits. It never automatically deletes a GitHub App.
 
 If App creation completed in GitHub but the callback/exchange failed before
@@ -111,15 +150,10 @@ writable by others. It preserves comments, although YAML formatting and aliases
 may be normalized. Installation permission checks do not change runner group
 access policy.
 
-For the packaged systemd service, import the resulting PEM with
-[`ghalet systemd credential set`](credentials.md#github-apps-and-additional-credentials).
-Then point the selected target's explicit `credential.privateKeyFile` at the
-reported systemd runtime path (or remove its explicit credential to inherit the
-new shared default), retaining its `installationId`. Merely changing the shared
-default does not override the wizard's explicit target credential.
-Validate the service configuration before starting it, and remove any plaintext
-copy only after verifying encrypted registration and retaining an appropriate
-recovery plan. Browser setup and privileged service registration are separate.
+For an existing App key, use
+[`ghalet systemd credential set`](credentials.md#github-apps-and-additional-credentials)
+instead of creating another App. It updates the shared default unless
+`--no-default` is set; explicit target credentials still take precedence.
 
 App private keys do not expire. Installation-token renewal is automatic;
 exchange the key only when required by policy or suspected compromise.

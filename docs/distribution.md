@@ -36,6 +36,21 @@ The runner can traverse `/var/lib/ghalet` to reach its own execution directories
 but cannot modify that parent directory. Installation does **not** create a live
 configuration, enable the service, or start it.
 
+To create a GitHub App and configure its encrypted service key:
+
+```sh
+sudo ghalet systemd app setup --scope OWNER/REPO
+sudo ghalet config validate --config /etc/ghalet/config.yaml
+sudo systemctl enable --now ghalet
+```
+
+Use `--scope ORG` for an organization. The wizard creates a missing configuration
+with the package's runner user and log path, or adds/updates the selected target
+in an existing configuration. Follow the printed browser URLs; for SSH use the
+port forwarding in [App setup](app-setup.md#ssh-and-manual-browser-operation).
+
+To use a PAT instead, copy and edit the package example:
+
 ```sh
 sudo install -o root -g root -m 0600 \
   /usr/share/ghalet/config.yaml.example /etc/ghalet/config.yaml
@@ -48,7 +63,7 @@ sudo systemctl enable --now ghalet
 Replace `OWNER/REPO` in the configuration and supply a PAT with the
 appropriate runner administration permissions. Registration writes its
 reference to `defaults.credential`, shared by targets that omit `credential`.
-Package installation and upgrades never request secrets; credential registration
+Package installation and upgrades never request secrets; App setup or credential registration
 is a separate, explicit command. For App keys, multiple credentials, automation,
 and rotation, see [encrypted credentials](credentials.md).
 Do not put credentials inline in YAML or in shell command arguments.

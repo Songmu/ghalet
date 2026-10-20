@@ -3,7 +3,6 @@
 package appsetup
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/json"
@@ -24,12 +23,6 @@ import (
 	"github.com/Songmu/ghalet/fshelper"
 )
 
-// Options selects an App credential and a single configured GitHub.com target.
-type Options struct {
-	Name, Config, Target, Listen string
-	NoBrowser, Yes               bool
-}
-
 // Result contains only public App identifiers and local paths.
 type Result struct {
 	ClientID, KeyPath, MetadataPath, Target string
@@ -46,17 +39,20 @@ type savedApp struct {
 }
 
 type service struct {
-	api      apiClient
-	open     func(context.Context, string) error
-	saveKey  func(context.Context, credentialstore.Options, io.Reader) (credentialstore.Result, error)
-	interval time.Duration
-	timeout  time.Duration
+	api       apiClient
+	open      func(context.Context, string) error
+	saveKey   func(context.Context, credentialstore.Options, io.Reader) (credentialstore.Result, error)
+	prepare   func(context.Context) (string, error)
+	readKey   func(context.Context, string) ([]byte, error)
+	provision func(context.Context, string) error
+	interval  time.Duration
+	timeout   time.Duration
 }
 
 // Setup creates or resumes an App registration, then confirms and updates a target.
 // input supplies confirmation and remains open when setup returns.
 func Setup(ctx context.Context, options Options, input *os.File, output io.Writer) (Result, error) {
-	return (service{
+	s := service{
 		api: apiClient{base: "https://api.github.com", http: &http.Client{
 			Timeout: 30 * time.Second,
 			CheckRedirect: func(*http.Request, []*http.Request) error {
@@ -64,14 +60,29 @@ func Setup(ctx context.Context, options Options, input *os.File, output io.Write
 			},
 		}},
 		open: openBrowser, saveKey: credentialstore.SetFile,
+		prepare:  func(context.Context) (string, error) { return credentialstore.PrepareDirectory() },
+		readKey:  func(_ context.Context, path string) ([]byte, error) { return readPrivate(path) },
 		interval: 2 * time.Second, timeout: 15 * time.Minute,
-	}).run(ctx, options, input, output)
+	}
+	if options.Systemd {
+		s.prepare, s.saveKey = credentialstore.PrepareSystemd, credentialstore.SaveSystemdAppKey
+		s.provision = credentialstore.ProvisionSystemdAppKey
+		s.readKey = func(ctx context.Context, path string) ([]byte, error) {
+			return credentialstore.ReadSystemdAppKey(ctx, filepath.Base(path))
+		}
+	}
+	return s.run(ctx, options, input, output)
 }
 
 func (s service) run(ctx context.Context, options Options, input *os.File, output io.Writer) (Result, error) {
-	if err := (credentialstore.Options{Name: options.Name, Type: "github-app", Stdin: true, NoDefault: true}).Validate(); err != nil {
+	if err := options.Validate(); err != nil {
 		return Result{}, err
 	}
+	scope, err := normalizeScope(options.Scope)
+	if err != nil {
+		return Result{}, err
+	}
+	options.Scope = scope
 	if options.Listen == "" {
 		options.Listen = "127.0.0.1:0"
 	}
@@ -79,47 +90,22 @@ func (s service) run(ctx context.Context, options Options, input *os.File, outpu
 	if err != nil || net.ParseIP(host) == nil || !net.ParseIP(host).IsLoopback() {
 		return Result{}, errors.New("--listen must use a loopback IP address and port")
 	}
-	config, err := ghalet.LoadConfig(options.Config)
+	options, before, proposed, target, err := setupConfig(options)
 	if err != nil {
 		return Result{}, err
 	}
-	before, err := configSnapshot(config.Path)
-	if err != nil {
-		return Result{}, err
-	}
-	config, err = ghalet.LoadConfig(config.Path)
-	if err != nil {
-		return Result{}, err
-	}
-	current, err := configSnapshot(config.Path)
-	if err != nil || !bytes.Equal(before, current) {
-		return Result{}, errors.New("configuration changed while loading it; retry setup")
-	}
-	var target ghalet.Target
-	for _, candidate := range config.Targets {
-		if options.Target == candidate.ID || (options.Target == "" && len(config.Targets) == 1) {
-			target = candidate
-		}
-	}
-	if target.ID == "" {
-		return Result{}, errors.New("select one configured target with --target ID")
-	}
-	address, err := url.Parse(target.URL)
-	if err != nil || address.Scheme != "https" || address.Host != "github.com" {
-		return Result{}, errors.New("setup currently supports GitHub.com targets only")
-	}
-	scope := strings.Trim(address.Path, "/")
+	options.ID = target.ID
 	parts := strings.Split(scope, "/")
 	owner := parts[0]
 	permission := "administration"
 	if len(parts) == 1 {
 		permission = "organization_self_hosted_runners"
 	}
-	directory, err := credentialstore.PrepareDirectory()
+	directory, err := s.prepare(ctx)
 	if err != nil {
 		return Result{}, err
 	}
-	lockPath := filepath.Join(directory, options.Name+".setup.lock")
+	lockPath := filepath.Join(directory, options.ID+".setup.lock")
 	lock, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR|syscall.O_NOFOLLOW, 0600)
 	if err != nil {
 		return Result{}, err
@@ -131,7 +117,13 @@ func (s service) run(ctx context.Context, options Options, input *os.File, outpu
 	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
 		return Result{}, fmt.Errorf("another setup for this credential is in progress: %w", err)
 	}
-	metadataPath := filepath.Join(directory, options.Name+".app.json")
+	metadataPath := filepath.Join(directory, options.ID+".app.json")
+	keyPath := filepath.Join(directory, options.ID+".pem")
+	diskKeyPath := keyPath
+	if options.Systemd {
+		diskKeyPath = filepath.Join(directory, options.ID+".cred")
+		keyPath = "/run/credentials/ghalet.service/" + options.ID
+	}
 	state, err := loadApp(metadataPath)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return Result{}, err
@@ -139,10 +131,9 @@ func (s service) run(ctx context.Context, options Options, input *os.File, outpu
 	ctx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
 	if errors.Is(err, os.ErrNotExist) {
-		keyPath := filepath.Join(directory, options.Name+".pem")
-		for _, path := range []string{keyPath, keyPath + ".previous"} {
+		for _, path := range []string{diskKeyPath, diskKeyPath + ".previous"} {
 			if _, err := os.Lstat(path); !errors.Is(err, os.ErrNotExist) {
-				return Result{}, errors.New("credential already exists without setup metadata; use a different name or import the existing App")
+				return Result{}, errors.New("credential already exists without setup metadata; use a different --id or import the existing App")
 			}
 		}
 		var account account
@@ -167,7 +158,7 @@ func (s service) run(ctx context.Context, options Options, input *os.File, outpu
 		// on cancellation or while another credential operation holds the lock.
 		storeContext := context.WithoutCancel(ctx)
 		storeOptions := credentialstore.Options{
-			Name: options.Name, Type: "github-app", Stdin: true, NoDefault: true, NoReplace: true,
+			Name: options.ID, Type: "github-app", Stdin: true, NoDefault: true, NoReplace: true,
 		}
 		var stored credentialstore.Result
 		for {
@@ -187,15 +178,19 @@ func (s service) run(ctx context.Context, options Options, input *os.File, outpu
 			return Result{}, err
 		}
 		if err := fshelper.WriteFileAtomic(metadataPath, data, 0600); err != nil {
-			return Result{}, fmt.Errorf("save setup metadata: %w; key retained at %s for App %s", err, stored.RuntimePath, state.Slug)
+			return Result{}, fmt.Errorf("save setup metadata: %w; key retained at %s for App %s", err, diskKeyPath, state.Slug)
 		}
 	}
 	result := Result{ClientID: state.ClientID, KeyPath: state.KeyPath, MetadataPath: metadataPath, Target: target.ID}
 	if !strings.EqualFold(state.Scope, scope) || !strings.EqualFold(state.Owner, owner) ||
-		state.KeyPath != filepath.Join(directory, options.Name+".pem") {
+		state.KeyPath != keyPath {
 		return result, fmt.Errorf("saved App does not match this target/owner or credential path; inspect %s and App https://github.com/apps/%s; no configuration was changed", metadataPath, state.Slug)
 	}
-	if _, err := fmt.Fprintf(output, "Saved App: https://github.com/apps/%s\nKey (unencrypted, owner-only): %s\nSetup metadata: %s\n", state.Slug, state.KeyPath, metadataPath); err != nil {
+	storage := "Key (unencrypted, owner-only)"
+	if options.Systemd {
+		storage = "Encrypted key"
+	}
+	if _, err := fmt.Fprintf(output, "Saved App: https://github.com/apps/%s\n%s: %s\nSetup metadata: %s\n", state.Slug, storage, diskKeyPath, metadataPath); err != nil {
 		return result, err
 	}
 	if err := ctx.Err(); err != nil {
@@ -212,11 +207,14 @@ func (s service) run(ctx context.Context, options Options, input *os.File, outpu
 		return result, fmt.Errorf("installation not configured: %w; App/key retained, rerun the same command to resume", err)
 	}
 	result.InstallationID = installed.ID
-	after, err := targetConfig(before, target.ID, state, installed.ID)
+	after, err := targetConfig(proposed, target.ID, state, installed.ID)
 	if err != nil {
 		return result, err
 	}
-	if _, err := fmt.Fprintf(output, "Update target %s only:\n  credential.type: github-app\n  credential.clientId: %s\n  credential.privateKeyFile: %s\n  installationId: %d\n", target.ID, state.ClientID, state.KeyPath, installed.ID); err != nil {
+	if _, err := ghalet.ParseConfig(options.Config, after); err != nil {
+		return result, fmt.Errorf("validate proposed configuration: %w", err)
+	}
+	if _, err := fmt.Fprintf(output, "Configure target %s in %s:\n  scope: %s\n  credential.type: github-app\n  credential.clientId: %s\n  credential.privateKeyFile: %s\n  installationId: %d\n", target.ID, options.Config, scope, state.ClientID, state.KeyPath, installed.ID); err != nil {
 		return result, err
 	}
 	if !options.Yes {
@@ -239,7 +237,7 @@ func (s service) run(ctx context.Context, options Options, input *os.File, outpu
 		return result, err
 	}
 	defer credentialLock.Close()
-	key, err := readPrivate(state.KeyPath)
+	key, err := s.readKey(ctx, state.KeyPath)
 	if err != nil {
 		return result, err
 	}
@@ -248,7 +246,12 @@ func (s service) run(ctx context.Context, options Options, input *os.File, outpu
 	if !matches {
 		return result, errors.New("saved App key changed during setup; configuration not changed; restore the matching App key before retrying")
 	}
-	if err := writeConfig(config.Path, before, after); err != nil {
+	if s.provision != nil {
+		if err := s.provision(ctx, options.ID); err != nil {
+			return result, fmt.Errorf("provision systemd App key: %w; App/key and setup metadata retained, rerun setup to resume", err)
+		}
+	}
+	if err := writeConfig(options.Config, before, after); err != nil {
 		return result, err
 	}
 	return result, nil
@@ -289,7 +292,7 @@ func readPrivate(path string) ([]byte, error) {
 }
 
 func (s service) waitInstallation(ctx context.Context, state savedApp, permission string) (installation, [sha256.Size]byte, error) {
-	key, err := readPrivate(state.KeyPath)
+	key, err := s.readKey(ctx, state.KeyPath)
 	if err != nil {
 		return installation{}, [sha256.Size]byte{}, err
 	}
