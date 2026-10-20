@@ -156,6 +156,10 @@ func TestSetFileAppAndDirectory(t *testing.T) {
 	if !bytes.Equal(current, bytes.TrimSpace(data)) {
 		t.Fatal("key was not preserved")
 	}
+	stateInfo, err := os.Stat(filepath.Join(root, "ghalet"))
+	if err != nil || stateInfo.Mode().Perm() != 0711 {
+		t.Fatal("credential registration blocked state-directory traversal", stateInfo, err)
+	}
 	if _, err := SetFile(t.Context(), Options{Name: "../invalid", Type: "pat", Stdin: true}, strings.NewReader("secret")); err == nil {
 		t.Fatal("invalid options accepted")
 	}

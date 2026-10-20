@@ -35,6 +35,7 @@ var credentialName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$`)
 type Options struct {
 	Name, Type, File, Config, ClientID string
 	Prompt, Stdin, NoDefault           bool
+	PromptOutput                       io.Writer
 }
 
 // Result describes the files installed by a successful registration.

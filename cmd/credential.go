@@ -48,12 +48,7 @@ func runCredential(ctx context.Context, args []string, config string, out, errOu
 	if encrypted {
 		result, err = credentialstore.Set(ctx, options, os.Stdin)
 	} else {
-		if options.Prompt {
-			if _, err := fmt.Fprint(errOut, "PAT: "); err != nil {
-				return err
-			}
-			defer fmt.Fprintln(errOut)
-		}
+		options.PromptOutput = errOut
 		result, err = credentialstore.SetFile(ctx, options, os.Stdin)
 	}
 	if err != nil {

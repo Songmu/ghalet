@@ -4,6 +4,7 @@ go 1.27.2
 
 require (
 	github.com/actions/scaleset v0.4.1-0.20260916214619-e6daac702355
+	github.com/creack/pty v1.1.24
 	github.com/goccy/go-yaml v1.19.2
 	golang.org/x/sys v0.49.0
 	golang.org/x/term v0.47.0

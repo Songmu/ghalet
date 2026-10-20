@@ -27,6 +27,29 @@ func Directory() (string, error) {
 	return filepath.Join(root, "credentials"), nil
 }
 
+// PrepareDirectory creates a private credential directory without making new
+// state ancestors inaccessible to a separate runner execution user.
+func PrepareDirectory() (string, error) {
+	directory, err := Directory()
+	if err != nil {
+		return "", err
+	}
+	return directory, ensureFileDirectory(directory)
+}
+
+func ensureFileDirectory(directory string) error {
+	if err := fshelper.EnsureDirectory(filepath.Dir(directory), 0711); err != nil {
+		return err
+	}
+	if err := checkCredentialPath(filepath.Dir(directory), true); err != nil {
+		return err
+	}
+	if err := fshelper.EnsureDirectory(directory, 0700); err != nil {
+		return err
+	}
+	return privatePath(directory, true)
+}
+
 // SetFile registers an owner-only, unencrypted credential without changing a daemon.
 func SetFile(ctx context.Context, options Options, input io.Reader) (Result, error) {
 	if err := options.Validate(); err != nil {
@@ -57,13 +80,7 @@ func setFile(ctx context.Context, directory string, options Options, input io.Re
 	if err := ctx.Err(); err != nil {
 		return Result{}, err
 	}
-	if err := fshelper.EnsureDirectory(directory, 0700); err != nil {
-		return Result{}, err
-	}
-	if err := privatePath(directory, true); err != nil {
-		return Result{}, err
-	}
-	if err := checkCredentialPath(filepath.Dir(directory), true); err != nil {
+	if err := ensureFileDirectory(directory); err != nil {
 		return Result{}, err
 	}
 	lockPath := filepath.Join(directory, ".lock")
@@ -122,7 +139,7 @@ func setFile(ctx context.Context, directory string, options Options, input io.Re
 		if !ok || !term.IsTerminal(int(file.Fd())) {
 			return Result{}, errors.New("--prompt requires an interactive terminal; use --file or --stdin")
 		}
-		data, err := readPassword(ctx, file)
+		data, err := readPassword(ctx, options.PromptOutput)
 		if err != nil {
 			clear(data)
 			return Result{}, fmt.Errorf("PAT input canceled or failed: %w", err)
@@ -194,12 +211,10 @@ func setFile(ctx context.Context, directory string, options Options, input io.Re
 	return result, nil
 }
 
-func readPassword(ctx context.Context, input *os.File) ([]byte, error) {
-	state, err := term.GetState(int(input.Fd()))
-	if err != nil {
-		return nil, err
+func readPassword(ctx context.Context, output io.Writer) (secret []byte, resultErr error) {
+	if output == nil {
+		return nil, errors.New("prompt output is required")
 	}
-	defer term.Restore(int(input.Fd()), state)
 	tty, err := os.OpenFile("/dev/tty", os.O_RDWR|syscall.O_NONBLOCK, 0)
 	if err != nil {
 		return nil, err
@@ -209,9 +224,27 @@ func readPassword(ctx context.Context, input *os.File) ([]byte, error) {
 	defer stopSignals()
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
-	if _, err := term.MakeRaw(int(tty.Fd())); err != nil {
+	state, err := term.MakeRaw(int(tty.Fd()))
+	if err != nil {
 		return nil, err
 	}
+	defer func() {
+		if err := term.Restore(int(tty.Fd()), state); err != nil {
+			clear(secret)
+			secret = nil
+			resultErr = errors.Join(resultErr, fmt.Errorf("restore terminal: %w", err))
+		}
+	}()
+	if _, err := fmt.Fprint(output, "PAT: "); err != nil {
+		return nil, err
+	}
+	defer func() {
+		if _, err := fmt.Fprint(output, "\r\n"); err != nil {
+			clear(secret)
+			secret = nil
+			resultErr = errors.Join(resultErr, err)
+		}
+	}()
 	var password []byte
 	var buffer [256]byte
 	defer clear(buffer[:])
