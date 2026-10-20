@@ -1,5 +1,9 @@
 # Changelog
 
+## [v0.0.4](https://github.com/Songmu/ghalet/compare/v0.0.3...v0.0.4) - 2026-10-20
+
+- Simplify GitHub App onboarding and integrate systemd credential provisioning by @Songmu in https://github.com/Songmu/ghalet/pull/31
+
 ## [v0.0.3](https://github.com/Songmu/ghalet/compare/v0.0.2...v0.0.3) - 2026-10-20
 
 - docs: help operators configure and rotate least-privilege credentials by @Songmu in https://github.com/Songmu/ghalet/pull/25
