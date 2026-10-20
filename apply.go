@@ -145,29 +145,43 @@ func (d *daemon) apply(ctx context.Context) controlResponse {
 	}
 
 	d.mu.Lock()
+	var retained, pending []*targetRuntime
+	seen := map[string]bool{}
+	for _, target := range d.retired {
+		if target.Set == nil {
+			continue
+		}
+		referenced, adopted := d.scaleSetReference(next, target)
+		if adopted {
+			continue
+		}
+		key := fmt.Sprintf("%s/%d", strings.ToLower(target.Config.URL), target.Set.ID)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		if referenced {
+			retained = append(retained, target)
+		} else {
+			pending = append(pending, target)
+		}
+	}
+	d.mu.Unlock()
+	for _, target := range pending {
+		result := OperationResult{TargetID: target.Config.ID, Action: "delete retired scale set " + target.Config.ScaleSetName}
+		if err := d.deleteRetiredScaleSet(ctx, target); err != nil {
+			result.Error = d.secrets.Redact(err.Error())
+			retained = append(retained, target)
+		}
+		response.Results = append(response.Results, result)
+	}
+
+	d.mu.Lock()
+	d.retired = retained
 	var started []*targetRuntime
 	if ctx.Err() != nil || d.stopping {
 		response.Error = "apply interrupted by shutdown"
 	} else {
-		var retained []*targetRuntime
-		seen := map[string]bool{}
-		for _, target := range d.retired {
-			if target.Set == nil || d.referencesScaleSet(next, target) {
-				continue
-			}
-			key := fmt.Sprintf("%s/%d", strings.ToLower(target.Config.URL), target.Set.ID)
-			if seen[key] {
-				continue
-			}
-			seen[key] = true
-			result := OperationResult{TargetID: target.Config.ID, Action: "delete retired scale set " + target.Config.ScaleSetName}
-			if err := d.deleteRetiredScaleSet(ctx, target); err != nil {
-				result.Error = d.secrets.Redact(err.Error())
-				retained = append(retained, target)
-			}
-			response.Results = append(response.Results, result)
-		}
-		d.retired = retained
 		for _, id := range d.order {
 			target := d.targets[id]
 			target.Draining = false
@@ -265,32 +279,30 @@ func (d *daemon) waitListeners(ctx context.Context, targets []*targetRuntime) er
 	}
 }
 
-func (d *daemon) referencesScaleSet(next *Config, old *targetRuntime) bool {
+func (d *daemon) scaleSetReference(next *Config, old *targetRuntime) (referenced, adopted bool) {
 	for _, config := range next.Targets {
 		if !strings.EqualFold(config.URL, old.Config.URL) {
 			continue
 		}
 		if runnerGroupName(config.RunnerGroup) == runnerGroupName(old.Config.RunnerGroup) &&
 			config.ScaleSetName == old.Config.ScaleSetName {
-			return true
+			referenced = true
 		}
 		target := d.targets[config.ID]
 		if target.Set != nil && target.Set.ID == old.Set.ID {
-			return true
+			referenced = true
+			adopted = adopted || target.Fault == ""
 		}
 	}
-	return false
+	return referenced, adopted
 }
 
 func (d *daemon) deleteRetiredScaleSet(ctx context.Context, target *targetRuntime) error {
-	if target.Set == nil || target.Client == nil || !target.Draining ||
-		target.Forced || target.Fault != "" || target.CloseError != "" || len(d.problems) != 0 {
-		return errors.New("drain, listener cleanup or local diagnostics are incomplete; scale set retained")
+	if err := d.validateRetiredScaleSet(target); err != nil {
+		return err
 	}
-	for _, run := range d.runs {
-		if strings.EqualFold(run.State.ScopeURL, target.Config.URL) && run.State.ScaleSetID == target.Set.ID {
-			return errors.New("local executions still reference the retired scale set")
-		}
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 	callCtx, cancel := context.WithTimeout(ctx, apiTimeout)
 	defer cancel()
@@ -309,4 +321,19 @@ func (d *daemon) deleteRetiredScaleSet(ctx context.Context, target *targetRuntim
 		return errors.New("scale set statistics are unavailable or work remains; scale set retained")
 	}
 	return target.Client.DeleteRunnerScaleSet(callCtx, target.Set.ID)
+}
+
+func (d *daemon) validateRetiredScaleSet(target *targetRuntime) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if target.Set == nil || target.Client == nil || !target.Draining ||
+		target.Forced || target.Fault != "" || target.CloseError != "" || len(d.problems) != 0 {
+		return errors.New("drain, listener cleanup or local diagnostics are incomplete; scale set retained")
+	}
+	for _, run := range d.runs {
+		if strings.EqualFold(run.State.ScopeURL, target.Config.URL) && run.State.ScaleSetID == target.Set.ID {
+			return errors.New("local executions still reference the retired scale set")
+		}
+	}
+	return nil
 }
