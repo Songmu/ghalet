@@ -70,16 +70,8 @@ func parseCredentialOptionsFor(args []string, config string, errOut io.Writer, e
 	if encrypted {
 		command = "systemd credential"
 	}
-	if config == "" {
-		if encrypted {
-			config = "/etc/ghalet/config.yaml"
-		} else {
-			home, err := os.UserHomeDir()
-			if err != nil {
-				return options, err
-			}
-			config = filepath.Join(home, ".config", "ghalet", "config.yaml")
-		}
+	if config == "" && encrypted {
+		config = "/etc/ghalet/config.yaml"
 	}
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
 		options.Name, args = args[0], args[1:]
@@ -108,11 +100,20 @@ func parseCredentialOptionsFor(args []string, config string, errOut io.Writer, e
 	if err := options.Validate(); err != nil {
 		return options, err
 	}
-	absolute, err := filepath.Abs(options.Config)
-	if err != nil {
-		return options, err
+	if options.Config == "" && !options.NoDefault {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return options, err
+		}
+		options.Config = filepath.Join(home, ".config", "ghalet", "config.yaml")
 	}
-	options.Config = absolute
+	if options.Config != "" {
+		absolute, err := filepath.Abs(options.Config)
+		if err != nil {
+			return options, err
+		}
+		options.Config = absolute
+	}
 	return options, nil
 }
 

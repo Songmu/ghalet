@@ -15,10 +15,12 @@ import (
 )
 
 func TestFileCredentialCLI(t *testing.T) {
+	t.Setenv("HOME", "")
 	t.Setenv("STATE_DIRECTORY", "")
 	for _, global := range []bool{false, true} {
 		root := testDirectory(t)
 		t.Setenv("XDG_STATE_HOME", root)
+		t.Setenv("XDG_CACHE_HOME", root)
 		config := writeConfig(t)
 		input := filepath.Join(root, "input.pat")
 		if err := os.WriteFile(input, []byte("file-test-secret"), 0600); err != nil {
@@ -43,6 +45,7 @@ func TestFileCredentialCLI(t *testing.T) {
 }
 
 func TestFileCredentialHelp(t *testing.T) {
+	t.Setenv("HOME", "")
 	for _, args := range [][]string{
 		{"credential", "--help"},
 		{"credential", "set", "--help"},
@@ -55,6 +58,24 @@ func TestFileCredentialHelp(t *testing.T) {
 		if !strings.Contains(out.String(), "Usage: ghalet credential set") {
 			t.Fatal(out.String())
 		}
+	}
+}
+
+func TestFileCredentialWithoutHomeOrConfig(t *testing.T) {
+	t.Setenv("HOME", "")
+	root := testDirectory(t)
+	t.Setenv("STATE_DIRECTORY", filepath.Join(root, "state"))
+	input := filepath.Join(root, "input.pat")
+	if err := os.WriteFile(input, []byte("synthetic-no-home-secret"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	if err := Run(t.Context(), []string{"credential", "set", "default", "--file", input, "--no-default"}, &output, &output); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := os.ReadFile(filepath.Join(root, "state", "credentials", "default.pat"))
+	if err != nil || string(stored) != "synthetic-no-home-secret" {
+		t.Fatal("credential registration required HOME or a configuration", err)
 	}
 }
 
