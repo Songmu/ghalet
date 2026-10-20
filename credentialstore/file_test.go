@@ -10,10 +10,12 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/Songmu/ghalet"
+	"github.com/Songmu/ghalet/fshelper"
 )
 
 func fileOptions(t *testing.T) (string, Options) {
@@ -101,6 +103,88 @@ func TestFileCredentialFailuresPreserveExisting(t *testing.T) {
 			}
 			if _, err := os.Stat(result.RuntimePath + ".previous"); !errors.Is(err, os.ErrNotExist) {
 				t.Fatal("failed operation created a backup", err)
+			}
+		})
+	}
+}
+
+func TestFileCredentialRollback(t *testing.T) {
+	for _, stage := range []string{"credential-write", "config-write", "restore"} {
+		t.Run(stage, func(t *testing.T) {
+			directory, options := fileOptions(t)
+			original, err := setFile(t.Context(), directory, options, strings.NewReader("old-secret"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			path := original.RuntimePath
+			previousPath := path + ".previous"
+			if err := os.Chmod(path, 0400); err != nil {
+				t.Fatal(err)
+			}
+			oldConfig, err := os.ReadFile(options.Config)
+			if err != nil {
+				t.Fatal(err)
+			}
+			writeError := errors.New("injected atomic write failure")
+			restoreError := errors.New("injected credential restoration failure")
+			var writes []string
+			writeAtomic := func(destination string, data []byte, mode os.FileMode) error {
+				writes = append(writes, destination)
+				fail := (stage == "credential-write" && destination == path) || destination == options.Config
+				restoreFail := stage == "restore" && destination == path && string(data) == "old-secret"
+				if fail || restoreFail {
+					backup, err := os.ReadFile(previousPath)
+					if err != nil || string(backup) != "old-secret" {
+						t.Fatal("failure was not injected after recovery backup creation", err)
+					}
+					if restoreFail {
+						return restoreError
+					}
+					return writeError
+				}
+				return fshelper.WriteFileAtomic(destination, data, mode)
+			}
+			result, err := setFileWithWriter(t.Context(), directory, options, strings.NewReader("new-secret"), writeAtomic)
+			if !errors.Is(err, writeError) || result != (Result{}) {
+				t.Fatal("write failure was not reported correctly", result, err)
+			}
+			wantWrites := []string{previousPath, path}
+			if stage != "credential-write" {
+				wantWrites = append(wantWrites, options.Config, path)
+			}
+			if !slices.Equal(writes, wantWrites) {
+				t.Fatal("unexpected write/restore sequence", writes)
+			}
+			currentConfig, readErr := os.ReadFile(options.Config)
+			if readErr != nil || !bytes.Equal(currentConfig, oldConfig) {
+				t.Fatal("failed registration changed configuration", readErr)
+			}
+			wantSecret, wantMode := "old-secret", os.FileMode(0400)
+			if stage == "restore" {
+				wantSecret, wantMode = "new-secret", 0600
+				if !errors.Is(err, restoreError) ||
+					!strings.Contains(err.Error(), "restore "+path+":") ||
+					!strings.Contains(err.Error(), "previous credential retained at "+previousPath) {
+					t.Fatal("restoration failure or recovery path was not reported", err)
+				}
+				backup, err := os.ReadFile(previousPath)
+				if err != nil || string(backup) != "old-secret" {
+					t.Fatal("recovery credential was lost", err)
+				}
+				info, err := os.Stat(previousPath)
+				if err != nil || info.Mode().Perm() != 0600 {
+					t.Fatal("recovery backup permissions were not private", err)
+				}
+			} else if _, err := os.Stat(previousPath); !errors.Is(err, os.ErrNotExist) {
+				t.Fatal("successful rollback did not remove the backup", err)
+			}
+			current, err := os.ReadFile(path)
+			if err != nil || string(current) != wantSecret {
+				t.Fatal("incorrect credential after rollback", err)
+			}
+			info, err := os.Stat(path)
+			if err != nil || info.Mode().Perm() != wantMode {
+				t.Fatal("incorrect credential permissions after rollback", err)
 			}
 		})
 	}

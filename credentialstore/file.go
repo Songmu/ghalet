@@ -77,6 +77,10 @@ func privatePath(path string, directory bool) error {
 }
 
 func setFile(ctx context.Context, directory string, options Options, input io.Reader) (Result, error) {
+	return setFileWithWriter(ctx, directory, options, input, fshelper.WriteFileAtomic)
+}
+
+func setFileWithWriter(ctx context.Context, directory string, options Options, input io.Reader, writeAtomic func(string, []byte, os.FileMode) error) (Result, error) {
 	if err := ctx.Err(); err != nil {
 		return Result{}, err
 	}
@@ -158,7 +162,7 @@ func setFile(ctx context.Context, directory string, options Options, input io.Re
 	}
 	changes := []credentialFile{}
 	write := func(file credentialFile, data []byte) error {
-		if err := fshelper.WriteFileAtomic(file.path, data, 0600); err != nil {
+		if err := writeAtomic(file.path, data, 0600); err != nil {
 			return err
 		}
 		changes = append(changes, file)
@@ -174,7 +178,7 @@ func setFile(ctx context.Context, directory string, options Options, input io.Re
 			}
 			var err error
 			if file.exists {
-				err = fshelper.WriteFileAtomic(file.path, file.data, file.mode)
+				err = writeAtomic(file.path, file.data, file.mode)
 			} else {
 				err = os.Remove(file.path)
 			}
