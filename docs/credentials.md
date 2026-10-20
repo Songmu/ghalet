@@ -134,7 +134,10 @@ or daemon reload attempt to restore the prior files and report any rollback
 errors explicitly. If file restoration fails, the previous ciphertext backup
 is retained and its path is included in the error.
 
-Credentials and the SDK's PAT/key are not hot-reloaded. Normal service shutdown
+`apply` recreates SDK clients and rereads ordinary credential files, but the
+provided systemd units do not refresh decrypted credentials on reload.
+Encrypted credential rotation still requires a restart.
+Normal service shutdown
 drains accepted work. Check the daemon's exit result and logs, not just the stop
 command's result; do not start again after forced or incomplete drain.
 All targets sharing the changed credential switch on the next service start.

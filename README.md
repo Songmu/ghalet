@@ -113,8 +113,9 @@ ghalet doctor
 To stop the daemon, press Ctrl-C in its terminal. Normal shutdown stops new
 job acceptance for all targets and waits for accepted work, using the
 configured drain deadline. After that deadline, remaining jobs may be
-forcibly stopped. Before starting again to apply configuration changes,
-verify that shutdown completed successfully.
+forcibly stopped. After editing configuration, use `ghalet apply` (or
+`sudo systemctl reload ghalet` for the packaged service) to drain and
+reconfigure without exiting the daemon.
 
 ## Commands
 
@@ -124,17 +125,18 @@ repository or organization registration, identified locally by its `id`.
 | Command | Purpose |
 | --- | --- |
 | `ghalet run` | Run the daemon in the foreground, accepting jobs and managing runner processes for all configured targets. |
+| `ghalet apply` | Reload configuration, drain all targets, and reconcile registrations before resuming. Remove unused scale sets for targets removed or replaced in configuration. |
 | `ghalet config validate` | Check configuration syntax, values and local path constraints without registering runners or contacting GitHub. |
 | `ghalet systemd credential set NAME --prompt` | Register an encrypted PAT for the Linux systemd service and update `defaults.credential`. Requires root; see [credentials](docs/credentials.md) for App keys, automation and rotation. |
 | `ghalet status` | Read the running daemon's state and capacity snapshot. A successful response does not mean the daemon is healthy. |
 | `ghalet doctor` | Check the running daemon for diagnostic problems; exit nonzero when a problem is found. |
 | `ghalet gc [--dry-run]` | Recheck retained executions, clean up those verified safe to remove, and expire saved logs; use `--dry-run` to inspect without changes. |
-| `ghalet destroy --target ID --scale-set NAME` | Drain and delete an explicitly selected scale set after interactive `yes` confirmation. For an organization, also select `--runner-group NAME`. Runner groups are never deleted. |
 
 `ghalet --version` prints the installed version. Management responses are
 JSON, except for the credential setup instructions. `systemd credential set`
 defaults to `/etc/ghalet/config.yaml`; other commands use the per-user default.
-See [diagnosis and cleanup](docs/operations.md#diagnosis-garbage-collection-and-explicit-destruction)
+See [configuration apply](docs/operations.md#applying-configuration) and
+[diagnosis and cleanup](docs/operations.md#diagnosis-and-garbage-collection)
 for exit codes, offline maintenance and deletion safeguards.
 
 ## Runtime behavior
@@ -147,9 +149,11 @@ rather than guessing which process to kill.
 
 Runner archives are automatically downloaded for the pinned version and
 verified against official SHA-256 digests. Daemon stdout is JSONL; optional
-runner logs are archived before execution cleanup. Configuration changes and
-faulted targets require a normal stop/restart. Scale sets remain registered
-until an explicit, interactively confirmed `destroy`.
+runner logs are archived before execution cleanup. Use `apply` to update
+configuration or retry faulted targets. Execution-user and managed-directory
+changes require a normal stop/restart. Normal shutdown retains scale sets;
+`apply` attempts to delete those no longer referenced by the configuration.
+Runner groups are never deleted.
 
 ## Documentation
 

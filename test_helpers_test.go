@@ -117,6 +117,7 @@ type fakeScaleAPI struct {
 	updateCalls      int
 	removeCalls      int
 	deleteCalls      int
+	deleteErr        error
 	lastGroupName    string
 	lastScaleSetName string
 }
@@ -172,6 +173,9 @@ func (f *fakeScaleAPI) DeleteRunnerScaleSet(context.Context, int) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.deleteCalls++
+	if f.deleteErr != nil {
+		return f.deleteErr
+	}
 	f.set = nil
 	return nil
 }

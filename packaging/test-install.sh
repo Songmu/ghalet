@@ -34,6 +34,9 @@ grep -qx 'StandardOutput=journal' /usr/lib/systemd/system/ghalet.service
 grep -qx 'StandardError=journal' /usr/lib/systemd/system/ghalet.service
 grep -qx 'KillMode=mixed' /usr/lib/systemd/system/ghalet.service
 grep -qx 'TimeoutStopSec=15min' /usr/lib/systemd/system/ghalet.service
+grep -qx 'TimeoutStartSec=15min' /usr/lib/systemd/system/ghalet.service
+grep -qx 'ExecReload=/usr/bin/ghalet apply --config /etc/ghalet/config.yaml' \
+  /usr/lib/systemd/system/ghalet.service
 grep -qx 'ExecStart=/usr/bin/ghalet run --config /etc/ghalet/config.yaml' \
   /usr/lib/systemd/system/ghalet.service
 test ! -e /etc/systemd/system/multi-user.target.wants/ghalet.service

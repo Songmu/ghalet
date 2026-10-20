@@ -89,7 +89,7 @@ func TestDirectAPILogRedactionWithOrdinaryHandler(t *testing.T) {
 	}
 	const credential = "direct-api-management-secret"
 	t.Setenv("GH_TOKEN", credential)
-	for _, command := range []string{"run", "gc", "destroy"} {
+	for _, command := range []string{"run", "gc"} {
 		t.Run(command, func(t *testing.T) {
 			data := strings.Replace(readFixture(t, "config/base.yaml"), "tokenEnv: GHALET_TEST_TOKEN", "tokenFile: missing-"+credential, 1)
 			data = strings.Replace(data, "id: build", "id: "+credential, 1)
@@ -111,11 +111,6 @@ func TestDirectAPILogRedactionWithOrdinaryHandler(t *testing.T) {
 				err = RunDaemon(ctx, config)
 			case "gc":
 				_, err = GC(ctx, path, true)
-			case "destroy":
-				_, err = Destroy(ctx, path, DestroyOptions{Target: credential, ScaleSet: "build"}, func(DestroyPlan) error {
-					t.Error("failed initialization requested deletion approval")
-					return errors.New("not approved")
-				})
 			}
 			if err == nil {
 				t.Fatal("canceled operation with a missing credential file succeeded")

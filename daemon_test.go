@@ -524,12 +524,8 @@ func TestCompletedTargetDrainDoesNotExpire(t *testing.T) {
 	if response := d.drain(t.Context(), "build"); response.Error != "" {
 		t.Fatal(response.Error)
 	}
-	plan, err := d.planDestroy(t.Context(), controlRequest{Target: "build", ScaleSet: "build"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if response := d.destroy(t.Context(), plan.Confirmation); response.Error != "" || api.deleteCalls != 1 {
-		t.Fatal("completed drain prevented later destruction", response.Error)
+	if err := d.deleteRetiredScaleSet(t.Context(), target); err != nil || api.deleteCalls != 1 {
+		t.Fatal("completed drain prevented later scale set deletion", err)
 	}
 }
 

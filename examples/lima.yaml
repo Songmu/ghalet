@@ -40,6 +40,8 @@ provision:
       Group=ghalet
       Environment=PATH=/usr/local/bin:/usr/bin:/bin
       ExecStart=/usr/local/bin/ghalet run --config /etc/ghalet/config.yaml
+      ExecReload=/usr/local/bin/ghalet apply --config /etc/ghalet/config.yaml
+      TimeoutStartSec=15min
       Restart=on-failure
       RestartSec=10
       KillMode=mixed

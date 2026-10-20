@@ -24,26 +24,29 @@ import (
 )
 
 type targetRuntime struct {
-	Config       Target
-	Client       scaleAPI
-	Set          *scaleset.RunnerScaleSet
-	Assigned     int
-	Pending      int
-	LastMessage  int
-	HasMessage   bool
-	Draining     bool
-	DrainStarted time.Time
-	Forced       bool
-	Fault        string
-	Listener     *listener.Listener
-	Cancel       context.CancelFunc
-	Failures     int
-	RetryAt      time.Time
-	ListenerDone bool
+	Config        Target
+	Client        scaleAPI
+	Set           *scaleset.RunnerScaleSet
+	Assigned      int
+	Pending       int
+	LastMessage   int
+	HasMessage    bool
+	Draining      bool
+	DrainStarted  time.Time
+	Forced        bool
+	Fault         string
+	Listener      *listener.Listener
+	Cancel        context.CancelFunc
+	Failures      int
+	RetryAt       time.Time
+	ListenerDone  bool
+	ListenerReady chan struct{}
+	CloseError    string
 }
 
 type activeRun struct {
 	State           *RunState
+	Config          *Config
 	Preparing       bool
 	Cancel          context.CancelFunc
 	Exited          bool
@@ -91,10 +94,11 @@ type Problem struct {
 }
 
 type OperationResult struct {
-	RunID  string `json:"runId,omitempty"`
-	Path   string `json:"path,omitempty"`
-	Action string `json:"action,omitempty"`
-	Error  string `json:"error,omitempty"`
+	TargetID string `json:"targetId,omitempty"`
+	RunID    string `json:"runId,omitempty"`
+	Path     string `json:"path,omitempty"`
+	Action   string `json:"action,omitempty"`
+	Error    string `json:"error,omitempty"`
 }
 
 type TargetStatus struct {
@@ -138,11 +142,16 @@ type daemon struct {
 	ctx           context.Context
 	cancel        context.CancelFunc
 	workers       sync.WaitGroup
-	confirmations map[string]destroyPlan
+	retired       []*targetRuntime
+	applying      bool
+	reloading     bool
+	applyCancel   context.CancelFunc
+	stopping      bool
 	offline       bool
 	guardRunners  bool
 	nextRetention time.Time
 	clientFactory func(context.Context, Target) (scaleAPI, error)
+	listen        func(*targetRuntime)
 }
 
 func newDaemon(c *Config) (*daemon, error) {
@@ -166,12 +175,13 @@ func newDaemon(c *Config) (*daemon, error) {
 		config: c, user: account, secrets: secret,
 		store: stateStore{c.Runner.WorkRoot}, distribution: runnerdist.New(preparationTimeout),
 		targets: map[string]*targetRuntime{}, runs: map[string]*activeRun{}, events: make(chan runEvent, 1024),
-		ctx: ctx, cancel: cancel, confirmations: map[string]destroyPlan{},
+		ctx: ctx, cancel: cancel,
 		guardRunners: runtime.GOOS == "darwin",
 	}
 	d.clientFactory = func(ctx context.Context, target Target) (scaleAPI, error) {
 		return newScaleClient(ctx, target, secret)
 	}
+	d.listen = d.startListener
 	return d, nil
 }
 
@@ -199,25 +209,7 @@ func (d *daemon) initialize(ctx context.Context, offline bool) error {
 		target := &targetRuntime{Config: config}
 		d.targets[config.ID] = target
 		d.order = append(d.order, config.ID)
-		err := retry(ctx, func() error {
-			callCtx, cancel := context.WithTimeout(ctx, apiTimeout)
-			defer cancel()
-			client, err := d.clientFactory(callCtx, config)
-			if err != nil {
-				return err
-			}
-			target.Client = client
-			target.Set, err = registration(callCtx, client, config, !offline)
-			return err
-		})
-		if err != nil {
-			target.Fault = d.secrets.Redact(err.Error())
-			slog.Error("Target registration failed", "event", "target.failed", "targetId", d.secrets.Redact(config.ID), "error", target.Fault)
-		} else if target.Set == nil {
-			target.Fault = "explicit scale set is not registered"
-		} else if target.Set.Statistics != nil {
-			target.Assigned = target.Set.Statistics.TotalAssignedJobs
-		}
+		d.registerTarget(ctx, target, !offline)
 	}
 	if err := d.recover(ctx); err != nil {
 		return err
@@ -225,10 +217,36 @@ func (d *daemon) initialize(ctx context.Context, offline bool) error {
 	for _, id := range d.order {
 		target := d.targets[id]
 		if !offline && target.Fault == "" {
-			d.startListener(target)
+			d.listen(target)
 		}
 	}
 	return nil
+}
+
+func (d *daemon) registerTarget(ctx context.Context, target *targetRuntime, create bool) {
+	err := retry(ctx, func() error {
+		callCtx, cancel := context.WithTimeout(ctx, apiTimeout)
+		defer cancel()
+		client, err := d.clientFactory(callCtx, target.Config)
+		if err != nil {
+			return err
+		}
+		target.Client = client
+		target.Set, err = registration(callCtx, client, target.Config, create)
+		return err
+	})
+	if err != nil {
+		target.Fault = d.secrets.Redact(err.Error())
+		slog.Error("Target registration failed", "event", "target.failed", "targetId", d.secrets.Redact(target.Config.ID), "error", target.Fault)
+	} else if target.Set == nil {
+		target.Fault = "scale set is not registered"
+	} else {
+		set := *target.Set
+		target.Set = &set
+		if set.Statistics != nil {
+			target.Assigned = set.Statistics.TotalAssignedJobs
+		}
+	}
 }
 
 func (d *daemon) recover(ctx context.Context) error {
@@ -316,7 +334,15 @@ func (d *daemon) startListener(target *targetRuntime) {
 	ctx, cancel := context.WithCancel(d.ctx)
 	target.Cancel = cancel
 	target.ListenerDone = false
+	target.ListenerReady = make(chan struct{})
 	d.workers.Go(func() {
+		ready := false
+		signalReady := func() {
+			if !ready {
+				close(target.ListenerReady)
+				ready = true
+			}
+		}
 		var lastErr error
 		for attempt := 0; attempt < maxAttempts; attempt++ {
 			if attempt > 0 {
@@ -350,6 +376,7 @@ func (d *daemon) startListener(target *targetRuntime) {
 			if err == nil {
 				target.Listener = l
 				target.HasMessage = false
+				signalReady()
 			}
 			d.mu.Unlock()
 			if err == nil {
@@ -359,6 +386,9 @@ func (d *daemon) startListener(target *targetRuntime) {
 			closeErr := session.Close(closeCtx)
 			closeCancel()
 			if closeErr != nil {
+				d.mu.Lock()
+				target.CloseError = d.secrets.Redact(closeErr.Error())
+				d.mu.Unlock()
 				slog.Error("Message session cleanup failed", "event", "listener.close_failed", "targetId", d.secrets.Redact(target.Config.ID), "error", d.secrets.Redact(closeErr.Error()))
 			}
 			lastErr = err
@@ -374,6 +404,7 @@ func (d *daemon) startListener(target *targetRuntime) {
 			target.Fault = d.secrets.Redact(lastErr.Error())
 			slog.Error("Target stopped accepting work", "event", "target.failed", "targetId", d.secrets.Redact(target.Config.ID), "error", target.Fault)
 		}
+		signalReady()
 	})
 }
 
@@ -489,6 +520,10 @@ func (d *daemon) serve(ctx context.Context) error {
 		case <-ctx.Done():
 			if !shutdown {
 				d.mu.Lock()
+				d.stopping = true
+				if d.applyCancel != nil {
+					d.applyCancel()
+				}
 				for _, target := range d.targets {
 					d.beginDrain(target)
 				}
@@ -502,7 +537,7 @@ func (d *daemon) serve(ctx context.Context) error {
 		case <-ticker.C:
 			d.mu.Lock()
 			d.reconcile()
-			done := shutdown && d.drained("")
+			done := shutdown && !d.applying && d.drained("")
 			d.mu.Unlock()
 			if done {
 				d.cancel()
@@ -585,7 +620,9 @@ func (d *daemon) reconcile() {
 		d.reconcileRun(run, table)
 	}
 	for _, target := range d.targets {
-		d.enforceDrainDeadline(target)
+		if !d.reloading {
+			d.enforceDrainDeadline(target)
+		}
 	}
 	// Real assigned jobs get all available slots before warm-pool maintenance.
 	for _, id := range d.order {
@@ -596,8 +633,8 @@ func (d *daemon) reconcile() {
 			}
 			d.fill(target, min(target.Assigned, target.Config.Scaling.MaxRunners))
 		}
-		d.expireLogsIfDue()
 	}
+	d.expireLogsIfDue()
 	realDemand := false
 	for _, target := range d.targets {
 		if target.Assigned+target.Pending > d.active(target.Config.ID) {
@@ -733,7 +770,7 @@ func (d *daemon) reconcileIdle(target *targetRuntime, realDemand bool) {
 }
 
 func (d *daemon) canStart(target *targetRuntime) bool {
-	return (!d.offline || target.Draining) && target.Client != nil && target.Set != nil && target.Fault == "" && !target.Forced && !time.Now().Before(target.RetryAt)
+	return !d.reloading && (!d.offline || target.Draining) && target.Client != nil && target.Set != nil && target.Fault == "" && !target.Forced && !time.Now().Before(target.RetryAt)
 }
 
 func (d *daemon) runTarget(run *activeRun) *targetRuntime {
@@ -1133,7 +1170,11 @@ func (d *daemon) cleanup(run *activeRun) error {
 	if err := d.unregister(run); err != nil {
 		return fail(err)
 	}
-	if err := archiveLogs(d.config, run.State, d.secrets); err != nil {
+	config := run.Config
+	if config == nil {
+		config = d.config
+	}
+	if err := archiveLogs(config, run.State, d.secrets); err != nil {
 		return fail(err)
 	}
 	if err := d.store.removeFiles(run.State); err != nil {
@@ -1197,6 +1238,12 @@ func (d *daemon) statusLocked() Status {
 		if run.State.Error != "" || run.Uncertain {
 			status.Problems = append(status.Problems, Problem{TargetID: d.runTargetID(run), RunID: run.State.RunID, Path: run.State.RunnerDir, Reason: run.State.Error})
 		}
+	}
+	for _, target := range d.retired {
+		status.Problems = append(status.Problems, Problem{
+			TargetID: target.Config.ID,
+			Reason:   fmt.Sprintf("retired scale set %q could not be deleted; run apply to retry", target.Config.ScaleSetName),
+		})
 	}
 	return status
 }

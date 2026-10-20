@@ -56,9 +56,10 @@ GHALET_INTEGRATION_CONFIG=/absolute/path/to/dedicated/config.yaml \
 必要に応じて、起動する workflow のリビジョンを `GHALET_INTEGRATION_REF` で指定します。
 テストは Scale Set を作成または再利用し、2 つのジョブを順次実行して、
 別々の実行ログを確認し、15 秒の期限でデーモンを drain します。
-**Scale Set の登録は残ります。** 実行後は
-[`ghalet destroy`](operations.ja.md#診断ガベージコレクション明示的な削除)
-を使い、対話で承認して削除してください。
+**Scale Set の登録を残してデーモンを停止します。** 実行後は専用の Scale Set を
+GitHub 上で手動削除してください。通常運用では、target を設定から外して
+[`ghalet apply`](operations.ja.md#設定反映) を実行することで、旧実行時情報を
+失う前に未参照 Scale Set の削除を試みます。
 
 ## 検証の限界
 

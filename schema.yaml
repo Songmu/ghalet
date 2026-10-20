@@ -28,8 +28,7 @@ properties:
         description: Total runner limit across all targets.
   targets:
     type: array
-    minItems: 1
-    description: Repository or organization runner registrations.
+    description: Repository or organization runner registrations. Use an empty array to remove all targets.
     items:
       type: object
       additionalProperties: false
