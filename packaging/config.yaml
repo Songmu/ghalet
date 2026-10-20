@@ -1,0 +1,17 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/Songmu/ghalet/main/schema.yaml
+
+targets:
+  - id: project
+    scope: OWNER/REPO
+    credential:
+      type: pat
+      tokenFile: /etc/ghalet/credentials/token # Root-only file, normally chmod 600.
+
+runner:
+  user: ghalet-runner
+  workRoot: /var/lib/ghalet/runs
+  distributionRoot: /var/lib/ghalet/runners
+  cacheRoot: /var/cache/ghalet/downloads
+
+cleanup:
+  logRoot: /var/log/ghalet/runners

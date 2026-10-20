@@ -21,8 +21,7 @@ install -m 0644 LICENSE CREDITS "$binary_dir/licenses/"
 
 staging=$(mktemp -d)
 trap 'rm -rf "$staging"' EXIT HUP INT TERM
-sed 's|/usr/local/bin/ghalet|/usr/bin/ghalet|' examples/ghalet.service > "$staging/ghalet.service"
-export VERSION="${version#v}" UNIT="$staging/ghalet.service"
+export VERSION="${version#v}"
 
 for arch do
   case "$arch" in

@@ -16,13 +16,17 @@ contents:
     expand: true
     file_info:
       mode: 0o755
-  - src: ${UNIT}
+  - src: packaging/ghalet.service
     dst: /usr/lib/systemd/system/ghalet.service
-    expand: true
     file_info:
       mode: 0o644
-  - src: examples/system-config.yaml
+  - src: packaging/config.yaml
     dst: /usr/share/ghalet/config.yaml.example
+    file_info:
+      mode: 0o644
+  - src: packaging/logrotate
+    dst: /etc/logrotate.d/ghalet
+    type: config|noreplace
     file_info:
       mode: 0o644
   - src: schema.yaml
@@ -55,6 +59,7 @@ overrides:
       - libkrb5-3
       - zlib1g
       - passwd
+      - logrotate
   rpm:
     depends:
       - ca-certificates
@@ -67,6 +72,7 @@ overrides:
       - krb5-libs
       - zlib
       - shadow-utils
+      - logrotate
 rpm:
   requires:
     post:
