@@ -89,7 +89,9 @@ ghalet run
 設定ファイルのデフォルトは `~/.config/ghalet/config.yaml` です。
 別のファイルを使う場合は `--config /path/to/config.yaml` を指定してください。
 デフォルトの認証には `gh` のログインを使います。[PAT と GitHub App による認証](docs/operations.ja.md#設定と認証情報)
-にも対応しています。その他の設定は[コメント付きのサンプル](examples/config.yaml)を参照してください。
+にも対応しています。必要権限、PAT の作成、GitHub App のインストールは
+[認証のセットアップ](docs/authentication.ja.md)を参照してください。
+その他の設定は[コメント付きのサンプル](examples/config.yaml)を参照してください。
 
 信頼できる workflow の `runs-on` に、設定した Scale Set 名
 （`scaleSet`、省略時は `id`）を指定します。
@@ -154,6 +156,8 @@ runner のアーカイブは固定バージョンを自動ダウンロードし�
 
 ## ドキュメント
 
+- [認証のセットアップ](docs/authentication.ja.md): 各方式のメリット・注意点、
+  PAT と GitHub App の最小権限・作成手順・ローテーション。
 - [運用ガイド](docs/operations.ja.md): 認証、設定、実行環境、復旧、ログ、
   systemd / launchd / Lima での常駐化。
 - [検証ガイド](docs/validation.ja.md): 自動テストの実行方法、明示的に実行する実環境での

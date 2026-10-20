@@ -110,12 +110,9 @@ systemd の credential は、対応する `LoadCredential=` または
 ファイルへシークレットを置かないでください。暗号化登録、共通設定、ローテーションは
 [暗号化した認証情報](credentials.ja.md)を参照してください。
 
-リポジトリ登録にはリポジトリの管理権限、Organization 登録には Organization の
-セルフホステッド runner 管理権限を使います。App のインストール対象には、
-利用するリポジトリを含めてください。Classic PAT の Organization 管理には通常
-`admin:org` が必要で、リポジトリ管理にはそのリポジトリへのアクセスが必要です。
-正確な必要権限は、トークンの種類、Organization のポリシー、GitHub ホストによって
-異なります。group のアクセス設定と App のインストール範囲は別です。
+scope 別の権限、PAT の作成、GitHub App のインストールは
+[認証のセットアップと最小権限](authentication.ja.md)を参照してください。
+group のアクセス設定と App のインストール範囲は別です。
 group の作成とリポジトリへのアクセス許可は、先に GitHub 側で行ってください。
 ghalet は runner group の作成・アクセス設定変更・削除を行いません。
 

@@ -2,6 +2,10 @@
 
 [English](credentials.md) | [日本語](credentials.ja.md)
 
+PAT の作成、GitHub App の登録、GitHub の最小権限は
+[認証のセットアップ](authentication.ja.md)を参照してください。
+このガイドでは、Linux パッケージのサービス用に認証情報を保存する方法を説明します。
+
 `ghalet systemd credential set` は、パッケージの `ghalet.service` 用に名前付きの
 PAT または GitHub App の秘密鍵を登録します。Linux、root 権限、systemd 250 以降、
 `systemd-creds`、`systemctl` が必要です。`--prompt` には

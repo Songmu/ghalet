@@ -117,12 +117,8 @@ can be referenced by an absolute `tokenFile` or `privateKeyFile` path under
 rotation, see [encrypted credentials](credentials.md).
 Do not put secrets into `Environment=` or workflow files unnecessarily.
 
-Use repository administration permissions for repository registration and
-organization self-hosted runner administration permissions for organization
-registration; App installations must include the intended repositories.
-Classic PAT organization management generally uses `admin:org`, while
-repository administration requires access to the repository. Token type,
-organization policy and GitHub host affect the exact permission requirements.
+See [authentication setup and minimum permissions](authentication.md) for
+scope-specific permissions, PAT creation and GitHub App installation.
 Group access policy and App installation access are separate. Create groups
 and grant their repository access in GitHub first: ghalet never creates,
 changes access to, or deletes runner groups.
