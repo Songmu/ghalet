@@ -2,6 +2,10 @@
 
 [English](credentials.md) | [日本語](credentials.ja.md)
 
+For PAT creation, GitHub App registration and minimum GitHub permissions, start
+with [authentication setup](authentication.md). This guide covers storing those
+credentials for the packaged Linux service.
+
 `ghalet systemd credential set` registers a named PAT or GitHub App private key
 for the packaged `ghalet.service`. It requires Linux, root, systemd 250 or later,
 `systemd-creds`, and `systemctl`; `--prompt` also requires

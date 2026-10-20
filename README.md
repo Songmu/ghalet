@@ -92,7 +92,9 @@ The default configuration path is `~/.config/ghalet/config.yaml`; use
 `--config /path/to/config.yaml` to select another file. The default
 authentication uses your `gh` login; [PAT and GitHub App
 credentials](docs/operations.md#configuration-and-credentials) are also
-supported. For more settings, see the [commented example](examples/config.yaml).
+supported. See [authentication setup](docs/authentication.md) for the required
+permissions, PAT creation and GitHub App installation.
+For more settings, see the [commented example](examples/config.yaml).
 
 Use the configured scale set name (`scaleSet`, or `id` when omitted) in a
 trusted workflow:
@@ -158,6 +160,8 @@ for retries, recovery and log policy.
 
 ## Documentation
 
+- [Authentication setup](docs/authentication.md): method tradeoffs, minimum
+  permissions, creation steps and credential rotation for PATs and GitHub Apps.
 - [Operations](docs/operations.md): authentication, configuration, execution
   environment, recovery, logs and systemd/launchd/Lima deployment.
 - [Validation](docs/validation.md): automated tests, opt-in live
