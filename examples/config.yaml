@@ -5,6 +5,11 @@
 # capacity:
 #   maxRunners: 2 # Total runner limit.
 
+# defaults:
+#   credential:
+#     type: gh # Shared by targets that omit credential.
+#     hostname: "" # Defaults to the scope's host.
+
 targets:
   - id: project
     # Unique local ID for management commands.
@@ -12,7 +17,7 @@ targets:
     # GitHub.com: OWNER/REPO or ORG; other hosts: full HTTPS URL.
     # Enterprise scopes are unsupported.
     # credential:
-    #   type: gh # Default; uses the launching user's gh login.
+    #   type: gh # Overrides defaults.credential; uses the launching user's gh login.
     #   hostname: "" # gh only; defaults to scope's host.
 
     # credential: # PAT alternative.

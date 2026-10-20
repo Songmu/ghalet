@@ -11,6 +11,13 @@ additionalProperties: false
 required:
   - targets
 properties:
+  defaults:
+    type: object
+    additionalProperties: false
+    properties:
+      credential:
+        $ref: "#/$defs/credential"
+        description: Shared authentication for targets that omit credential. Explicit target credentials replace it completely.
   capacity:
     type: object
     additionalProperties: false
@@ -89,9 +96,13 @@ properties:
           installationId:
             minimum: 1
       else:
-        properties:
-          installationId:
-            const: 0
+        if:
+          required:
+            - credential
+        then:
+          properties:
+            installationId:
+              const: 0
   runner:
     type: object
     additionalProperties: false
@@ -150,6 +161,41 @@ properties:
         description: |
           Log directory. Defaults to $XDG_STATE_HOME/ghalet/logs when
           XDG_STATE_HOME is absolute, otherwise ~/.local/state/ghalet/logs.
+allOf:
+  - if:
+      required: [defaults]
+      properties:
+        defaults:
+          required: [credential]
+          properties:
+            credential:
+              required: [type]
+              properties:
+                type:
+                  const: github-app
+    then:
+      properties:
+        targets:
+          items:
+            if:
+              not:
+                required: [credential]
+            then:
+              required: [installationId]
+              properties:
+                installationId:
+                  minimum: 1
+    else:
+      properties:
+        targets:
+          items:
+            if:
+              not:
+                required: [credential]
+            then:
+              properties:
+                installationId:
+                  const: 0
 $defs:
   runnerLimit:
     type: integer

@@ -73,6 +73,11 @@ jobs:
               rockylinux:9 sh /tests/test-install.sh rpm "/packages/$(basename "$1")"
           fi
         done
+    - name: test encrypted credential registration and rotation
+      run: |
+        go test -c -o "$RUNNER_TEMP/credential-tests" ./credentialstore
+        sudo env GHALET_TEST_SYSTEMD_CREDENTIALS=1 \
+          "$RUNNER_TEMP/credential-tests" -test.run '^TestSystemdCredentialEncryption$' -test.v
     - name: set up Docker buildx
       uses: docker/setup-buildx-action@v4.4.1
     - name: build container image without publishing

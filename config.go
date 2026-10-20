@@ -46,11 +46,16 @@ func (d *Duration) UnmarshalYAML(unmarshal func(any) error) error {
 }
 
 type Config struct {
+	Defaults DefaultsConfig `yaml:"defaults"`
 	Capacity CapacityConfig `yaml:"capacity"`
 	Targets  []Target       `yaml:"targets"`
 	Runner   RunnerConfig   `yaml:"runner"`
 	Cleanup  CleanupConfig  `yaml:"cleanup"`
 	Path     string         `yaml:"-"`
+}
+
+type DefaultsConfig struct {
+	Credential *Credential `yaml:"credential"`
 }
 
 type CapacityConfig struct {
@@ -66,6 +71,16 @@ type Credential struct {
 	PrivateKeyFile string `yaml:"privateKeyFile"`
 }
 
+func (c *Credential) UnmarshalYAML(unmarshal func(any) error) error {
+	type plain Credential
+	value := plain{Type: "gh"}
+	if err := unmarshal(&value); err != nil {
+		return err
+	}
+	*c = Credential(value)
+	return nil
+}
+
 type Target struct {
 	ID             string        `yaml:"id"`
 	URL            string        `yaml:"scope"`
@@ -74,6 +89,7 @@ type Target struct {
 	RunnerGroup    string        `yaml:"runnerGroup"`
 	ScaleSetName   string        `yaml:"scaleSet"`
 	Scaling        ScalingConfig `yaml:"scaling"`
+	credentialSet  bool
 }
 
 func (t *Target) UnmarshalYAML(unmarshal func(any) error) error {
@@ -85,7 +101,12 @@ func (t *Target) UnmarshalYAML(unmarshal func(any) error) error {
 	if err := unmarshal(&value); err != nil {
 		return err
 	}
+	var fields map[string]any
+	if err := unmarshal(&fields); err != nil {
+		return err
+	}
 	*t = Target(value)
+	_, t.credentialSet = fields["credential"]
 	return nil
 }
 
@@ -187,18 +208,26 @@ func LoadConfig(path string) (*Config, error) {
 		}
 		*path = resolve(*path)
 	}
-	for i := range c.Targets {
-		target := &c.Targets[i]
-		if target.ScaleSetName == "" {
-			target.ScaleSetName = target.ID
-		}
-		cred := &target.Credential
+	resolveCredential := func(cred *Credential) {
 		if cred.TokenFile != "" {
 			cred.TokenFile = resolve(cred.TokenFile)
 		}
 		if cred.PrivateKeyFile != "" {
 			cred.PrivateKeyFile = resolve(cred.PrivateKeyFile)
 		}
+	}
+	if c.Defaults.Credential != nil {
+		resolveCredential(c.Defaults.Credential)
+	}
+	for i := range c.Targets {
+		target := &c.Targets[i]
+		if !target.credentialSet && c.Defaults.Credential != nil {
+			target.Credential = *c.Defaults.Credential
+		}
+		if target.ScaleSetName == "" {
+			target.ScaleSetName = target.ID
+		}
+		resolveCredential(&target.Credential)
 		if !strings.Contains(target.URL, ":") {
 			target.URL = "https://github.com/" + target.URL
 		}
@@ -215,6 +244,11 @@ var runnerVersion = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+$`)
 var envName = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
 
 func (c *Config) Validate() error {
+	if c.Defaults.Credential != nil {
+		if err := c.Defaults.Credential.validate(); err != nil {
+			return fmt.Errorf("defaults.credential: %w", err)
+		}
+	}
 	if c.Capacity.MaxRunners < 1 || c.Capacity.MaxRunners > 10000 {
 		return errors.New("capacity.maxRunners must be between 1 and 10000")
 	}
@@ -367,6 +401,9 @@ func (c *Config) secretEnv(name string) bool {
 	switch strings.ToUpper(name) {
 	case "GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN",
 		"ACTIONS_RUNNER_INPUT_JITCONFIG":
+		return true
+	}
+	if c.Defaults.Credential != nil && name != "" && c.Defaults.Credential.TokenEnv == name {
 		return true
 	}
 	for _, target := range c.Targets {

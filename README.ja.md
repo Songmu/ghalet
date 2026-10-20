@@ -121,12 +121,15 @@ ghalet doctor
 | --- | --- |
 | `ghalet run` | フォアグラウンドでデーモンを起動し、設定された全 target のジョブ受付と runner プロセスを管理します。 |
 | `ghalet config validate` | runner の登録や GitHub への接続を行わず、設定の構文・値・ローカルパスの制約を検証します。 |
+| `ghalet systemd credential set NAME --prompt` | Linux の systemd サービス用 PAT を暗号化して登録し、`defaults.credential` を更新します。root 権限が必要です。App キー、自動構築、ローテーションは[認証情報](docs/credentials.ja.md)を参照してください。 |
 | `ghalet status` | 稼働中デーモンの状態と容量のスナップショットを取得します。取得成功は正常稼働を意味しません。 |
 | `ghalet doctor` | 稼働中デーモンの問題を診断し、問題があれば非ゼロで終了します。 |
 | `ghalet gc [--dry-run]` | 保留中の実行を再検証し、安全に削除できるものの cleanup と保存ログの期限切れ削除を行います。`--dry-run` では変更せず確認できます。 |
 | `ghalet destroy --target ID --scale-set NAME` | 対話で `yes` を入力して承認した後、明示した Scale Set を drain・削除します。Organization では `--runner-group NAME` も指定します。runner group 自体は削除しません。 |
 
-`ghalet --version` でバージョンを表示します。管理コマンドの応答は JSON です。
+`ghalet --version` でバージョンを表示します。認証情報のセットアップ案内を除き、
+管理コマンドの応答は JSON です。`systemd credential set` のデフォルト設定パスは
+`/etc/ghalet/config.yaml` で、他のコマンドはユーザーごとのデフォルトを使います。
 終了コード、オフラインでの保守、削除時の安全確認については
 [診断と cleanup](docs/operations.ja.md#診断ガベージコレクション明示的な削除)を参照してください。
 

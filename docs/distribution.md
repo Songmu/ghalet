@@ -21,7 +21,8 @@ sudo dnf install ./PACKAGE.rpm
 ```
 
 Packages include the official runner's OS dependencies and `procps`.
-GitHub CLI is not required: the supplied configuration uses a PAT file.
+GitHub CLI is not required: the supplied configuration uses an encrypted PAT
+provided by systemd. Registration requires systemd 250 or later.
 Install Git and the build tools your workflows need separately.
 The package smoke tests cover Ubuntu 26.04 hosts and Rocky Linux 9 containers on both
 architectures; other distributions need their own compatibility checks.
@@ -39,17 +40,21 @@ configuration, enable the service, or start it.
 sudo install -o root -g root -m 0600 \
   /usr/share/ghalet/config.yaml.example /etc/ghalet/config.yaml
 sudoedit /etc/ghalet/config.yaml
-sudo install -o root -g root -m 0600 \
-  /path/to/pat-file /etc/ghalet/credentials/token
+sudo ghalet systemd credential set default --prompt
 sudo ghalet config validate --config /etc/ghalet/config.yaml
 sudo systemctl enable --now ghalet
 ```
 
 Replace `OWNER/REPO` in the configuration and supply a PAT with the
-appropriate runner administration permissions. For a GitHub App, replace
-the target's `credential` and supply its owner-only private key file as
-described in [operations](operations.md#configuration-and-credentials).
+appropriate runner administration permissions. Registration writes its
+reference to `defaults.credential`, shared by targets that omit `credential`.
+Package installation and upgrades never request secrets; credential registration
+is a separate, explicit command. For App keys, multiple credentials, automation,
+and rotation, see [encrypted credentials](credentials.md).
 Do not put credentials inline in YAML or in shell command arguments.
+On older systemd installations, configure an owner-only PAT file with
+`defaults.credential.tokenFile` instead; see
+[operations](operations.md#configuration-and-credentials).
 
 The sample places executions and runner metadata under `/var/lib/ghalet`,
 downloads under `/var/cache/ghalet`, and saved runner logs under

@@ -14,10 +14,10 @@ case "$format" in
   deb)
     export DEBIAN_FRONTEND=noninteractive
     apt-get update -qq
-    apt-get install -y --no-install-recommends "$package"
+    apt-get install -y --no-install-recommends "$package" < /dev/null
     ;;
   rpm)
-    dnf install -y --setopt=install_weak_deps=False "$package"
+    dnf install -y --setopt=install_weak_deps=False "$package" < /dev/null
     ;;
   *) echo "Unsupported package format: $format" >&2; exit 1 ;;
 esac
@@ -49,6 +49,7 @@ config_sum=$(sha256sum < /etc/ghalet/config.yaml)
 /usr/bin/ghalet config validate --config /etc/ghalet/config.yaml
 grep -qx '  user: ghalet-runner' /etc/ghalet/config.yaml
 grep -qx '  logRoot: /var/log/ghalet/runners' /etc/ghalet/config.yaml
+grep -q 'tokenFile: /run/credentials/ghalet.service/default' /etc/ghalet/config.yaml
 touch /var/lib/ghalet/retained-state /etc/ghalet/credentials/retained-credential \
   /var/log/ghalet/retained-log
 chmod 0600 /etc/ghalet/credentials/retained-credential
@@ -65,8 +66,8 @@ su -s /bin/sh ghalet-runner -c '
 '
 
 case "$format" in
-  deb) apt-get install -y --reinstall --no-install-recommends "$package" ;;
-  rpm) dnf reinstall -y --setopt=install_weak_deps=False "$package" ;;
+  deb) apt-get install -y --reinstall --no-install-recommends "$package" < /dev/null ;;
+  rpm) dnf reinstall -y --setopt=install_weak_deps=False "$package" < /dev/null ;;
 esac
 test "$(sha256sum < /etc/ghalet/config.yaml)" = "$config_sum"
 test -e /var/lib/ghalet/retained-state

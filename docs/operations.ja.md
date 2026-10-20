@@ -28,8 +28,10 @@ runner バージョンを変更するには、通常停止してから設定を�
 デーモンに接続する管理コマンドは、編集後の設定が不正でも稼働中のスナップショットを参照します。
 
 `examples/config.yaml` にはリポジトリ、Organization、`gh`、PAT、App の例があります。
-各 target は登録先の `scope` を持ちます。省略可能な `credential` マッピングの
-デフォルトは `type: gh` です。空のマッピングや `type` の省略時も同じです。
+各 target は登録先の `scope` を持ちます。`credential` を省略すると
+`defaults.credential` を継承し、共通設定もなければ `type: gh` を使います。
+target に明示した `credential` は共通設定を丸ごと置き換えます。
+空のマッピングは継承せず `gh` を選びます。認証設定内で `type` を省略した場合も `gh` です。
 PAT / App を使う場合は、`type: pat` または `type: github-app` の明示が必要です。
 認証方式固有のフィールドだけで方式が自動選択されることはありません。
 明示的に空の type を指定すると拒否されます。
@@ -74,10 +76,12 @@ GitHub への操作を行う前に拒否されます。
 PAT では `tokenEnv` と `tokenFile` のどちらか一方だけを指定します。
 App の秘密鍵を含む認証ファイルは、所有者のみアクセスできる通常ファイルにしてください
 （通常は `chmod 600`）。YAML に値を直接書くことはできません。
-systemd の credential は、対応する `LoadCredential=` とともに、
+systemd の credential は、対応する `LoadCredential=` または
+`LoadCredentialEncrypted=` とともに、
 `/run/credentials/ghalet.service/` 以下の絶対パスを `tokenFile` または
 `privateKeyFile` に指定して参照できます。不要に `Environment=` や workflow
-ファイルへシークレットを置かないでください。
+ファイルへシークレットを置かないでください。暗号化登録、共通設定、ローテーションは
+[暗号化した認証情報](credentials.ja.md)を参照してください。
 
 リポジトリ登録にはリポジトリの管理権限、Organization 登録には Organization の
 セルフホステッド runner 管理権限を使います。App のインストール対象には、
