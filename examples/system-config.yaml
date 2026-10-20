@@ -7,7 +7,5 @@ targets:
       type: pat
       tokenFile: /etc/ghalet/credentials/token # Owner-only file, normally chmod 600.
 
-runner:
-
 logs:
   root: /var/log/ghalet/runners
