@@ -17,8 +17,6 @@ import (
 	"strings"
 	"syscall"
 	"time"
-
-	"github.com/Songmu/ghalet/fshelper"
 )
 
 type executionUser struct {
@@ -277,7 +275,7 @@ func stopGroup(ctx context.Context, state *RunState, persist func() error) error
 type workLock struct{ file *os.File }
 
 func lockWorkRoot(path string) (*workLock, error) {
-	if err := fshelper.EnsureDirectory(path, 0711); err != nil {
+	if err := ensureExecutionDirectory(path); err != nil {
 		return nil, err
 	}
 	lockPath := filepath.Join(path, ".lock")

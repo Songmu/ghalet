@@ -137,8 +137,14 @@ ghalet run --config /path/to/config.yaml
 Jobs run as the launching user unless `runner.user` names another existing
 account. Switching users requires root; root must explicitly select a
 non-root account. ghalet never creates or deletes users and refuses root
-jobs. Both users need appropriate directory traversal permissions. New
-execution parents are traversable but state files remain owner-only.
+jobs. The official runner must list and traverse every ancestor of its
+directory, up to the filesystem root. Managed execution parents (`workRoot`,
+target and run directories) are created with mode `0755`; existing `0711`
+parents are upgraded when used. The Linux package also upgrades
+`/var/lib/ghalet` to `0755`. Directory names are visible, but these parents
+remain management-owned and are not writable by other users; state and lock
+files remain owner-only. Custom ancestors outside these managed directories
+are not changed: make them listable and traversable by the runner user.
 Managed directory paths may not contain symlinks. On macOS use canonical
 paths such as `/private/var/...` instead of the `/var` symlink.
 

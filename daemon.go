@@ -815,13 +815,13 @@ func (d *daemon) reserve(target *targetRuntime) error {
 		return err
 	}
 	dir := filepath.Join(d.config.Runner.WorkRoot, target.Config.ID, id)
-	if err := fshelper.EnsureDirectory(filepath.Dir(dir), 0711); err != nil {
+	if err := ensureExecutionDirectory(filepath.Dir(dir)); err != nil {
 		return err
 	}
-	if err := os.Mkdir(dir, 0711); err != nil {
+	if err := os.Mkdir(dir, 0755); err != nil {
 		return err
 	}
-	if err := os.Chmod(dir, 0711); err != nil {
+	if err := os.Chmod(dir, 0755); err != nil {
 		return err
 	}
 	state := &RunState{

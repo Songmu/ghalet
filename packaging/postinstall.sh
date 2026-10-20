@@ -9,7 +9,7 @@ if ! id -u ghalet-runner >/dev/null 2>&1; then
     --shell /bin/bash ghalet-runner
 fi
 install -d -o ghalet-runner -g ghalet-runner -m 0700 /var/lib/ghalet-runner
-install -d -o root -g root -m 0711 /var/lib/ghalet
+install -d -o root -g root -m 0755 /var/lib/ghalet
 install -d -o root -g root -m 0700 \
   /etc/ghalet /etc/ghalet/credentials /var/cache/ghalet /var/log/ghalet
 if [ -d /run/systemd/system ]; then

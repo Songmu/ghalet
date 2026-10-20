@@ -41,8 +41,17 @@ func TestOfficialRunnerJITInputSmoke(t *testing.T) {
 	if os.Getenv("GHALET_TEST_OFFICIAL_RUNNER") != "1" {
 		t.Skip("set GHALET_TEST_OFFICIAL_RUNNER=1 to download and exercise the pinned official runner")
 	}
-	d, _ := testDaemon(t)
-	d.config.Runner.Version = defaultRunnerVersion
+	c := testConfig(t)
+	c.Runner.Version = defaultRunnerVersion
+	if os.Geteuid() == 0 {
+		c.Runner.User = "nobody"
+		c.Runner.WorkRoot = filepath.Join(sharedExecutionTestDirectory(t), "runs")
+	}
+	d, err := newDaemon(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.cancel()
 	// CI fetches the official digest with authentication outside the container.
 	if digestFile := os.Getenv("GHALET_TEST_RUNNER_DIGEST_FILE"); digestFile != "" {
 		digest, err := os.ReadFile(digestFile)
@@ -56,7 +65,11 @@ func TestOfficialRunnerJITInputSmoke(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	dest := filepath.Join(testDirectory(t), "runner")
+	state := testState(t, c)
+	if err := d.store.save(state); err != nil {
+		t.Fatal(err)
+	}
+	dest := state.RunnerDir
 	ctx, cancel := context.WithTimeout(t.Context(), preparationTimeout)
 	defer cancel()
 	if err := d.distribution.Prepare(ctx, runnerdist.Config{
@@ -64,13 +77,39 @@ func TestOfficialRunnerJITInputSmoke(t *testing.T) {
 	}, dest); err != nil {
 		t.Fatal(err)
 	}
+	if os.Geteuid() == 0 {
+		if err := filepath.WalkDir(dest, func(path string, _ os.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			return os.Lchown(path, d.user.UID, d.user.GID)
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
 	// A syntactically invalid config exercises the standard secret input and
 	// argument masking without registering a runner or contacting GitHub.
 	jit := base64.StdEncoding.EncodeToString([]byte("ghalet-invalid-jit-smoke-marker"))
-	command := exec.CommandContext(ctx, filepath.Join(dest, "bin", "Runner.Listener"), "run")
-	command.Dir = dest
-	command.Env = runnerEnvironment(d.config, d.user, jit)
-	output, err := command.CombinedOutput()
+	run := func() ([]byte, error) {
+		command := exec.CommandContext(ctx, filepath.Join(dest, "bin", "Runner.Listener"), "run")
+		command.Dir = dest
+		command.Env = runnerEnvironment(d.config, d.user, jit)
+		command.SysProcAttr = processAttributes(d.user)
+		return command.CombinedOutput()
+	}
+	if os.Geteuid() == 0 {
+		if err := os.Chmod(filepath.Dir(dest), 0711); err != nil {
+			t.Fatal(err)
+		}
+		output, err := run()
+		if err == nil || !strings.Contains(string(output), "Permission to read the directory contents") {
+			t.Fatalf("official runner did not reproduce the legacy parent permission error: %v\n%s", err, output)
+		}
+		if err := d.store.save(state); err != nil {
+			t.Fatal(err)
+		}
+	}
+	output, err := run()
 	if err == nil {
 		t.Fatal("invalid JIT configuration unexpectedly succeeded")
 	}
@@ -88,7 +127,7 @@ func TestOfficialRunnerJITInputSmoke(t *testing.T) {
 		return nil
 	})
 	if !strings.Contains(combined, "jitconfig") {
-		t.Fatal("runner did not report processing the JIT input; check OS runtime prerequisites")
+		t.Fatalf("runner did not report processing the JIT input; check OS runtime prerequisites:\n%s", combined)
 	}
 	if strings.Contains(combined, jit) {
 		t.Fatal("official runner leaked encoded JIT input")
