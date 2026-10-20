@@ -32,7 +32,11 @@ filesystem permissions. Normally only the management user's daemon is
 accessible; root can also discover other users' daemons. A candidate must
 respond within one second with a config path matching its socket name.
 Stale, unresponsive, unrelated, symlinked and insecure socket entries are
-ignored, not deleted. No PID or process-name guessing is used.
+ignored, not deleted. Responses are limited to 4 MiB. Management operations
+also verify the connected peer's UID and require the daemon's config to match
+the selected path. No PID or process-name guessing is used.
+Restart the daemon when upgrading the CLI; older daemons reject the new
+config-checked requests.
 
 No working-directory or `/etc` config search is performed. Relative paths
 are based on the selected config's directory, not the shell's current

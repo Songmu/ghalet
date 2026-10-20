@@ -87,7 +87,7 @@ func discoverDaemons(ctx context.Context, root, config string) ([]DaemonInfo, er
 				continue
 			}
 			probeCtx, cancel := context.WithTimeout(ctx, time.Second)
-			response, err := controlCallSocket(probeCtx, socket, controlRequest{Command: "status"})
+			response, err := controlCallSocket(probeCtx, socket, uid, controlRequest{Command: "status"})
 			cancel()
 			if ctx.Err() != nil {
 				return nil, ctx.Err()
@@ -123,6 +123,7 @@ func ownedPrivate(info os.FileInfo, uid int) bool {
 type controlEndpoint struct {
 	config     string
 	socket     string
+	uid        int
 	discovered bool
 }
 
@@ -130,7 +131,8 @@ func (e controlEndpoint) call(ctx context.Context, request controlRequest) (cont
 	if !e.discovered {
 		return controlResponse{}, fmt.Errorf("no accessible daemon found for config %s", e.config)
 	}
-	return controlCallSocket(ctx, e.socket, request)
+	request.ExpectedConfig = e.config
+	return controlCallSocket(ctx, e.socket, e.uid, request)
 }
 
 func resolveControl(ctx context.Context, config string) (controlEndpoint, error) {
@@ -151,7 +153,7 @@ func selectControl(config string, daemons []DaemonInfo) (controlEndpoint, error)
 		return controlEndpoint{config: path, socket: socketPath(path)}, nil
 	case 1:
 		d := daemons[0]
-		return controlEndpoint{config: d.Status.Config, socket: d.Socket, discovered: true}, nil
+		return controlEndpoint{config: d.Status.Config, socket: d.Socket, uid: d.UID, discovered: true}, nil
 	default:
 		return controlEndpoint{}, errors.New("multiple accessible daemons found; use ghalet list and specify --config (or run as the daemon's management user)")
 	}

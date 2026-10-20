@@ -20,8 +20,9 @@ import (
 )
 
 type controlRequest struct {
-	Command string `json:"command"`
-	DryRun  bool   `json:"dryRun,omitempty"`
+	Command        string `json:"command"`
+	DryRun         bool   `json:"dryRun,omitempty"`
+	ExpectedConfig string `json:"expectedConfig,omitempty"`
 }
 
 type controlResponse struct {
@@ -134,16 +135,20 @@ func (s *controlServer) serve(d *daemon) {
 }
 
 func controlCall(ctx context.Context, path string, request controlRequest) (controlResponse, error) {
-	return controlCallSocket(ctx, socketPath(path), request)
+	request.ExpectedConfig = path
+	return controlCallSocket(ctx, socketPath(path), os.Geteuid(), request)
 }
 
-func controlCallSocket(ctx context.Context, socket string, request controlRequest) (controlResponse, error) {
+func controlCallSocket(ctx context.Context, socket string, uid int, request controlRequest) (controlResponse, error) {
 	var response controlResponse
 	connection, err := (&net.Dialer{Timeout: time.Second}).DialContext(ctx, "unix", socket)
 	if err != nil {
 		return response, err
 	}
 	defer connection.Close()
+	if err := checkControlPeer(connection, uid); err != nil {
+		return response, err
+	}
 	stop := context.AfterFunc(ctx, func() { connection.Close() })
 	defer stop()
 	if deadline, ok := ctx.Deadline(); ok {
@@ -154,13 +159,55 @@ func controlCallSocket(ctx context.Context, socket string, request controlReques
 	if err := json.NewEncoder(connection).Encode(request); err != nil {
 		return response, err
 	}
-	if err := json.NewDecoder(connection).Decode(&response); err != nil {
-		return response, err
+	return decodeControlResponse(connection)
+}
+
+const maxControlResponseSize = 4 * 1024 * 1024
+
+func decodeControlResponse(reader io.Reader) (controlResponse, error) {
+	var response controlResponse
+	limited := &io.LimitedReader{R: reader, N: maxControlResponseSize + 1}
+	err := json.NewDecoder(limited).Decode(&response)
+	if limited.N == 0 {
+		return controlResponse{}, errors.New("control response exceeds 4 MiB")
 	}
-	return response, nil
+	return response, err
+}
+
+func checkControlPeer(connection net.Conn, uid int) error {
+	conn, ok := connection.(syscall.Conn)
+	if !ok {
+		return errors.New("control connection does not expose peer credentials")
+	}
+	raw, err := conn.SyscallConn()
+	if err != nil {
+		return err
+	}
+	var peerUID int
+	var peerErr error
+	if err := raw.Control(func(fd uintptr) {
+		peerUID, peerErr = socketPeerUID(int(fd))
+	}); err != nil {
+		return err
+	}
+	if peerErr != nil {
+		return fmt.Errorf("read control peer UID: %w", peerErr)
+	}
+	if peerUID != uid {
+		return fmt.Errorf("control peer UID %d does not match expected UID %d", peerUID, uid)
+	}
+	return nil
 }
 
 func (d *daemon) handle(ctx context.Context, request controlRequest) controlResponse {
+	if request.ExpectedConfig != "" {
+		d.mu.Lock()
+		matches := request.ExpectedConfig == d.config.Path
+		d.mu.Unlock()
+		if !matches {
+			return controlResponse{Error: "control daemon configuration does not match expected config"}
+		}
+	}
 	switch request.Command {
 	case "status", "doctor":
 		d.mu.Lock()
