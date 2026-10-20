@@ -99,14 +99,6 @@ func TestSystemdCredentialCommandRejectsInvalidArguments(t *testing.T) {
 	}
 }
 
-func TestCredentialCommandRequiresSystemdNamespace(t *testing.T) {
-	var stdout, stderr bytes.Buffer
-	err := Run(t.Context(), []string{"credential", "set", "default", "--stdin"}, &stdout, &stderr)
-	if err == nil || stdout.Len() != 0 {
-		t.Fatal("accepted credential without the systemd namespace", err, stdout.String())
-	}
-}
-
 func TestPrintCredentialResult(t *testing.T) {
 	for _, tc := range []struct {
 		name      string

@@ -78,7 +78,8 @@ Follow [GitHub's PAT creation guide][pat-guide]:
 
 For direct execution on Linux or macOS, put the PAT in an owner-only regular
 file readable by the daemon user, then reference it without copying the value
-into YAML:
+into YAML. [`ghalet credential set`](file-credentials.md) can import the file
+and configure this reference automatically:
 
 ```sh
 chmod 600 /absolute/path/to/ghalet.pat

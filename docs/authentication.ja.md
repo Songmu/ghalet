@@ -78,6 +78,8 @@ ghalet は既存 group を参照し、そのポリシーは変更しません。
 
 Linux / macOS で直接起動する場合は、デーモンの実行ユーザーが読める、
 所有者のみアクセス可能な通常ファイルに PAT を保存し、値を YAML に書かずに参照します。
+[`ghalet credential set`](file-credentials.ja.md) でファイルを取り込むと、
+この参照を自動で設定できます。
 
 ```sh
 chmod 600 /absolute/path/to/ghalet.pat
