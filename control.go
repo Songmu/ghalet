@@ -31,8 +31,12 @@ type controlResponse struct {
 }
 
 func socketPath(config string) string {
+	return filepath.Join("/tmp", "ghalet-"+strconv.Itoa(os.Geteuid()), socketName(config))
+}
+
+func socketName(config string) string {
 	sum := sha256.Sum256([]byte(config))
-	return filepath.Join("/tmp", "ghalet-"+strconv.Itoa(os.Geteuid()), hex.EncodeToString(sum[:12])+".sock")
+	return hex.EncodeToString(sum[:12]) + ".sock"
 }
 
 type controlServer struct {
@@ -130,8 +134,12 @@ func (s *controlServer) serve(d *daemon) {
 }
 
 func controlCall(ctx context.Context, path string, request controlRequest) (controlResponse, error) {
+	return controlCallSocket(ctx, socketPath(path), request)
+}
+
+func controlCallSocket(ctx context.Context, socket string, request controlRequest) (controlResponse, error) {
 	var response controlResponse
-	connection, err := (&net.Dialer{Timeout: time.Second}).DialContext(ctx, "unix", socketPath(path))
+	connection, err := (&net.Dialer{Timeout: time.Second}).DialContext(ctx, "unix", socket)
 	if err != nil {
 		return response, err
 	}

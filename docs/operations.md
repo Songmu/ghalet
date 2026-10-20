@@ -17,8 +17,24 @@ the [command overview](../README.md#commands).
 
 ## Configuration and credentials
 
-All commands select `~/.config/ghalet/config.yaml` unless `--config` is
-explicit. No working-directory or `/etc` search is performed. Relative paths
+`run` and `config validate` select `~/.config/ghalet/config.yaml` unless
+`--config` is explicit. Without `--config`, `status`, `doctor`, `apply`, and
+`gc` discover accessible daemons and select one only when exactly one responds.
+Use `ghalet list` to see their management UIDs, sockets and running snapshots,
+then `--config PATH` to select among multiple daemons. An explicit config
+never falls back to a daemon using another config. If no daemon is found,
+management commands use the per-user default config; `gc` retains its locked
+offline maintenance behavior. `list --config PATH` filters the list and does
+not require the file to exist.
+
+Discovery probes private Unix sockets in `/tmp/ghalet-<UID>/`, subject to
+filesystem permissions. Normally only the management user's daemon is
+accessible; root can also discover other users' daemons. A candidate must
+respond within one second with a config path matching its socket name.
+Stale, unresponsive, unrelated, symlinked and insecure socket entries are
+ignored, not deleted. No PID or process-name guessing is used.
+
+No working-directory or `/etc` config search is performed. Relative paths
 are based on the selected config's directory, not the shell's current
 directory. Use absolute paths in service definitions; `~` is not expanded
 inside YAML.
@@ -29,7 +45,10 @@ managed-directory changes require a normal stop/restart.
 Editing the file alone does not change the running configuration or the
 control address: it is derived from the normalized absolute config path.
 `status`, `doctor`, and connected management commands query the
-running snapshot even if the file's contents are now invalid.
+running snapshot even if the file's contents are now invalid or it was removed.
+`apply` always reloads the selected daemon's original config path, preserving
+its relative-path base and leaving the file unchanged. It fails if that file
+is missing or invalid, rather than substituting the caller's default config.
 
 `examples/config.yaml` includes repository, organization, `gh`, PAT and App
 examples. Each target contains its registration `scope`. The optional

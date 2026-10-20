@@ -105,15 +105,19 @@ func TestDirectAPILogRedactionWithOrdinaryHandler(t *testing.T) {
 			defer slog.SetDefault(original)
 			defer logreduct.Default.Release([]string{credential})
 			ctx, cancel := context.WithCancel(t.Context())
-			cancel()
+			defer cancel()
 			switch command {
 			case "run":
+				cancel()
 				err = RunDaemon(ctx, config)
 			case "gc":
 				_, err = GC(ctx, path, true)
 			}
-			if err == nil {
+			if command == "run" && err == nil {
 				t.Fatal("canceled operation with a missing credential file succeeded")
+			}
+			if command == "gc" && err != nil {
+				t.Fatal("offline dry-run garbage collection failed", err)
 			}
 			if strings.Contains(output.String(), credential) {
 				t.Fatal("direct API logging exposed a registered credential", output.String())
