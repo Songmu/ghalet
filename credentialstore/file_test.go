@@ -62,6 +62,50 @@ func TestFileRegistrationAndRotation(t *testing.T) {
 	}
 }
 
+func TestCredentialWritersHonorConfigLock(t *testing.T) {
+	for _, encrypted := range []bool{false, true} {
+		t.Run(map[bool]string{false: "file", true: "systemd"}[encrypted], func(t *testing.T) {
+			store, options, _ := testCredentialStore(t)
+			before, err := os.ReadFile(options.Config)
+			if err != nil {
+				t.Fatal(err)
+			}
+			lock, err := fshelper.LockFile(options.Config + ".lock")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer lock.Close()
+			var setErr error
+			if encrypted {
+				_, setErr = store.set(t.Context(), options, strings.NewReader("synthetic-secret"))
+			} else {
+				_, setErr = setFile(t.Context(), store.directory, options, strings.NewReader("synthetic-secret"))
+			}
+			if setErr == nil {
+				t.Fatal("credential writer ignored the configuration lock")
+			}
+			current, err := os.ReadFile(options.Config)
+			if err != nil || !bytes.Equal(current, before) {
+				t.Fatal("configuration was changed", err)
+			}
+			for _, name := range []string{"default.pat", "default.cred", "default.cred.previous"} {
+				if _, err := os.Stat(filepath.Join(store.directory, name)); !errors.Is(err, os.ErrNotExist) {
+					t.Fatal("failed configuration update modified credentials", name, err)
+				}
+			}
+			options.NoDefault = true
+			if encrypted {
+				_, setErr = store.set(t.Context(), options, strings.NewReader("synthetic-secret"))
+			} else {
+				_, setErr = setFile(t.Context(), store.directory, options, strings.NewReader("synthetic-secret"))
+			}
+			if setErr != nil {
+				t.Fatal("--no-default unnecessarily required the configuration lock", setErr)
+			}
+		})
+	}
+}
+
 func TestFileCredentialFailuresPreserveExisting(t *testing.T) {
 	for _, kind := range []string{"empty", "whitespace", "large", "invalid-app", "canceled", "missing-input", "prompt"} {
 		t.Run(kind, func(t *testing.T) {

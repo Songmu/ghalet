@@ -125,6 +125,10 @@ for keychain and service-environment considerations.
 
 ## Create and install a GitHub App
 
+For guided creation, key storage and installation discovery, use
+[`ghalet auth setup`](app-setup.md). To register an App manually, follow the
+steps below.
+
 Follow [GitHub's App registration guide][app-guide]:
 
 1. Open the owning account's **Settings → Developer settings → GitHub Apps

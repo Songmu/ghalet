@@ -36,6 +36,7 @@ type Options struct {
 	Name, Type, File, Config, ClientID string
 	Prompt, Stdin, NoDefault           bool
 	PromptOutput                       io.Writer
+	NoReplace                          bool
 }
 
 // Result describes the files installed by a successful registration.
@@ -239,6 +240,13 @@ func (s credentialStore) set(ctx context.Context, options Options, input io.Read
 			cause = errors.Join(cause, fmt.Errorf("reload restored systemd configuration: %w", err))
 		}
 		return cause
+	}
+	if !options.NoDefault {
+		configLock, err := fshelper.LockFile(options.Config + ".lock")
+		if err != nil {
+			return result, err
+		}
+		defer configLock.Close()
 	}
 	if cipher.exists {
 		if err := write(previous, cipher.data, 0600); err != nil {
