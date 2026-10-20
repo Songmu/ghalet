@@ -25,15 +25,32 @@ jobs:
       id: build
       run: |
         echo "revision=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+        echo "SOURCE_DATE_EPOCH=$(git show -s --format=%ct HEAD)" >> "$GITHUB_ENV"
     - name: build release archives
       id: goxz
       uses: Songmu/goxz@v0.13.0
       with:
         package-version: ${{ github.ref_name }}
         os: linux,darwin
+        arch: amd64,arm64
         packages: ./cmd/ghalet
+        destination: dist
+        static: true
         build-ldflags: -s -w -X github.com/Songmu/ghalet.Revision=${{ steps.build.outputs.revision }}
-        checksum: true
+    - name: build Linux packages
+      env:
+        VERSION: ${{ github.ref_name }}
+        OUTPUT_DIR: ${{ steps.goxz.outputs.output-dir }}
+      run: |
+        go install "github.com/goreleaser/nfpm/v2/cmd/nfpm@$(cat packaging/nfpm.version)"
+        sh packaging/build.sh "$VERSION" "$OUTPUT_DIR" "$OUTPUT_DIR" "$RUNNER_TEMP/container-binaries"
+    - name: generate release checksums
+      shell: bash
+      working-directory: ${{ steps.goxz.outputs.output-dir }}
+      run: |
+        find . -type f ! -path './SHA256SUMS' -printf '%P\0' |
+          LC_ALL=C sort -z |
+          xargs -0 -r sha256sum -- > SHA256SUMS
     - name: attest build provenance
       uses: actions/attest@v4.2.2
       with:
@@ -43,5 +60,12 @@ jobs:
       with:
         name: release-${{ github.ref_name }}
         path: "${{ steps.goxz.outputs.output-dir }}/*"
+        if-no-files-found: error
+        retention-days: 1
+    - name: upload container binaries
+      uses: actions/upload-artifact@v7.0.2
+      with:
+        name: container-binaries-${{ github.ref_name }}
+        path: "${{ runner.temp }}/container-binaries/"
         if-no-files-found: error
         retention-days: 1

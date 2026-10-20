@@ -43,6 +43,19 @@ func TestOfficialRunnerJITInputSmoke(t *testing.T) {
 	}
 	d, _ := testDaemon(t)
 	d.config.Runner.Version = defaultRunnerVersion
+	// CI fetches the official digest with authentication outside the container.
+	if digestFile := os.Getenv("GHALET_TEST_RUNNER_DIGEST_FILE"); digestFile != "" {
+		digest, err := os.ReadFile(digestFile)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(d.config.Runner.DistributionRoot, 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(d.config.Runner.DistributionRoot, filepath.Base(digestFile)), digest, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
 	dest := filepath.Join(testDirectory(t), "runner")
 	ctx, cancel := context.WithTimeout(t.Context(), preparationTimeout)
 	defer cancel()

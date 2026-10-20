@@ -16,6 +16,18 @@ go vet ./...
 CI runs the suite on Linux and macOS without real GitHub registrations.
 Run as a non-root user: process tests skip under root.
 
+The `test-packaging.yaml` workflow builds amd64/arm64 test archives and deb/rpm packages,
+checks installation, reinstallation and removal on Ubuntu 26.04 hosts and
+in Rocky Linux 9 containers, and builds the Docker image without publishing it.
+On Ubuntu it verifies the installed unit and that package operations leave
+the service inactive.
+It validates the packaged configuration and runs the optional official
+runner smoke test inside the image. These checks do not exercise a live
+GitHub job or a systemd-managed drain.
+CI fetches the official runner digest with authenticated GitHub API access
+on the host, then mounts it read-only for `GHALET_TEST_RUNNER_DIGEST_FILE`.
+Archive verification still runs inside the container; no API token is passed in.
+
 ## Optional official runner smoke test
 
 ```sh

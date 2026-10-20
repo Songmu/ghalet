@@ -5,9 +5,9 @@ cpus: 4
 memory: 8GiB
 disk: 80GiB
 images:
-  - location: https://cloud-images.ubuntu.com/releases/noble/release-20260926/ubuntu-24.04-server-cloudimg-arm64.img
+  - location: https://cloud-images.ubuntu.com/releases/resolute/release-20260927/ubuntu-26.04-server-cloudimg-arm64.img
     arch: aarch64
-    digest: sha256:1d6bffe64b848468ac97f821d369a4846d983de1800ccf6b5ec8853e85cefc55
+    digest: sha256:63a93bd5a8d76e33b15ceb5daa3657bd79be804748051ab178e643b0f5da22e7
 mounts: []
 containerd:
   system: false
@@ -20,7 +20,7 @@ provision:
       export DEBIAN_FRONTEND=noninteractive
       apt-get update -qq
       apt-get install -y --no-install-recommends \
-        ca-certificates curl git gh golang-go procps libicu74 libssl3t64 \
+        ca-certificates curl git gh golang-go procps libicu78 libssl3t64 \
         libkrb5-3 zlib1g
       if ! id ghalet >/dev/null 2>&1; then
         useradd --create-home --shell /bin/bash ghalet

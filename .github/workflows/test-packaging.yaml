@@ -1,0 +1,118 @@
+name: test packaging
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  attestations: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+        - os: ubuntu-26.04
+          arch: amd64
+        - os: ubuntu-26.04-arm
+          arch: arm64
+    steps:
+    - name: checkout
+      uses: actions/checkout@v7.0.1
+      with:
+        persist-credentials: false
+    - name: setup go
+      uses: actions/setup-go@v7.0.0
+      with:
+        go-version-file: go.mod
+    - name: read application version
+      run: |
+        version=$(sed -n 's/^const Version = "\([^"]*\)"$/v\1/p' version.go)
+        test -n "$version"
+        echo "GHALET_VERSION=$version" >> "$GITHUB_ENV"
+    - name: build test archives
+      id: goxz
+      uses: Songmu/goxz@v0.13.0
+      with:
+        package-version: ${{ env.GHALET_VERSION }}
+        os: linux
+        arch: ${{ matrix.arch }}
+        packages: ./cmd/ghalet
+        static: true
+        destination: ${{ runner.temp }}/release
+    - name: build test packages
+      env:
+        ARCH: ${{ matrix.arch }}
+        OUTPUT_DIR: ${{ steps.goxz.outputs.output-dir }}
+      run: |
+        go install "github.com/goreleaser/nfpm/v2/cmd/nfpm@$(cat packaging/nfpm.version)"
+        sh packaging/build.sh "$GHALET_VERSION" "$OUTPUT_DIR" "$OUTPUT_DIR" "$RUNNER_TEMP/container-binaries" "$ARCH"
+        shellcheck packaging/*.sh
+    - name: test package installation, upgrade and removal
+      env:
+        OUTPUT_DIR: ${{ steps.goxz.outputs.output-dir }}
+      run: |
+        for format in deb rpm; do
+          set -- "$OUTPUT_DIR/"*."$format"
+          test "$#" -eq 1
+          if [ "$format" = deb ]; then
+            sudo sh packaging/test-install.sh deb "$1"
+          else
+            docker run --rm \
+              --mount "type=bind,src=$OUTPUT_DIR,dst=/packages,readonly" \
+              --mount "type=bind,src=$GITHUB_WORKSPACE/packaging,dst=/tests,readonly" \
+              rockylinux:9 sh /tests/test-install.sh rpm "/packages/$(basename "$1")"
+          fi
+        done
+    - name: set up Docker buildx
+      uses: docker/setup-buildx-action@v4.4.1
+    - name: build container image without publishing
+      uses: docker/build-push-action@v7.4.0
+      with:
+        context: .
+        build-contexts: |
+          binaries=${{ runner.temp }}/container-binaries
+        platforms: linux/${{ matrix.arch }}
+        load: true
+        tags: ghalet:test
+    - name: test container configuration and official runner dependencies
+      env:
+        GH_TOKEN: ${{ github.token }}
+        ARCH: ${{ matrix.arch }}
+      run: |
+        docker compose -f examples/compose.yaml config --quiet
+        docker run --rm --init \
+          --mount "type=bind,src=$GITHUB_WORKSPACE/examples/system-config.yaml,dst=/etc/ghalet/config.yaml,readonly" \
+          ghalet:test config validate --config /etc/ghalet/config.yaml
+        version=$(sed -n 's/^const defaultRunnerVersion = "\([0-9][0-9.]*\)"$/\1/p' config.go)
+        test -n "$version"
+        runner_arch="$ARCH"
+        if [ "$runner_arch" = amd64 ]; then runner_arch=x64; fi
+        asset="actions-runner-linux-$runner_arch-$version.tar.gz"
+        digest=$(gh api "repos/actions/runner/releases/tags/v$version" \
+          --jq ".assets[] | select(.name == \"$asset\") | .digest")
+        if [[ ! $digest =~ ^sha256:[a-f0-9]{64}$ ]]; then
+          echo "Missing or invalid official SHA-256 digest for $asset" >&2
+          exit 1
+        fi
+        mkdir -p "$RUNNER_TEMP/runner-digests"
+        printf '%s\n' "${digest#sha256:}" > "$RUNNER_TEMP/runner-digests/$asset.sha256"
+        CGO_ENABLED=0 go test -c -o "$RUNNER_TEMP/runner-smoke" .
+        docker run --rm --init \
+          --env GHALET_TEST_OFFICIAL_RUNNER=1 \
+          --env "GHALET_TEST_RUNNER_DIGEST_FILE=/runner-digests/$asset.sha256" \
+          --mount "type=bind,src=$RUNNER_TEMP/runner-digests,dst=/runner-digests,readonly" \
+          --mount "type=bind,src=$RUNNER_TEMP/runner-smoke,dst=/runner-smoke,readonly" \
+          --mount "type=bind,src=$GITHUB_WORKSPACE/testdata,dst=/testdata,readonly" \
+          --workdir / \
+          --entrypoint /runner-smoke \
+          ghalet:test -test.run '^TestOfficialRunnerJITInputSmoke$' -test.v

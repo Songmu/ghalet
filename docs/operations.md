@@ -145,9 +145,9 @@ packages are selected from the pinned version. Windows is not supported.
 
 `runner` is global and optional. Its version defaults to the numeric version
 bundled with ghalet; set `runner.version` to pin a different release.
-The scheduled `update-runner` workflow checks official stable releases weekly
-and opens a tested PR updating the bundled default and example. It also
-supports manual dispatch. Updating ghalet and restarting picks up the new
+Renovate checks official stable releases weekly and opens PRs updating the
+bundled default and example together; the regular CI validates these changes.
+Updating ghalet and restarting picks up the new
 default unless the configuration explicitly pins a version. Startup never
 resolves `latest`, and runner self-update remains disabled.
 
@@ -330,6 +330,10 @@ by a trusted workflow.
 
 ## Service deployment
 
+For packaged Linux installation or Docker Compose, see
+[packages and containers](distribution.md). The instructions below cover
+manual service installation.
+
 For Linux, precreate a dedicated `ghalet` user and writable storage paths,
 copy `examples/ghalet.service` into `/etc/systemd/system/`, and place the
 configuration at `/etc/ghalet/config.yaml`. Set workRoot, distributionRoot,
@@ -364,7 +368,7 @@ administrator-managed LaunchDaemon and set `runner.user`; do not assume a
 LaunchAgent can change users. Test keychain access and shutdown behavior in
 the actual login/service context.
 
-For Apple Silicon Lima, `examples/lima.yaml` supplies an Ubuntu ARM64 VM
+For Apple Silicon Lima, `examples/lima.yaml` supplies an Ubuntu 26.04 ARM64 VM
 with VZ, 4 vCPU, 8 GiB, 80 GiB, no host mounts, no containerd, installation
 and an enabled systemd service. Provisioning does not copy host credentials.
 It builds the published ghalet module with Go's toolchain selection.
