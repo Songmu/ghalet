@@ -162,7 +162,6 @@ func TestRunnerGuardControllerHelper(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	d.guardRunners = true
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
@@ -184,7 +183,6 @@ func TestRunnerGuardPreservesRunnerExitAndKillsRemainingChildren(t *testing.T) {
 	for _, code := range []int{0, 7} {
 		t.Run(strconv.Itoa(code), func(t *testing.T) {
 			d, _ := testDaemon(t)
-			d.guardRunners = true
 			cleanupProcesses(t, d)
 			release := filepath.Join(testDirectory(t), "release")
 			if err := syscall.Mkfifo(release, 0600); err != nil {

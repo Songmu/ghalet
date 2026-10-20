@@ -12,7 +12,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
-	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -149,7 +148,6 @@ type daemon struct {
 	applyCancel   context.CancelFunc
 	stopping      bool
 	offline       bool
-	guardRunners  bool
 	nextRetention time.Time
 	clientFactory func(context.Context, Target) (scaleAPI, error)
 	listen        func(*targetRuntime)
@@ -173,7 +171,6 @@ func newDaemon(c *Config) (*daemon, error) {
 		store: stateStore{c.Runner.WorkRoot}, distribution: runnerdist.New(preparationTimeout),
 		targets: map[string]*targetRuntime{}, runs: map[string]*activeRun{}, events: make(chan runEvent, 1024),
 		ctx: ctx, cancel: cancel,
-		guardRunners: runtime.GOOS == "darwin",
 	}
 	d.clientFactory = func(ctx context.Context, target Target) (scaleAPI, error) {
 		return newScaleClient(ctx, target, secret)
@@ -948,31 +945,25 @@ func (d *daemon) launch(run *activeRun, jit string) (retErr error) {
 	}
 	defer input.Close()
 	defer func() {
-		if !d.guardRunners || retErr != nil {
+		if retErr != nil {
 			output.Close()
 		}
 	}()
-	command := exec.Command("/bin/sh", "-c", `read -r ready <&3 && exec 3<&- && exec "$@"`, "ghalet-launch", filepath.Join(state.RunnerDir, "bin", "Runner.Listener"), "run")
-	command.ExtraFiles = []*os.File{input}
-	var exitReport *os.File
-	if d.guardRunners {
-		command, err = runnerGuardCommand(filepath.Join(state.RunnerDir, "bin", "Runner.Listener"))
-		if err != nil {
-			return err
-		}
-		var reportOutput *os.File
-		exitReport, reportOutput, err = os.Pipe()
-		if err != nil {
-			return err
-		}
-		defer reportOutput.Close()
-		defer func() {
-			if retErr != nil {
-				exitReport.Close()
-			}
-		}()
-		command.ExtraFiles = []*os.File{input, reportOutput}
+	command, err := runnerGuardCommand(filepath.Join(state.RunnerDir, "bin", "Runner.Listener"))
+	if err != nil {
+		return err
 	}
+	exitReport, reportOutput, err := os.Pipe()
+	if err != nil {
+		return err
+	}
+	defer reportOutput.Close()
+	defer func() {
+		if retErr != nil {
+			exitReport.Close()
+		}
+	}()
+	command.ExtraFiles = []*os.File{input, reportOutput}
 	logFile, err := os.OpenFile(filepath.Join(state.RunnerDir, "output.log"), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
 	if err != nil {
 		return err
@@ -1039,10 +1030,8 @@ func (d *daemon) launch(run *activeRun, jit string) (retErr error) {
 	// observe both without blocking diagnostics and control access.
 	go func() {
 		err := command.Wait()
-		if exitReport != nil {
-			err = readRunnerGuardResult(exitReport, err)
-			output.Close()
-		}
+		err = readRunnerGuardResult(exitReport, err)
+		output.Close()
 		select {
 		case d.events <- runEvent{id: state.RunID, kind: "exit", err: err}:
 		case <-d.ctx.Done():
