@@ -239,8 +239,9 @@ daemon's exit result and logs rather than only the stop command's result.
 Do not proceed with a restart after forced or incomplete drain; inspect
 diagnostics and resolve retained executions or cleanup failures first.
 
-On native macOS, each new runner has a small foreground guard as its process
-group leader. The durable launch gate also supplies controller liveness:
+On Linux and macOS, each new runner has a small foreground guard as its process
+group leader, whether run directly or through a service manager.
+The durable launch gate also supplies controller liveness:
 if the controller exits or is killed, the pipe closes and the guard sends
 SIGKILL to its own group, including itself. Its live leadership pins the group
 ID, so this does not depend on guessing an uncertain PID. A normal runner
@@ -248,7 +249,9 @@ exit is reported separately, followed by TERM and a two-second grace before
 the final group-wide KILL. The controller uses the runner's actual process
 result, not the guard's deliberate SIGKILL, for exit diagnostics. The guard
 does not rewrite state or remove logs, and its descriptors are not inherited
-by the runner. This is child supervision, not self-daemonization.
+by the runner. This is child supervision, not self-daemonization or isolation:
+trusted jobs must not kill their guard or escape its group, and kernel/host
+failure can interrupt supervision.
 
 ## Applying configuration
 
@@ -429,10 +432,8 @@ minutes; increase it if changing the configured timeout. Zero would mean an
 infinite launchd stop wait and is deliberately avoided. `AbandonProcessGroup`
 is false so launchd also cleans up the controller's own group. Separate runner
 groups use the [guards described above](#capacity-retries-and-shutdown).
-This is not cgroup isolation:
-trusted jobs must not kill their guard or escape its group, and kernel/host
-failure can interrupt supervision. LaunchAgents start at login, not before
-login, and do not prevent sleep. For another execution user, use an
+LaunchAgents start at login, not before login, and do not prevent sleep.
+For another execution user, use an
 administrator-managed LaunchDaemon and set `runner.user`; do not assume a
 LaunchAgent can change users. Test keychain access and shutdown behavior in
 the actual login/service context.
