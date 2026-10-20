@@ -66,7 +66,7 @@ func TestSetupDeclineDoesNotCreateConfig(t *testing.T) {
 	}
 }
 
-func TestSystemdAppSetup(t *testing.T) {
+func TestSystemdAppSetupResumesAfterProvisionFailure(t *testing.T) {
 	f := setupFixture(t, "owner/repo", "User")
 	f.options.Systemd = true
 	f.options.Config = filepath.Join(filepath.Dir(f.options.Config), "system.yaml")
@@ -102,13 +102,29 @@ func TestSystemdAppSetup(t *testing.T) {
 		}
 		return base64.StdEncoding.DecodeString(string(data))
 	}
+	provisions := 0
+	f.provision = func(ctx context.Context, name string) error {
+		provisions++
+		state, err := loadApp(filepath.Join(directory, name+".app.json"))
+		if err != nil || state.KeyPath != "/run/credentials/ghalet.service/build" {
+			t.Fatal("provisioning happened before saving resume metadata", err)
+		}
+		if provisions == 1 {
+			return errors.New("reload failed")
+		}
+		return nil
+	}
 	var output bytes.Buffer
 	first, err := f.run(t.Context(), f.options, nil, &output)
-	if err != nil {
-		t.Fatal(err, output.String())
+	if err == nil || !strings.Contains(err.Error(), "reload failed") ||
+		!strings.Contains(err.Error(), "metadata retained") {
+		t.Fatal("provisioning failure was not recoverable", err)
+	}
+	if _, err := os.Stat(f.options.Config); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("failed provisioning wrote configuration", err)
 	}
 	second, err := f.run(t.Context(), f.options, nil, &output)
-	if err != nil || saves != 1 || reads != 4 || first.KeyPath != second.KeyPath || f.conversions.Load() != 1 {
+	if err != nil || saves != 1 || reads != 4 || provisions != 2 || first.KeyPath != second.KeyPath || f.conversions.Load() != 1 {
 		t.Fatal("systemd setup did not reuse the encrypted key", saves, reads, err)
 	}
 	config, err := ghalet.LoadConfig(f.options.Config)

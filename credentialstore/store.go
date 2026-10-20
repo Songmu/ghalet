@@ -141,6 +141,33 @@ func ReadSystemdAppKey(ctx context.Context, name string) ([]byte, error) {
 	return systemdStore().read(ctx, name)
 }
 
+// SaveSystemdAppKey exclusively persists a new encrypted App key without
+// configuring or reloading the service, so setup can save its resume metadata.
+func SaveSystemdAppKey(ctx context.Context, options Options, input io.Reader) (Result, error) {
+	if err := options.Validate(); err != nil {
+		return Result{}, err
+	}
+	if options.Type != "github-app" || !options.NoDefault || !options.NoReplace {
+		return Result{}, errors.New("saving a setup App key requires github-app, no-default and no-replace")
+	}
+	if err := checkSystemd(); err != nil {
+		return Result{}, err
+	}
+	return systemdStore().saveAppKey(ctx, options, input)
+}
+
+// ProvisionSystemdAppKey loads an already saved key into the service definition.
+// The caller must hold the credential directory lock until configuration commit.
+func ProvisionSystemdAppKey(ctx context.Context, name string) error {
+	if !credentialName.MatchString(name) {
+		return errors.New("invalid systemd credential name")
+	}
+	if err := checkSystemd(); err != nil {
+		return err
+	}
+	return systemdStore().provisionAppKey(ctx, name)
+}
+
 func (s credentialStore) read(ctx context.Context, name string) ([]byte, error) {
 	if err := fshelper.CheckDirectory(s.directory); err != nil {
 		return nil, err
@@ -149,15 +176,6 @@ func (s credentialStore) read(ctx context.Context, name string) ([]byte, error) 
 		return nil, err
 	}
 	path := filepath.Join(s.directory, name+".cred")
-	dropInPath := filepath.Join(s.dropIns, "credential-"+name+".conf")
-	dropIn, err := snapshotCredentialFile(dropInPath)
-	if err != nil {
-		return nil, err
-	}
-	expected := fmt.Appendf(nil, "[Service]\nLoadCredentialEncrypted=%s:%s\n", name, path)
-	if !dropIn.exists || !bytes.Equal(dropIn.data, expected) {
-		return nil, fmt.Errorf("systemd credential drop-in is missing or customized: %s; restore it before resuming setup", dropInPath)
-	}
 	if err := CheckPrivatePath(path, false); err != nil {
 		return nil, err
 	}
@@ -206,19 +224,100 @@ func (s credentialStore) prepare(ctx context.Context) error {
 	if err != nil || major < 250 {
 		return errors.New("encrypted credentials require systemd 250 or later")
 	}
-	for path, mode := range map[string]os.FileMode{s.directory: 0700, s.dropIns: 0755} {
-		if err := fshelper.EnsureDirectory(path, mode); err != nil {
-			return err
-		}
-		if err := checkCredentialPath(path, true); err != nil {
-			return err
-		}
+	if err := fshelper.EnsureDirectory(s.directory, 0700); err != nil {
+		return err
 	}
 	return CheckPrivatePath(s.directory, true)
 }
 
+func (s credentialStore) prepareDropIns() error {
+	if err := fshelper.EnsureDirectory(s.dropIns, 0755); err != nil {
+		return err
+	}
+	return checkCredentialPath(s.dropIns, true)
+}
+
+func (s credentialStore) encrypt(ctx context.Context, name string, secret []byte) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(ctx, commandTimeoutForCredential)
+	defer cancel()
+	var encrypted bytes.Buffer
+	if err := s.run(ctx, "systemd-creds", []string{"encrypt", "--name=" + name, "--with-key=host", "-", "-"}, bytes.NewReader(secret), &encrypted); err != nil {
+		return nil, fmt.Errorf("encrypt credential (existing files unchanged): %w", err)
+	}
+	if encrypted.Len() == 0 {
+		return nil, errors.New("systemd-creds returned an empty encrypted credential; existing files unchanged")
+	}
+	return encrypted.Bytes(), nil
+}
+
+func (s credentialStore) saveAppKey(ctx context.Context, options Options, input io.Reader) (Result, error) {
+	if err := s.prepare(ctx); err != nil {
+		return Result{}, err
+	}
+	lock, err := LockDirectory(s.directory)
+	if err != nil {
+		return Result{}, err
+	}
+	defer lock.Close()
+	path := filepath.Join(s.directory, options.Name+".cred")
+	for _, candidate := range []string{path, path + ".previous"} {
+		file, err := snapshotCredentialFile(candidate)
+		if err != nil {
+			return Result{}, err
+		}
+		if file.exists {
+			return Result{}, fmt.Errorf("credential already exists at %s; existing credential unchanged", candidate)
+		}
+	}
+	secret, err := s.readSecret(ctx, options, input)
+	if err != nil {
+		return Result{}, err
+	}
+	defer clear(secret)
+	cipher, err := s.encrypt(ctx, options.Name, secret)
+	if err != nil {
+		return Result{}, err
+	}
+	if err := fshelper.WriteFileAtomic(path, cipher, 0600); err != nil {
+		return Result{}, err
+	}
+	return Result{EncryptedPath: path, RuntimePath: "/run/credentials/ghalet.service/" + options.Name}, nil
+}
+
+func (s credentialStore) provisionAppKey(ctx context.Context, name string) error {
+	if err := CheckPrivatePath(filepath.Join(s.directory, name+".cred"), false); err != nil {
+		return err
+	}
+	if err := s.prepareDropIns(); err != nil {
+		return err
+	}
+	path := filepath.Join(s.dropIns, "credential-"+name+".conf")
+	before, err := snapshotCredentialFile(path)
+	if err != nil {
+		return err
+	}
+	data := fmt.Appendf(nil, "[Service]\nLoadCredentialEncrypted=%s:%s\n", name, filepath.Join(s.directory, name+".cred"))
+	if before.exists && !bytes.Equal(before.data, data) {
+		return fmt.Errorf("refusing to overwrite customized systemd drop-in %s", path)
+	}
+	if !before.exists {
+		if err := fshelper.WriteFileAtomic(path, data, 0644); err != nil {
+			return err
+		}
+	}
+	ctx, cancel := context.WithTimeout(ctx, commandTimeoutForCredential)
+	defer cancel()
+	if err := s.run(ctx, "systemctl", []string{"daemon-reload"}, nil, io.Discard); err != nil {
+		return fmt.Errorf("reload systemd configuration: %w", err)
+	}
+	return nil
+}
+
 func (s credentialStore) set(ctx context.Context, options Options, input io.Reader) (result Result, err error) {
 	if err := s.prepare(ctx); err != nil {
+		return result, err
+	}
+	if err := s.prepareDropIns(); err != nil {
 		return result, err
 	}
 	lock, err := os.OpenFile(filepath.Join(s.directory, ".lock"), os.O_CREATE|os.O_RDWR|syscall.O_NOFOLLOW, 0600)
@@ -274,14 +373,9 @@ func (s credentialStore) set(ctx context.Context, options Options, input io.Read
 		return result, err
 	}
 	defer clear(secret)
-	var encrypted bytes.Buffer
-	encryptCtx, encryptCancel := context.WithTimeout(ctx, commandTimeoutForCredential)
-	defer encryptCancel()
-	if err := s.run(encryptCtx, "systemd-creds", []string{"encrypt", "--name=" + options.Name, "--with-key=host", "-", "-"}, bytes.NewReader(secret), &encrypted); err != nil {
-		return result, fmt.Errorf("encrypt credential (existing files unchanged): %w", err)
-	}
-	if encrypted.Len() == 0 {
-		return result, errors.New("systemd-creds returned an empty encrypted credential; existing files unchanged")
+	encrypted, err := s.encrypt(ctx, options.Name, secret)
+	if err != nil {
+		return result, err
 	}
 	changes := []credentialFile{}
 	write := func(original credentialFile, data []byte, mode os.FileMode) error {
@@ -330,7 +424,7 @@ func (s credentialStore) set(ctx context.Context, options Options, input io.Read
 			return result, err
 		}
 	}
-	if err := write(cipher, encrypted.Bytes(), 0600); err != nil {
+	if err := write(cipher, encrypted, 0600); err != nil {
 		return result, rollback(err)
 	}
 	currentDropIn, err := snapshotCredentialFile(dropInPath)

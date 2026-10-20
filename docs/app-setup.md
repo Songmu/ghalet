@@ -115,6 +115,9 @@ writing a plaintext PEM. A dedicated drop-in loads it with
 `/run/credentials/ghalet.service/ID`. Public resume metadata is
 `/etc/ghalet/credentials/ID.app.json`. Resume decrypts the key only into memory.
 Registration reloads unit definitions but never starts or restarts the service.
+The encrypted key and resume metadata are saved before service provisioning.
+If drop-in creation or unit reload fails, they are retained; fix the reported
+problem and rerun the same setup command to retry without creating another App.
 An already running service requires a normal stop, successful-shutdown check,
 and start to receive updated credentials; `apply` does not refresh systemd credentials.
 See [encrypted credentials](credentials.md) for host-key protection, backups

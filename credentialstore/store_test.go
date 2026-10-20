@@ -232,8 +232,86 @@ func TestEncryptedAppKeyReadAndNoReplace(t *testing.T) {
 	if err := os.Remove(result.DropInPath); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.read(t.Context(), options.Name); err == nil || !strings.Contains(err.Error(), "drop-in is missing") {
-		t.Fatal("resume accepted a credential that the service will not load", err)
+	plain, err = store.read(t.Context(), options.Name)
+	if err != nil || !bytes.Equal(plain, bytes.TrimSpace(data)) {
+		t.Fatal("key recovery depended on the service drop-in", err)
+	}
+	clear(plain)
+}
+
+func TestAppKeyProvisioningFailureKeepsSavedCredential(t *testing.T) {
+	for _, failure := range []string{"reload", "custom-drop-in", "drop-in-directory"} {
+		t.Run(failure, func(t *testing.T) {
+			store, options, tools := testCredentialStore(t)
+			options.Name, options.Type, options.NoDefault, options.NoReplace = "app-key", "github-app", true, true
+			key, err := rsa.GenerateKey(rand.Reader, 2048)
+			if err != nil {
+				t.Fatal(err)
+			}
+			data := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})
+			result, err := store.saveAppKey(t.Context(), options, bytes.NewReader(data))
+			if err != nil {
+				t.Fatal(err)
+			}
+			cipher, err := os.ReadFile(result.EncryptedPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(strings.Join(tools.calls, "\n"), "systemctl") {
+				t.Fatal("saving the App key provisioned the service")
+			}
+			dropInPath := filepath.Join(store.dropIns, "credential-app-key.conf")
+			switch failure {
+			case "reload":
+				tools.reloadErrors = 1
+			case "custom-drop-in":
+				if err := os.MkdirAll(store.dropIns, 0755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(dropInPath, []byte("# customized\n"), 0644); err != nil {
+					t.Fatal(err)
+				}
+			case "drop-in-directory":
+				if err := os.WriteFile(store.dropIns, []byte("not a directory"), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			lock, err := LockDirectory(store.directory)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer lock.Close()
+			if err := store.provisionAppKey(t.Context(), options.Name); err == nil {
+				t.Fatal("provisioning failure was not reported")
+			}
+			current, err := os.ReadFile(result.EncryptedPath)
+			if err != nil || !bytes.Equal(current, cipher) {
+				t.Fatal("provisioning failure removed or replaced the saved key", err)
+			}
+			plain, err := store.read(t.Context(), options.Name)
+			if err != nil || !bytes.Equal(plain, bytes.TrimSpace(data)) {
+				t.Fatal("saved key cannot be recovered after provisioning failure", err)
+			}
+			clear(plain)
+			if failure == "custom-drop-in" {
+				if err := os.Remove(dropInPath); err != nil {
+					t.Fatal(err)
+				}
+			} else if failure == "drop-in-directory" {
+				if err := os.Remove(store.dropIns); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := store.provisionAppKey(t.Context(), options.Name); err != nil {
+				t.Fatal("service provisioning could not be retried", err)
+			}
+			if strings.Count(strings.Join(tools.calls, "\n"), "systemd-creds encrypt") != 1 {
+				t.Fatal("retry encrypted or replaced the key again")
+			}
+			if _, err := os.Stat(result.EncryptedPath + ".previous"); !errors.Is(err, os.ErrNotExist) {
+				t.Fatal("provisioning rotated the saved key", err)
+			}
+		})
 	}
 }
 

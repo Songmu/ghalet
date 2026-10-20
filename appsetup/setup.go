@@ -39,13 +39,14 @@ type savedApp struct {
 }
 
 type service struct {
-	api      apiClient
-	open     func(context.Context, string) error
-	saveKey  func(context.Context, credentialstore.Options, io.Reader) (credentialstore.Result, error)
-	prepare  func(context.Context) (string, error)
-	readKey  func(context.Context, string) ([]byte, error)
-	interval time.Duration
-	timeout  time.Duration
+	api       apiClient
+	open      func(context.Context, string) error
+	saveKey   func(context.Context, credentialstore.Options, io.Reader) (credentialstore.Result, error)
+	prepare   func(context.Context) (string, error)
+	readKey   func(context.Context, string) ([]byte, error)
+	provision func(context.Context, string) error
+	interval  time.Duration
+	timeout   time.Duration
 }
 
 // Setup creates or resumes an App registration, then confirms and updates a target.
@@ -64,7 +65,8 @@ func Setup(ctx context.Context, options Options, input *os.File, output io.Write
 		interval: 2 * time.Second, timeout: 15 * time.Minute,
 	}
 	if options.Systemd {
-		s.prepare, s.saveKey = credentialstore.PrepareSystemd, credentialstore.Set
+		s.prepare, s.saveKey = credentialstore.PrepareSystemd, credentialstore.SaveSystemdAppKey
+		s.provision = credentialstore.ProvisionSystemdAppKey
 		s.readKey = func(ctx context.Context, path string) ([]byte, error) {
 			return credentialstore.ReadSystemdAppKey(ctx, filepath.Base(path))
 		}
@@ -243,6 +245,11 @@ func (s service) run(ctx context.Context, options Options, input *os.File, outpu
 	clear(key)
 	if !matches {
 		return result, errors.New("saved App key changed during setup; configuration not changed; restore the matching App key before retrying")
+	}
+	if s.provision != nil {
+		if err := s.provision(ctx, options.ID); err != nil {
+			return result, fmt.Errorf("provision systemd App key: %w; App/key and setup metadata retained, rerun setup to resume", err)
+		}
 	}
 	if err := writeConfig(options.Config, before, after); err != nil {
 		return result, err

@@ -84,7 +84,7 @@ func TestSystemdAppKeyEncryption(t *testing.T) {
 		t.Fatal(err)
 	}
 	data := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})
-	result, err := store.set(t.Context(), options, bytes.NewReader(data))
+	result, err := store.saveAppKey(t.Context(), options, bytes.NewReader(data))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,11 +93,20 @@ func TestSystemdAppKeyEncryption(t *testing.T) {
 		t.Fatal("App key did not round-trip through systemd-creds", err)
 	}
 	clear(plain)
+	lock, err := LockDirectory(store.directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.provisionAppKey(t.Context(), options.Name); err != nil {
+		lock.Close()
+		t.Fatal(err)
+	}
+	lock.Close()
 	cipher, err := os.ReadFile(result.EncryptedPath)
 	if err != nil || bytes.Contains(cipher, []byte("PRIVATE KEY")) {
 		t.Fatal("plaintext App key was saved", err)
 	}
-	if _, err := store.set(t.Context(), options, bytes.NewReader(data)); err == nil {
+	if _, err := store.saveAppKey(t.Context(), options, bytes.NewReader(data)); err == nil {
 		t.Fatal("setup replaced an existing encrypted App key")
 	}
 }
