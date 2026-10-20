@@ -60,9 +60,10 @@ GHALET_INTEGRATION_CONFIG=/absolute/path/to/dedicated/config.yaml \
 Optionally set `GHALET_INTEGRATION_REF` to the workflow revision to dispatch.
 The test creates/reuses the scale set, runs two sequential jobs, checks
 separate execution logs, and drains the daemon with a 15-second deadline.
-It **leaves the scale set registered**. Afterwards, use
-[`ghalet destroy`](operations.md#diagnosis-garbage-collection-and-explicit-destruction)
-with interactive confirmation to delete it.
+It **leaves the scale set registered** and stops its daemon. Afterwards,
+delete the dedicated scale set manually in GitHub. During normal operation,
+removing a target and running [`ghalet apply`](operations.md#applying-configuration)
+attempts to delete its unused scale set before losing the old runtime context.
 
 ## Verification limits
 

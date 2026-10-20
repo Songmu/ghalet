@@ -9,7 +9,8 @@ the [command overview](../README.md#commands).
 - [Configuration and credentials](#configuration-and-credentials)
 - [Direct execution and environment](#direct-execution-and-environment)
 - [Capacity, retries and shutdown](#capacity-retries-and-shutdown)
-- [Diagnosis, garbage collection and explicit destruction](#diagnosis-garbage-collection-and-explicit-destruction)
+- [Applying configuration](#applying-configuration)
+- [Diagnosis and garbage collection](#diagnosis-and-garbage-collection)
 - [Logs](#logs)
 - [Service deployment](#service-deployment)
 - [Trust boundary](#trust-boundary)
@@ -22,9 +23,10 @@ are based on the selected config's directory, not the shell's current
 directory. Use absolute paths in service definitions; `~` is not expanded
 inside YAML.
 
-Configuration is immutable while a daemon is running. Stop it normally,
-edit the file, and restart it to change targets, paths, limits, users,
-credentials, or runner versions. Editing the file does not change the
+Edit the file and run `ghalet apply` to change targets, limits, credentials,
+runner versions, environment, timeouts, or log policy. Execution-user and
+managed-directory changes require a normal stop/restart.
+Editing the file alone does not change the running configuration or the
 control address: it is derived from the normalized absolute config path.
 `status`, `doctor`, and connected management commands query the
 running snapshot even if the file's contents are now invalid.
@@ -191,11 +193,11 @@ failures and preparation/start failures have at most four attempts with
 1/2/4-second exponential delays. Permanent invalid-request/authentication
 errors stop immediately where the SDK exposes their type. Preparation
 starts are rate-limited to one per second per target. A target that exhausts
-retries remains faulted until a normal stop/restart; other targets continue.
+retries remains faulted until `apply` or a normal stop/restart; other targets continue.
 Workflow results are not retried by ghalet.
 
 SIGINT/SIGTERM starts drain for all targets during normal shutdown.
-`destroy` drains the selected target before deleting its registration.
+`apply` also drains all targets before switching configuration.
 New acquisitions and warm replenishment stop, but already assigned,
 unstarted jobs can still provision runners within both limits. The drain
 deadline starts at the request, not at each runner's start. The default
@@ -209,7 +211,7 @@ confirmed absent. Their records and diagnostics remain for inspection;
 absence alone does not authorize cleanup. Forced shutdown is reported as
 incomplete, not success.
 
-For configuration or credential changes, stop the daemon normally and
+For changes requiring a restart, stop the daemon normally and
 verify successful shutdown before starting it again. In the foreground,
 check the exit status of `ghalet run`; under a service manager, check the
 daemon's exit result and logs rather than only the stop command's result.
@@ -227,47 +229,72 @@ result, not the guard's deliberate SIGKILL, for exit diagnostics. The guard
 does not rewrite state or remove logs, and its descriptors are not inherited
 by the runner. This is child supervision, not self-daemonization.
 
-## Diagnosis, garbage collection and explicit destruction
+## Applying configuration
+
+```sh
+ghalet apply --config /path/to/config.yaml
+# Packaged systemd service:
+sudo systemctl reload ghalet
+```
+
+`apply` requires a running daemon and waits for reconciliation. It validates
+the new configuration before stopping new job acceptance, drains all targets
+under the old limits/timeouts, closes their listeners, then registers targets
+from the new configuration and waits for their listener initialization.
+Unchanged scale sets are reused. Startup failures are reported by apply;
+later listener failures remain visible through `doctor`.
+The local `targets[].id` identifies additions, changes and removals; a
+scope/group/scale set change replaces that target's registration. Use
+`targets: []` to remove all targets. Missing or null `targets` is invalid.
+
+Scale sets from removed or replaced targets are deleted only if no new target
+references their scope and registration ID (or scope/group/name), no local
+execution remains, drain and listener cleanup succeeded, and GitHub statistics
+show no accepted jobs or registered runners. Runner groups are never deleted.
+Do not share a managed scale set with another controller.
+
+Failures are reported per target and return nonzero; healthy targets still
+use the new configuration. There is no automatic rollback. Failed deletions
+retain their old client in memory and can be retried with `apply`; forced drain,
+uncertain executions and listener-close failures require inspection. Pending
+deletions are not persisted across daemon restarts. After a crash, current
+configuration is authoritative; unreachable old registrations may need manual
+cleanup in GitHub. Retained execution records are never discarded just to free
+capacity. Concurrent apply requests are rejected; shutdown interrupts apply.
+If the CLI disconnects or times out, the daemon continues the request; inspect
+`status` and `doctor` before retrying.
+
+The execution user, `workRoot`, `distributionRoot`, `cacheRoot`, and `logRoot`
+cannot change through apply. These changes are rejected before drain.
+Environment variables and systemd's decrypted credential files belong to the
+running service; the provided units require a restart to refresh those inputs. Ordinary
+credential files are reread when apply creates new clients.
+The provided systemd units run `ghalet apply` synchronously through
+`ExecReload` and allow 15 minutes via `TimeoutStartSec`; extend this reload
+deadline and `TimeoutStopSec` when increasing drain timeouts or target counts.
+`systemctl daemon-reload` only reloads unit definitions, not ghalet configuration.
+
+## Diagnosis and garbage collection
 
 ```sh
 ghalet status --config /path/to/config.yaml
 ghalet doctor --config /path/to/config.yaml
 ghalet gc --config /path/to/config.yaml --dry-run
 ghalet gc --config /path/to/config.yaml
-ghalet destroy --config /path/to/config.yaml --target project --scale-set macmini
 ```
 
 Management-command responses are JSON. `status` returns zero when it
 retrieves a snapshot, including an unhealthy one. `doctor` is nonzero for
 any diagnostic problem.
-`gc` and `destroy` are nonzero for any failed/incomplete part and
+`gc` and `apply` are nonzero for any failed/incomplete part and
 include individual results. A partial management failure does not terminate
 the daemon or roll back successful cleanup.
 
-Connected GC/destruction is performed by the daemon, serialized with its
-runtime state. If disconnected, direct GC/destruction must acquire the same
+Connected GC is performed by the daemon, serialized with its
+runtime state. If disconnected, direct GC must acquire the same
 OS workRoot lock and the config's control-address lock. A failed socket
 connection alone never permits bypassing an existing daemon. Lock files
 are not PID files and may remain after a process exits.
-
-Destruction requires a real terminal, explicit target/scale set name, an organization
-group when applicable, and the exact answer `yes`. There is no `--yes`
-escape hatch for noninteractive use. The registration ID is checked again
-after confirmation and after drain. A changed target, unknown local records,
-remaining registered runners, failed cleanup, forced drain or missing
-statistics prevents deletion. Approval exists only in memory and is consumed
-once. Groups are never deleted. Normal stop/config changes never remove old
-registrations.
-
-`--target` selects a configured target's URL and credentials; `--scale-set`
-and, for organizations, `--runner-group` explicitly select the registration
-to delete. They may name an old registration rather than the target's current
-scale set or group. Keep the target configured at the old URL until destruction
-is complete. Once no target retains that URL and its credentials, delete
-unneeded registrations manually in GitHub; there are no deletion-only entries.
-Retained executions matching an explicitly approved old registration are
-reverified before they can participate in that destruction; this association
-and deletion approval are not persisted.
 
 After a crash, records are matched to current explicit registrations, process
 UID/group/kernel start identity and, for live executions, GitHub runner IDs.

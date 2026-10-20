@@ -35,12 +35,9 @@ func Run(ctx context.Context, argv []string, outStream, errStream io.Writer) err
 	if command == "systemd" {
 		return systemd(ctx, argv, "", outStream, errStream)
 	}
-	target := fs.String("target", "", "target id (required for destroy)")
 	dryRun := fs.Bool("dry-run", false, "show garbage collection without modifying files")
-	runnerGroup := fs.String("runner-group", "", "existing organization runner group")
-	scaleSet := fs.String("scale-set", "", "explicit scale set name to destroy")
 	fs.Usage = func() {
-		fmt.Fprintln(errStream, "Usage: ghalet <run|config validate|systemd credential set|status|doctor|gc|destroy> [options]")
+		fmt.Fprintln(errStream, "Usage: ghalet <run|apply|config validate|systemd credential set|status|doctor|gc> [options]")
 		fs.PrintDefaults()
 	}
 	if err := fs.Parse(argv); err != nil {
@@ -77,13 +74,11 @@ func Run(ctx context.Context, argv []string, outStream, errStream io.Writer) err
 	})))
 	commands := map[string]func() error{
 		"run":      func() error { return run(ctx, *config) },
+		"apply":    func() error { return apply(ctx, *config, outStream) },
 		"validate": func() error { return validate(*config, outStream) },
 		"status":   func() error { return status(ctx, *config, outStream) },
 		"doctor":   func() error { return doctor(ctx, *config, outStream) },
 		"gc":       func() error { return gc(ctx, *config, *dryRun, outStream) },
-		"destroy": func() error {
-			return destroy(ctx, *config, *target, *runnerGroup, *scaleSet, outStream)
-		},
 	}
 	run, ok := commands[command]
 	if !ok {

@@ -110,7 +110,8 @@ ghalet doctor
 デーモンを停止するには、起動したターミナルで Ctrl-C を押してください。
 通常停止では全 target の新規ジョブ受付を止め、設定した drain の期限まで
 受付済みの処理を待ちます。期限を超えたジョブは強制停止される場合があります。
-設定変更を反映するために再起動する前に、停止が正常完了したことを確認してください。
+設定を編集した後は `ghalet apply`（パッケージのサービスでは
+`sudo systemctl reload ghalet`）で、デーモンを終了せずに drain と再設定を行えます。
 
 ## コマンド
 
@@ -120,18 +121,19 @@ ghalet doctor
 | コマンド | 用途 |
 | --- | --- |
 | `ghalet run` | フォアグラウンドでデーモンを起動し、設定された全 target のジョブ受付と runner プロセスを管理します。 |
+| `ghalet apply` | 設定を再読込し、全 target を drain して登録を反映し、受付を再開します。設定から削除・置換された target の未参照 Scale Set は削除を試みます。 |
 | `ghalet config validate` | runner の登録や GitHub への接続を行わず、設定の構文・値・ローカルパスの制約を検証します。 |
 | `ghalet systemd credential set NAME --prompt` | Linux の systemd サービス用 PAT を暗号化して登録し、`defaults.credential` を更新します。root 権限が必要です。App キー、自動構築、ローテーションは[認証情報](docs/credentials.ja.md)を参照してください。 |
 | `ghalet status` | 稼働中デーモンの状態と容量のスナップショットを取得します。取得成功は正常稼働を意味しません。 |
 | `ghalet doctor` | 稼働中デーモンの問題を診断し、問題があれば非ゼロで終了します。 |
 | `ghalet gc [--dry-run]` | 保留中の実行を再検証し、安全に削除できるものの cleanup と保存ログの期限切れ削除を行います。`--dry-run` では変更せず確認できます。 |
-| `ghalet destroy --target ID --scale-set NAME` | 対話で `yes` を入力して承認した後、明示した Scale Set を drain・削除します。Organization では `--runner-group NAME` も指定します。runner group 自体は削除しません。 |
 
 `ghalet --version` でバージョンを表示します。認証情報のセットアップ案内を除き、
 管理コマンドの応答は JSON です。`systemd credential set` のデフォルト設定パスは
 `/etc/ghalet/config.yaml` で、他のコマンドはユーザーごとのデフォルトを使います。
 終了コード、オフラインでの保守、削除時の安全確認については
-[診断と cleanup](docs/operations.ja.md#診断ガベージコレクション明示的な削除)を参照してください。
+[設定反映](docs/operations.ja.md#設定反映)と
+[診断と cleanup](docs/operations.ja.md#診断ガベージコレクション)を参照してください。
 
 ## 実行時の動作
 
@@ -143,8 +145,10 @@ ghalet doctor
 
 runner のアーカイブは固定バージョンを自動ダウンロードし、公式 SHA-256 ダイジェストで
 検証します。デーモンの標準出力は JSONL です。設定に応じて、実行領域の cleanup 前に
-runner ログを退避します。設定変更や障害状態の target の復帰には通常停止・再起動が必要です。
-Scale Set の登録は、対話で明示的に承認した `destroy` を行うまで残ります。
+runner ログを退避します。設定変更や障害状態の target の再試行には `apply` を使います。
+実行ユーザーや管理ディレクトリの変更には通常停止・再起動が必要です。
+通常停止では Scale Set を残し、`apply` では設定から参照されなくなったものの
+削除を試みます。runner group は削除しません。
 
 ## ドキュメント
 

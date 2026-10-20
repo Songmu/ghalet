@@ -57,7 +57,7 @@ func TestConfigurationValidationCLI(t *testing.T) {
 	if err := Run(t.Context(), []string{"--version"}, &output, &output); err != nil || !strings.Contains(output.String(), "ghalet v") {
 		t.Fatal("version command failed")
 	}
-	for _, command := range []string{"run", "status", "doctor", "gc", "destroy"} {
+	for _, command := range []string{"run", "apply", "status", "doctor", "gc"} {
 		if err := Run(t.Context(), []string{command, "--config", filepath.Join(testDirectory(t), "missing.yaml")}, &output, &output); err == nil {
 			t.Fatalf("%s accepted a missing config", command)
 		}
@@ -72,23 +72,26 @@ func TestConfigurationRejectsLegacyScopeFlag(t *testing.T) {
 	}
 }
 
-func TestStandaloneDrainIsNotSupported(t *testing.T) {
+func TestRemovedCommandsAreNotSupported(t *testing.T) {
 	t.Setenv("HOME", testDirectory(t))
 	for _, args := range [][]string{
 		{"drain"},
 		{"drain", "--target", "build"},
 		{"drain", "--config", "missing.yaml"},
 		{"--config", "missing.yaml", "drain", "--target", "build"},
+		{"destroy"},
+		{"--config", "missing.yaml", "destroy"},
 	} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
 			var output, stderr bytes.Buffer
 			err := Run(t.Context(), args, &output, &stderr)
-			if err == nil || err.Error() != "a supported command is required" {
-				t.Fatal("standalone drain was not rejected", err)
+			if err == nil || (err.Error() != "a supported command is required" &&
+				!strings.Contains(err.Error(), "flag provided but not defined: -target")) {
+				t.Fatal("removed command was not rejected", err)
 			}
 			if output.Len() != 0 || !strings.Contains(stderr.String(), "Usage: ghalet") ||
-				strings.Contains(stderr.String(), "drain") {
-				t.Fatal("unexpected output for unsupported drain", output.String(), stderr.String())
+				strings.Contains(stderr.String(), "drain") || strings.Contains(stderr.String(), "destroy") {
+				t.Fatal("unexpected output for removed command", output.String(), stderr.String())
 			}
 		})
 	}
@@ -105,7 +108,7 @@ func TestVersionFlagPlacementDoesNotStartDaemon(t *testing.T) {
 		{"run", "--version"},
 		{"run", "--config", path, "--version"},
 		{"--config", path, "run", "--version"},
-		{"--config", path, "run", "--target", "build", "--version"},
+		{"--config", path, "apply", "--version"},
 		{"--config", path, "config", "validate", "--version"},
 		{"--config", missing, "run", "--version"},
 		{"--version", "run"},
@@ -161,21 +164,18 @@ func TestHelpAndInvalidArguments(t *testing.T) {
 }
 
 func TestCommandDispatchAndFlagPlacement(t *testing.T) {
-	for _, name := range []string{"run", "validate", "status", "doctor", "gc", "destroy"} {
+	for _, name := range []string{"run", "apply", "validate", "status", "doctor", "gc"} {
 		t.Run(name, func(t *testing.T) {
 			var output, stderr bytes.Buffer
 			command := []string{name}
 			if name == "validate" {
 				command = []string{"config", "validate"}
 			}
-			for _, prefix := range [][]string{nil, {"--config", "before.yaml", "--target", "before"}} {
+			for _, prefix := range [][]string{nil, {"--config", "before.yaml"}} {
 				args := append(append([]string{}, prefix...), command...)
-				args = append(args, "--config", "after.yaml", "--target", "build", "--dry-run", "--runner-group", "builders", "--scale-set", "runners")
+				args = append(args, "--config", "after.yaml", "--dry-run")
 				err := Run(t.Context(), args, &output, &stderr)
 				want := "after.yaml"
-				if name == "destroy" {
-					want = "destroy requires an interactive terminal"
-				}
 				if err == nil || !strings.Contains(err.Error(), want) {
 					t.Fatalf("%v: command was not dispatched: %v", args, err)
 				}

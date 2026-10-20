@@ -46,12 +46,13 @@ func (d *Duration) UnmarshalYAML(unmarshal func(any) error) error {
 }
 
 type Config struct {
-	Defaults DefaultsConfig `yaml:"defaults"`
-	Capacity CapacityConfig `yaml:"capacity"`
-	Targets  []Target       `yaml:"targets"`
-	Runner   RunnerConfig   `yaml:"runner"`
-	Cleanup  CleanupConfig  `yaml:"cleanup"`
-	Path     string         `yaml:"-"`
+	Defaults    DefaultsConfig `yaml:"defaults"`
+	Capacity    CapacityConfig `yaml:"capacity"`
+	Targets     []Target       `yaml:"targets"`
+	Runner      RunnerConfig   `yaml:"runner"`
+	Cleanup     CleanupConfig  `yaml:"cleanup"`
+	Path        string         `yaml:"-"`
+	secretNames map[string]bool
 }
 
 type DefaultsConfig struct {
@@ -258,8 +259,8 @@ func (c *Config) Validate() error {
 	if c.Runner.StartupTimeout <= 0 || c.Runner.DrainTimeout <= 0 || c.Cleanup.LogRetention <= 0 {
 		return errors.New("startupTimeout, drainTimeout and logRetention must be positive")
 	}
-	if len(c.Targets) == 0 {
-		return errors.New("at least one target is required")
+	if c.Targets == nil {
+		return errors.New("targets must be specified; use targets: [] to remove all targets")
 	}
 	ids, registrations := map[string]bool{}, map[string]bool{}
 	minimum := 0
@@ -365,15 +366,6 @@ func (c *Config) validateDirectories() error {
 	return nil
 }
 
-func (c *Config) target(id string) (Target, error) {
-	for _, target := range c.Targets {
-		if target.ID == id {
-			return target, nil
-		}
-	}
-	return Target{}, fmt.Errorf("unknown target %q", id)
-}
-
 func scopeURL(raw string) (*url.URL, error) {
 	u, err := url.Parse(raw)
 	if err != nil || u.Scheme != "https" || u.Hostname() == "" || u.Port() != "" ||
@@ -398,6 +390,9 @@ func within(parent, child string) bool {
 }
 
 func (c *Config) secretEnv(name string) bool {
+	if c.secretNames[name] {
+		return true
+	}
 	switch strings.ToUpper(name) {
 	case "GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN",
 		"ACTIONS_RUNNER_INPUT_JITCONFIG":
