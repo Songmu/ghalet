@@ -1,5 +1,12 @@
 # Changelog
 
+## [v0.0.3](https://github.com/Songmu/ghalet/compare/v0.0.2...v0.0.3) - 2026-10-20
+
+- docs: help operators configure and rotate least-privilege credentials by @Songmu in https://github.com/Songmu/ghalet/pull/25
+- Stop orphaned Linux runner groups with shared runner guards by @Songmu in https://github.com/Songmu/ghalet/pull/28
+- feat: register credentials without systemd by @Songmu in https://github.com/Songmu/ghalet/pull/27
+- feat: set up GitHub App authentication without a preexisting token by @Songmu in https://github.com/Songmu/ghalet/pull/29
+
 ## [v0.0.2](https://github.com/Songmu/ghalet/compare/v0.0.1...v0.0.2) - 2026-10-20
 
 - Add Linux packages and GHCR images with goxz and nFPM by @Songmu in https://github.com/Songmu/ghalet/pull/15
