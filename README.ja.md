@@ -124,13 +124,18 @@ ghalet doctor
 | `ghalet apply` | 設定を再読込し、全 target を drain して登録を反映し、受付を再開します。設定から削除・置換された target の未参照 Scale Set は削除を試みます。 |
 | `ghalet config validate` | runner の登録や GitHub への接続を行わず、設定の構文・値・ローカルパスの制約を検証します。 |
 | `ghalet systemd credential set NAME --prompt` | Linux の systemd サービス用 PAT を暗号化して登録し、`defaults.credential` を更新します。root 権限が必要です。App キー、自動構築、ローテーションは[認証情報](docs/credentials.ja.md)を参照してください。 |
+| `ghalet list` | アクセス可能で応答するデーモンの管理 UID、制御ソケット、稼働状態を一覧表示します。`--config PATH` で絞り込めます。 |
 | `ghalet status` | 稼働中デーモンの状態と容量のスナップショットを取得します。取得成功は正常稼働を意味しません。 |
 | `ghalet doctor` | 稼働中デーモンの問題を診断し、問題があれば非ゼロで終了します。 |
 | `ghalet gc [--dry-run]` | 保留中の実行を再検証し、安全に削除できるものの cleanup と保存ログの期限切れ削除を行います。`--dry-run` では変更せず確認できます。 |
 
 `ghalet --version` でバージョンを表示します。認証情報のセットアップ案内を除き、
 管理コマンドの応答は JSON です。`systemd credential set` のデフォルト設定パスは
-`/etc/ghalet/config.yaml` で、他のコマンドはユーザーごとのデフォルトを使います。
+`/etc/ghalet/config.yaml` です。`status`、`doctor`、`apply`、`gc` は `--config` を
+省略すると、アクセス可能なデーモンが 1 件なら自動選択し、複数なら設定の明示を求めます。
+見つからない場合は、`run` や `config validate` と同じくユーザーごとの
+`~/.config/ghalet/config.yaml` を使います。`apply` は新しい設定やデフォルト設定ではなく、
+選択したデーモン自身の設定ファイルを再読込します。
 終了コード、オフラインでの保守、削除時の安全確認については
 [設定反映](docs/operations.ja.md#設定反映)と
 [診断と cleanup](docs/operations.ja.md#診断ガベージコレクション)を参照してください。

@@ -32,11 +32,11 @@ func responseError(response controlResponse) error {
 }
 
 func requestStatus(ctx context.Context, path string, request controlRequest) (*Status, error) {
-	path, err := selectedConfigPath(path)
+	endpoint, err := resolveControl(ctx, path)
 	if err != nil {
 		return nil, err
 	}
-	response, err := controlCall(ctx, path, request)
+	response, err := endpoint.call(ctx, request)
 	if err != nil {
 		return nil, fmt.Errorf("connect to running daemon: %w", err)
 	}
@@ -55,16 +55,19 @@ func Doctor(ctx context.Context, path string) (*Status, error) {
 
 // GC cleans stopped executions and expired logs, returning partial results on error.
 func GC(ctx context.Context, path string, dryRun bool) ([]OperationResult, error) {
-	path, err := selectedConfigPath(path)
+	endpoint, err := resolveControl(ctx, path)
 	if err != nil {
 		return nil, err
 	}
 	request := controlRequest{Command: "gc", DryRun: dryRun}
-	response, connectionErr := controlCall(ctx, path, request)
+	response, connectionErr := endpoint.call(ctx, request)
 	if connectionErr == nil {
 		return response.Results, responseError(response)
 	}
-	d, close, err := offlineDaemon(ctx, path, connectionErr)
+	if endpoint.discovered {
+		return nil, fmt.Errorf("connect to discovered daemon: %w", connectionErr)
+	}
+	d, close, err := offlineDaemon(ctx, endpoint.config, connectionErr)
 	if err != nil {
 		return nil, err
 	}

@@ -20,7 +20,7 @@ func Run(ctx context.Context, argv []string, outStream, errStream io.Writer) err
 	fs := flag.NewFlagSet(cmdName, flag.ContinueOnError)
 	fs.SetOutput(errStream)
 	versionFlag := fs.Bool("version", false, "display version")
-	config := fs.String("config", "", "configuration path (default ~/.config/ghalet/config.yaml)")
+	config := fs.String("config", "", "configuration path (management commands discover a single daemon; otherwise ~/.config/ghalet/config.yaml)")
 	// Accept common flags both before and after the command.
 	command := ""
 	if len(argv) > 0 && !strings.HasPrefix(argv[0], "-") {
@@ -37,7 +37,7 @@ func Run(ctx context.Context, argv []string, outStream, errStream io.Writer) err
 	}
 	dryRun := fs.Bool("dry-run", false, "show garbage collection without modifying files")
 	fs.Usage = func() {
-		fmt.Fprintln(errStream, "Usage: ghalet <run|apply|config validate|systemd credential set|status|doctor|gc> [options]")
+		fmt.Fprintln(errStream, "Usage: ghalet <run|apply|config validate|systemd credential set|list|status|doctor|gc> [options]")
 		fs.PrintDefaults()
 	}
 	if err := fs.Parse(argv); err != nil {
@@ -76,6 +76,7 @@ func Run(ctx context.Context, argv []string, outStream, errStream io.Writer) err
 		"run":      func() error { return run(ctx, *config) },
 		"apply":    func() error { return apply(ctx, *config, outStream) },
 		"validate": func() error { return validate(*config, outStream) },
+		"list":     func() error { return list(ctx, *config, outStream) },
 		"status":   func() error { return status(ctx, *config, outStream) },
 		"doctor":   func() error { return doctor(ctx, *config, outStream) },
 		"gc":       func() error { return gc(ctx, *config, *dryRun, outStream) },

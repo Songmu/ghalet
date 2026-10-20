@@ -18,11 +18,11 @@ type ApplyResult struct {
 
 // Apply asks the running daemon to reload its configuration and waits for completion.
 func Apply(ctx context.Context, path string) (ApplyResult, error) {
-	path, err := selectedConfigPath(path)
+	endpoint, err := resolveControl(ctx, path)
 	if err != nil {
 		return ApplyResult{}, err
 	}
-	response, err := controlCall(ctx, path, controlRequest{Command: "apply"})
+	response, err := endpoint.call(ctx, controlRequest{Command: "apply"})
 	if err != nil {
 		return ApplyResult{}, fmt.Errorf("connect to running daemon: %w", err)
 	}

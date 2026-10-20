@@ -2,6 +2,8 @@ package ghalet
 
 import (
 	"context"
+	"io"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,6 +11,110 @@ import (
 
 	"github.com/Songmu/ghalet/fshelper"
 )
+
+func TestControlResponseSizeLimit(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		payload string
+		wantErr bool
+	}{
+		{name: "snapshot", payload: `{"status":{"config":"/config.yaml"}}`},
+		{name: "unknown field", payload: `{"unknown":"compatible","status":{"config":"/config.yaml"}}`},
+		{name: "exact limit", payload: `{"error":"` + strings.Repeat("x", maxControlResponseSize-len(`{"error":""}`)) + `"}`},
+		{name: "oversized known field", payload: `{"error":"` + strings.Repeat("x", maxControlResponseSize) + `"}`, wantErr: true},
+		{name: "oversized unknown field first", payload: `{"unknown":"` + strings.Repeat("x", maxControlResponseSize) + `","status":{}}`, wantErr: true},
+		{name: "oversized unknown field last", payload: `{"status":{},"unknown":"` + strings.Repeat("x", maxControlResponseSize) + `"}`, wantErr: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			reader := strings.NewReader(tc.payload)
+			_, err := decodeControlResponse(reader)
+			if tc.wantErr {
+				if err == nil || !strings.Contains(err.Error(), "exceeds 4 MiB") {
+					t.Fatal("oversized response was not rejected", err)
+				}
+			} else if err != nil {
+				t.Fatal(err)
+			}
+			if len(tc.payload)-reader.Len() > maxControlResponseSize+1 {
+				t.Fatal("decoder read beyond its response limit")
+			}
+		})
+	}
+}
+
+func TestControlRejectsWrongPeerUIDBeforeSendingRequest(t *testing.T) {
+	path := filepath.Join(discoveryRoot(t), "peer.sock")
+	listener, err := net.Listen("unix", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	type received struct {
+		data []byte
+		err  error
+	}
+	done := make(chan received, 1)
+	go func() {
+		conn, err := listener.Accept()
+		if err != nil {
+			done <- received{err: err}
+			return
+		}
+		defer conn.Close()
+		data, err := io.ReadAll(conn)
+		done <- received{data: data, err: err}
+	}()
+	ctx, cancel := context.WithTimeout(t.Context(), commandTimeout)
+	defer cancel()
+	_, err = controlCallSocket(ctx, path, os.Geteuid()+1, controlRequest{Command: "apply"})
+	if err == nil || !strings.Contains(err.Error(), "does not match expected UID") {
+		t.Fatal("mismatched control peer was accepted", err)
+	}
+	result := <-done
+	if result.err != nil || len(result.data) != 0 {
+		t.Fatal("client sent a command before checking the peer UID", string(result.data), result.err)
+	}
+}
+
+func TestDiscoveredSocketReplacementCannotRetargetCommands(t *testing.T) {
+	original, _ := testDaemon(t)
+	server, err := listenControl(original.config.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { server.close(); os.Remove(server.path + ".lock") })
+	go server.serve(original)
+	daemons, err := ListDaemons(t.Context(), original.config.Path)
+	if err != nil || len(daemons) != 1 {
+		t.Fatal("could not discover the original daemon", daemons, err)
+	}
+	endpoint, err := selectControl(original.config.Path, daemons)
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, api := testDaemon(t)
+	otherConfig := other.config
+	otherServer, err := listenControl(other.config.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { otherServer.close(); os.Remove(otherServer.path + ".lock") })
+	go otherServer.serve(other)
+	server.close()
+	if err := os.Symlink(otherServer.path, server.path); err != nil {
+		t.Fatal(err)
+	}
+	for _, command := range []string{"status", "doctor", "apply", "gc"} {
+		response, err := endpoint.call(t.Context(), controlRequest{Command: command})
+		if err != nil || !strings.Contains(response.Error, "does not match expected config") ||
+			response.Status != nil || len(response.Results) != 0 {
+			t.Fatal("socket replacement retargeted a management command", command, response, err)
+		}
+	}
+	if other.targets["build"].Draining || other.config != otherConfig || api.deleteCalls != 0 {
+		t.Fatal("socket replacement changed the other daemon")
+	}
+}
 
 func useFakeManagement(d *daemon, api *fakeScaleAPI) {
 	d.clientFactory = func(context.Context, Target) (scaleAPI, error) { return api, nil }
