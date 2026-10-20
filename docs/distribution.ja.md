@@ -20,7 +20,8 @@ sudo dnf install ./PACKAGE.rpm
 ```
 
 公式 runner が要求する OS の依存パッケージと `procps` を依存関係に含みます。
-配布用設定は PAT ファイルを使うため、GitHub CLI は必須ではありません。
+配布用設定は systemd が渡す暗号化 PAT を使うため、GitHub CLI は必須ではありません。
+登録コマンドには systemd 250 以降が必要です。
 Git や workflow で使用するビルドツールは別途導入してください。
 パッケージのスモークテストは、両アーキテクチャの Ubuntu 26.04 ホストと
 Rocky Linux 9 コンテナを対象としています。他のディストリビューションでは
@@ -39,16 +40,20 @@ runner は自身の実行ディレクトリに到達するため `/var/lib/ghale
 sudo install -o root -g root -m 0600 \
   /usr/share/ghalet/config.yaml.example /etc/ghalet/config.yaml
 sudoedit /etc/ghalet/config.yaml
-sudo install -o root -g root -m 0600 \
-  /path/to/pat-file /etc/ghalet/credentials/token
+sudo ghalet credential set default --prompt
 sudo ghalet config validate --config /etc/ghalet/config.yaml
 sudo systemctl enable --now ghalet
 ```
 
 設定の `OWNER/REPO` を置き換え、runner の管理に必要な権限を持つ PAT を用意してください。
-GitHub App を使う場合は、[運用ガイド](operations.ja.md#設定と認証情報)に従い、
-target の `credential` を変更し、所有者だけが読める秘密鍵ファイルを渡します。
+登録コマンドは参照先を `defaults.credential` に書き込み、`credential` を省略した
+target 間で共有します。パッケージのインストール・更新時にシークレットを要求せず、
+登録は明示的な別コマンドで行います。App キー、複数の認証情報、自動構築、
+ローテーションは[暗号化した認証情報](credentials.ja.md)を参照してください。
 認証情報を YAML の値やシェルのコマンド引数に直接書かないでください。
+古い systemd では、所有者のみ読める PAT ファイルを
+`defaults.credential.tokenFile` に指定する構成も使えます。
+[運用ガイド](operations.ja.md#設定と認証情報)を参照してください。
 
 サンプル設定は、実行データと runner のメタデータを `/var/lib/ghalet`、
 ダウンロードを `/var/cache/ghalet`、保存する runner ログを `cleanup.logRoot` により

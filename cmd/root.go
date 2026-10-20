@@ -32,12 +32,15 @@ func Run(ctx context.Context, argv []string, outStream, errStream io.Writer) err
 		}
 		command, argv = "validate", argv[1:]
 	}
+	if command == "credential" {
+		return credential(ctx, argv, "", outStream, errStream)
+	}
 	target := fs.String("target", "", "target id (required for destroy; default all targets for drain)")
 	dryRun := fs.Bool("dry-run", false, "show garbage collection without modifying files")
 	runnerGroup := fs.String("runner-group", "", "existing organization runner group")
 	scaleSet := fs.String("scale-set", "", "explicit scale set name to destroy")
 	fs.Usage = func() {
-		fmt.Fprintln(errStream, "Usage: ghalet <run|config validate|status|doctor|drain|gc|destroy> [options]")
+		fmt.Fprintln(errStream, "Usage: ghalet <run|config validate|credential set|status|doctor|drain|gc|destroy> [options]")
 		fs.PrintDefaults()
 	}
 	if err := fs.Parse(argv); err != nil {
@@ -51,6 +54,9 @@ func Run(ctx context.Context, argv []string, outStream, errStream io.Writer) err
 		remaining := fs.Args()[1:]
 		if command == "config" && len(remaining) > 0 && remaining[0] == "validate" {
 			command, remaining = "validate", remaining[1:]
+		}
+		if command == "credential" {
+			return credential(ctx, remaining, *config, outStream, errStream)
 		}
 		if err := fs.Parse(remaining); err != nil {
 			return err

@@ -15,3 +15,16 @@ install -d -o root -g root -m 0700 \
 if [ -d /run/systemd/system ]; then
   systemctl daemon-reload
 fi
+if [ ! -e /etc/ghalet/config.yaml ]; then
+  cat <<'EOF'
+Configure ghalet before starting it:
+  sudo install -o root -g root -m 0600 /usr/share/ghalet/config.yaml.example /etc/ghalet/config.yaml
+  sudoedit /etc/ghalet/config.yaml
+  sudo ghalet credential set default --prompt
+  sudo ghalet config validate --config /etc/ghalet/config.yaml
+  sudo systemctl enable --now ghalet
+
+For a GitHub App, use ghalet credential set NAME --type github-app --client-id ID --file PATH.
+Documentation: https://github.com/Songmu/ghalet/blob/main/docs/credentials.md
+EOF
+fi

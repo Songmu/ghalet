@@ -31,8 +31,11 @@ running snapshot even if the file's contents are now invalid.
 
 `examples/config.yaml` includes repository, organization, `gh`, PAT and App
 examples. Each target contains its registration `scope`. The optional
-`credential` mapping defaults to `type: gh`, including when the mapping is
-empty or `type` is omitted. PAT and App credentials require an explicit
+`credential` mapping inherits `defaults.credential` when omitted. If no shared
+credential is configured, it defaults to `type: gh`. An explicit target
+credential replaces the whole shared credential; an empty mapping selects
+`gh` instead of inheriting. Within a credential mapping, omitted `type` means
+`gh`. PAT and App credentials require an explicit
 `type: pat` or `type: github-app`; credential-specific fields do not select
 the type automatically. An explicitly empty type is rejected.
 For GitHub.com, `scope` accepts
@@ -80,7 +83,9 @@ For PATs, select exactly one of `tokenEnv` and `tokenFile`. Credential files,
 including App private keys, must be owner-only regular files (normally
 `chmod 600`). Values are never accepted inline in YAML. A systemd credential
 can be referenced by an absolute `tokenFile` or `privateKeyFile` path under
-`/run/credentials/ghalet.service/` with the corresponding `LoadCredential=`.
+`/run/credentials/ghalet.service/` with the corresponding `LoadCredential=` or
+`LoadCredentialEncrypted=`. For encrypted registration, shared defaults and
+rotation, see [encrypted credentials](credentials.md).
 Do not put secrets into `Environment=` or workflow files unnecessarily.
 
 Use repository administration permissions for repository registration and

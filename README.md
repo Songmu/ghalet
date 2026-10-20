@@ -126,6 +126,7 @@ repository or organization registration, identified locally by its `id`.
 | --- | --- |
 | `ghalet run` | Run the daemon in the foreground, accepting jobs and managing runner processes for all configured targets. |
 | `ghalet config validate` | Check configuration syntax, values and local path constraints without registering runners or contacting GitHub. |
+| `ghalet credential set NAME --prompt` | Register an encrypted PAT for the Linux systemd service and update `defaults.credential`. Requires root; see [credentials](docs/credentials.md) for App keys, automation and rotation. |
 | `ghalet status` | Read the running daemon's state and capacity snapshot. A successful response does not mean the daemon is healthy. |
 | `ghalet doctor` | Check the running daemon for diagnostic problems; exit nonzero when a problem is found. |
 | `ghalet drain [--target ID]` | Stop accepting new work and wait for accepted jobs, for one target or all targets. The daemon stays running. |
@@ -133,7 +134,9 @@ repository or organization registration, identified locally by its `id`.
 | `ghalet destroy --target ID --scale-set NAME` | Drain and delete an explicitly selected scale set after interactive `yes` confirmation. For an organization, also select `--runner-group NAME`. Runner groups are never deleted. |
 
 `ghalet --version` prints the installed version. Management responses are
-JSON. See [diagnosis and cleanup](docs/operations.md#diagnosis-garbage-collection-and-explicit-destruction)
+JSON, except for the credential setup instructions. `credential set` defaults
+to `/etc/ghalet/config.yaml`; other commands use the per-user default.
+See [diagnosis and cleanup](docs/operations.md#diagnosis-garbage-collection-and-explicit-destruction)
 for exit codes, offline maintenance and deletion safeguards.
 
 ## Runtime behavior
