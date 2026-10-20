@@ -1,5 +1,17 @@
 # Changelog
 
+## [v0.0.2](https://github.com/Songmu/ghalet/compare/v0.0.1...v0.0.2) - 2026-10-20
+
+- Add Linux packages and GHCR images with goxz and nFPM by @Songmu in https://github.com/Songmu/ghalet/pull/15
+- Isolate packaged runner jobs from management credentials by @Songmu in https://github.com/Songmu/ghalet/pull/17
+- Remove standalone drain in favor of normal shutdown by @Songmu in https://github.com/Songmu/ghalet/pull/19
+- Add shared credential defaults and encrypted systemd registration by @Songmu in https://github.com/Songmu/ghalet/pull/18
+- Reconcile configuration through apply and systemd reload by @Songmu in https://github.com/Songmu/ghalet/pull/20
+- Discover accessible daemons for configuration-free management by @Songmu in https://github.com/Songmu/ghalet/pull/21
+- Rename cleanup configuration to logs to reflect log archiving by @Songmu in https://github.com/Songmu/ghalet/pull/22
+- Simplify runner storage with systemd and XDG directories by @Songmu in https://github.com/Songmu/ghalet/pull/23
+- Simplify code and documentation to reduce redundancy by @Songmu in https://github.com/Songmu/ghalet/pull/24
+
 ## [v0.0.1](https://github.com/Songmu/ghalet/commits/v0.0.1) - 2026-10-19
 
 - Implement process-based ephemeral runner scale sets by @Songmu in https://github.com/Songmu/ghalet/pull/1
