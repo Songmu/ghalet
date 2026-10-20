@@ -49,6 +49,10 @@ func writeConfig(t *testing.T, content string) string {
 
 func testConfig(t *testing.T) *Config {
 	t.Helper()
+	t.Setenv("STATE_DIRECTORY", "")
+	t.Setenv("CACHE_DIRECTORY", "")
+	t.Setenv("XDG_STATE_HOME", testDirectory(t))
+	t.Setenv("XDG_CACHE_HOME", testDirectory(t))
 	c, err := LoadConfig(writeConfig(t, readFixture(t, "config/base.yaml")+"logs:\n  root: logs\n"))
 	if err != nil {
 		t.Fatal(err)
@@ -58,10 +62,8 @@ func testConfig(t *testing.T) *Config {
 
 func seedDistribution(t *testing.T, c *Config, script string) {
 	t.Helper()
-	for _, dir := range []string{c.Runner.CacheRoot, c.Runner.DistributionRoot} {
-		if err := fshelper.EnsureDirectory(dir, 0700); err != nil {
-			t.Fatal(err)
-		}
+	if err := fshelper.EnsureDirectory(c.Runner.CacheRoot, 0700); err != nil {
+		t.Fatal(err)
 	}
 	goos, arch := runtime.GOOS, runtime.GOARCH
 	if goos == "darwin" {
@@ -98,7 +100,7 @@ func seedDistribution(t *testing.T, c *Config, script string) {
 		t.Fatal(err)
 	}
 	digest := hex.EncodeToString(hash.Sum(nil))
-	if err := os.WriteFile(filepath.Join(c.Runner.DistributionRoot, name+".sha256"), []byte(digest+"\n"), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(c.Runner.CacheRoot, name+".sha256"), []byte(digest+"\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 }

@@ -39,6 +39,10 @@ provision:
       User=ghalet
       Group=ghalet
       Environment=PATH=/usr/local/bin:/usr/bin:/bin
+      StateDirectory=ghalet
+      StateDirectoryMode=0711
+      CacheDirectory=ghalet
+      CacheDirectoryMode=0700
       ExecStart=/usr/local/bin/ghalet run --config /etc/ghalet/config.yaml
       ExecReload=/usr/local/bin/ghalet apply --config /etc/ghalet/config.yaml
       TimeoutStartSec=15min

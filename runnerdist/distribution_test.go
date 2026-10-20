@@ -38,9 +38,8 @@ func testConfig(t *testing.T) Config {
 	t.Helper()
 	root := testDirectory(t)
 	return Config{
-		Version:          "2.338.0",
-		CacheRoot:        filepath.Join(root, "downloads"),
-		DistributionRoot: filepath.Join(root, "runners"),
+		Version:   "2.338.0",
+		CacheRoot: filepath.Join(root, "runners"),
 	}
 }
 
@@ -85,10 +84,8 @@ func writeArchive(t *testing.T, path string, entries []archiveEntry) {
 
 func seedDistribution(t *testing.T, c Config, script string) {
 	t.Helper()
-	for _, dir := range []string{c.CacheRoot, c.DistributionRoot} {
-		if err := fshelper.EnsureDirectory(dir, 0700); err != nil {
-			t.Fatal(err)
-		}
+	if err := fshelper.EnsureDirectory(c.CacheRoot, 0700); err != nil {
+		t.Fatal(err)
 	}
 	platform, err := runnerPlatform(runtime.GOOS, runtime.GOARCH)
 	if err != nil {
@@ -101,7 +98,7 @@ func seedDistribution(t *testing.T, c Config, script string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(c.DistributionRoot, name+".sha256"), []byte(digest+"\n"), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(c.CacheRoot, name+".sha256"), []byte(digest+"\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 }

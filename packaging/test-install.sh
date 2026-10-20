@@ -30,6 +30,10 @@ for path in /etc/ghalet /etc/ghalet/credentials /var/cache/ghalet /var/log/ghale
 done
 grep -qx 'User=root' /usr/lib/systemd/system/ghalet.service
 grep -qx 'Group=root' /usr/lib/systemd/system/ghalet.service
+grep -qx 'StateDirectory=ghalet' /usr/lib/systemd/system/ghalet.service
+grep -qx 'StateDirectoryMode=0711' /usr/lib/systemd/system/ghalet.service
+grep -qx 'CacheDirectory=ghalet' /usr/lib/systemd/system/ghalet.service
+grep -qx 'CacheDirectoryMode=0700' /usr/lib/systemd/system/ghalet.service
 grep -qx 'StandardOutput=journal' /usr/lib/systemd/system/ghalet.service
 grep -qx 'StandardError=journal' /usr/lib/systemd/system/ghalet.service
 grep -qx 'KillMode=mixed' /usr/lib/systemd/system/ghalet.service
@@ -49,7 +53,8 @@ fi
 test ! -e /etc/ghalet/config.yaml
 cp /usr/share/ghalet/config.yaml.example /etc/ghalet/config.yaml
 config_sum=$(sha256sum < /etc/ghalet/config.yaml)
-/usr/bin/ghalet config validate --config /etc/ghalet/config.yaml
+STATE_DIRECTORY=/var/lib/ghalet CACHE_DIRECTORY=/var/cache/ghalet \
+  /usr/bin/ghalet config validate --config /etc/ghalet/config.yaml
 grep -qx '  user: ghalet-runner' /etc/ghalet/config.yaml
 grep -qx 'logs:' /etc/ghalet/config.yaml
 grep -qx '  root: /var/log/ghalet/runners' /etc/ghalet/config.yaml

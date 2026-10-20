@@ -8,7 +8,8 @@ import (
 	"time"
 )
 
-func TestConfigLogRootDefaults(t *testing.T) {
+func TestConfigStateDirectories(t *testing.T) {
+	t.Setenv("STATE_DIRECTORY", "")
 	testYAML := readFixture(t, "config/base.yaml")
 	home, stateHome := testDirectory(t), testDirectory(t)
 	for _, tc := range []struct {
@@ -35,14 +36,197 @@ func TestConfigLogRootDefaults(t *testing.T) {
 			if c.Logs.Root != tc.want {
 				t.Fatalf("got %q, want %q", c.Logs.Root, tc.want)
 			}
-			if _, err := os.Stat(c.Logs.Root); !os.IsNotExist(err) {
-				t.Fatalf("loading config must not create the log directory: %v", err)
+			wantWork := filepath.Join(filepath.Dir(tc.want), "runs")
+			if c.Runner.WorkRoot != wantWork {
+				t.Fatalf("got work root %q, want %q", c.Runner.WorkRoot, wantWork)
+			}
+			other, err := LoadConfig(writeConfig(t, testYAML))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if other.Runner.WorkRoot != c.Runner.WorkRoot {
+				t.Fatal("work root must not depend on the config directory")
+			}
+			for _, path := range []string{c.Logs.Root, c.Runner.WorkRoot} {
+				if _, err := os.Stat(path); !os.IsNotExist(err) {
+					t.Fatalf("loading config must not create %s: %v", path, err)
+				}
+			}
+		})
+	}
+}
+
+func TestConfigRunnerCacheDirectory(t *testing.T) {
+	t.Setenv("STATE_DIRECTORY", "")
+	t.Setenv("CACHE_DIRECTORY", "")
+	home, cacheHome := testDirectory(t), testDirectory(t)
+	for _, tc := range []struct {
+		name, value, want string
+		unset             bool
+	}{
+		{"unset", "", filepath.Join(home, ".cache", "ghalet", "runners"), true},
+		{"empty", "", filepath.Join(home, ".cache", "ghalet", "runners"), false},
+		{"relative", "relative/cache", filepath.Join(home, ".cache", "ghalet", "runners"), false},
+		{"absolute", cacheHome, filepath.Join(cacheHome, "ghalet", "runners"), false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("HOME", home)
+			t.Setenv("XDG_STATE_HOME", testDirectory(t))
+			t.Setenv("XDG_CACHE_HOME", tc.value)
+			if tc.unset {
+				if err := os.Unsetenv("XDG_CACHE_HOME"); err != nil {
+					t.Fatal(err)
+				}
+			}
+			c, err := LoadConfig(writeConfig(t, readFixture(t, "config/base.yaml")))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if c.Runner.CacheRoot != tc.want {
+				t.Fatalf("got %q, want %q", c.Runner.CacheRoot, tc.want)
+			}
+			if _, err := os.Stat(c.Runner.CacheRoot); !os.IsNotExist(err) {
+				t.Fatalf("loading config must not create the runner cache: %v", err)
+			}
+		})
+	}
+}
+
+func TestConfigServiceDirectories(t *testing.T) {
+	stateDir, cacheDir := testDirectory(t), testDirectory(t)
+	stateHome, cacheHome := testDirectory(t), testDirectory(t)
+	for _, tc := range []struct {
+		name, state, cache string
+		unset              bool
+	}{
+		{"unset", "", "", true},
+		{"empty", "", "", false},
+		{"state only", stateDir, "", false},
+		{"cache only", "", cacheDir, false},
+		{"both", stateDir, cacheDir, false},
+		{"shared base", stateDir, stateDir, false},
+		{"normalized", stateDir + "/nested/..", cacheDir + "/nested/..", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("STATE_DIRECTORY", tc.state)
+			t.Setenv("CACHE_DIRECTORY", tc.cache)
+			t.Setenv("XDG_STATE_HOME", stateHome)
+			t.Setenv("XDG_CACHE_HOME", cacheHome)
+			if tc.unset {
+				for _, name := range []string{"STATE_DIRECTORY", "CACHE_DIRECTORY"} {
+					if err := os.Unsetenv(name); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			c, err := LoadConfig(writeConfig(t, readFixture(t, "config/base.yaml")))
+			if err != nil {
+				t.Fatal(err)
+			}
+			wantState, wantCache := filepath.Join(stateHome, "ghalet"), filepath.Join(cacheHome, "ghalet")
+			if tc.state != "" {
+				wantState = filepath.Clean(tc.state)
+			}
+			if tc.cache != "" {
+				wantCache = filepath.Clean(tc.cache)
+			}
+			for _, directory := range []struct {
+				got, want string
+			}{
+				{c.Runner.WorkRoot, filepath.Join(wantState, "runs")},
+				{c.Runner.CacheRoot, filepath.Join(wantCache, "runners")},
+				{c.Logs.Root, filepath.Join(wantState, "logs")},
+			} {
+				if directory.got != directory.want {
+					t.Fatalf("got %q, want %q", directory.got, directory.want)
+				}
+				if _, err := os.Stat(directory.got); !os.IsNotExist(err) {
+					t.Fatalf("loading config must not create %s: %v", directory.got, err)
+				}
+			}
+		})
+	}
+}
+
+func TestConfigRejectsInvalidServiceDirectories(t *testing.T) {
+	for _, name := range []string{"STATE_DIRECTORY", "CACHE_DIRECTORY"} {
+		for _, value := range []string{"relative/path", "/first:/second", ":/second", "/first:"} {
+			t.Run(name+"="+value, func(t *testing.T) {
+				t.Setenv("STATE_DIRECTORY", "")
+				t.Setenv("CACHE_DIRECTORY", "")
+				t.Setenv("XDG_STATE_HOME", testDirectory(t))
+				t.Setenv("XDG_CACHE_HOME", testDirectory(t))
+				t.Setenv(name, value)
+				if _, err := LoadConfig(writeConfig(t, readFixture(t, "config/base.yaml"))); err == nil ||
+					!strings.Contains(err.Error(), name+" must specify a single absolute directory") {
+					t.Fatalf("expected invalid service directory to be rejected, got %v", err)
+				}
+			})
+		}
+	}
+}
+
+func TestConfigServiceLogRootOverride(t *testing.T) {
+	t.Setenv("STATE_DIRECTORY", testDirectory(t))
+	t.Setenv("CACHE_DIRECTORY", testDirectory(t))
+	path := writeConfig(t, readFixture(t, "config/base.yaml")+"logs:\n  root: archived-logs\n")
+	c, err := LoadConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(filepath.Dir(path), "archived-logs"); c.Logs.Root != want {
+		t.Fatalf("got %q, want %q", c.Logs.Root, want)
+	}
+}
+
+func TestConfigRejectsOverlappingXDGDirectories(t *testing.T) {
+	t.Setenv("STATE_DIRECTORY", "")
+	t.Setenv("CACHE_DIRECTORY", "")
+	for _, name := range []string{"logs in runs", "logs in cache", "cache in runs"} {
+		t.Run(name, func(t *testing.T) {
+			stateHome, cacheHome := testDirectory(t), testDirectory(t)
+			t.Setenv("XDG_STATE_HOME", stateHome)
+			t.Setenv("XDG_CACHE_HOME", cacheHome)
+			content := readFixture(t, "config/base.yaml")
+			switch name {
+			case "logs in runs":
+				content += "logs:\n  root: " + filepath.Join(stateHome, "ghalet", "runs", "logs") + "\n"
+			case "logs in cache":
+				content += "logs:\n  root: " + filepath.Join(cacheHome, "ghalet", "runners") + "\n"
+			case "cache in runs":
+				t.Setenv("XDG_CACHE_HOME", filepath.Join(stateHome, "ghalet", "runs"))
+			}
+			if _, err := LoadConfig(writeConfig(t, content)); err == nil || !strings.Contains(err.Error(), "must not overlap") {
+				t.Fatalf("expected overlapping directories to be rejected, got %v", err)
+			}
+		})
+	}
+}
+
+func TestConfigRejectsOverlappingServiceDirectories(t *testing.T) {
+	for _, name := range []string{"logs in runs", "cache in runs", "logs in cache"} {
+		t.Run(name, func(t *testing.T) {
+			stateDir, cacheDir := testDirectory(t), testDirectory(t)
+			content := readFixture(t, "config/base.yaml")
+			switch name {
+			case "logs in runs":
+				content += "logs:\n  root: " + filepath.Join(stateDir, "runs") + "\n"
+			case "cache in runs":
+				cacheDir = filepath.Join(stateDir, "runs")
+			case "logs in cache":
+				content += "logs:\n  root: " + filepath.Join(cacheDir, "runners") + "\n"
+			}
+			t.Setenv("STATE_DIRECTORY", stateDir)
+			t.Setenv("CACHE_DIRECTORY", cacheDir)
+			if _, err := LoadConfig(writeConfig(t, content)); err == nil || !strings.Contains(err.Error(), "must not overlap") {
+				t.Fatalf("expected overlapping directories to be rejected, got %v", err)
 			}
 		})
 	}
 }
 
 func TestConfigLogRootOverride(t *testing.T) {
+	t.Setenv("STATE_DIRECTORY", "")
 	testYAML := readFixture(t, "config/base.yaml")
 	t.Setenv("XDG_STATE_HOME", testDirectory(t))
 	for _, root := range []string{"logs", "custom/logs", filepath.Join(testDirectory(t), "logs")} {
@@ -93,7 +277,10 @@ func TestConfigLogs(t *testing.T) {
 }
 
 func TestConfigLogRootWithoutHome(t *testing.T) {
+	t.Setenv("STATE_DIRECTORY", "")
+	t.Setenv("CACHE_DIRECTORY", "")
 	testYAML := readFixture(t, "config/base.yaml")
+	t.Setenv("XDG_CACHE_HOME", testDirectory(t))
 	t.Setenv("HOME", "")
 	if err := os.Unsetenv("HOME"); err != nil {
 		t.Fatal(err)
@@ -118,8 +305,8 @@ func TestConfigLogRootWithoutHome(t *testing.T) {
 				name, logs, wantErr string
 				root                string
 			}{
-				{name: "omitted", wantErr: "resolve default log directory"},
-				{name: "empty mapping", logs: "logs: {}\n", wantErr: "resolve default log directory"},
+				{name: "omitted", wantErr: "resolve state directory"},
+				{name: "empty mapping", logs: "logs: {}\n", wantErr: "resolve state directory"},
 				{name: "empty path", logs: "logs:\n  root: \"\"\n", wantErr: "empty"},
 				{name: "relative override", root: "custom/logs"},
 				{name: "absolute override", root: filepath.Join(testDirectory(t), "logs")},
@@ -132,7 +319,9 @@ func TestConfigLogRootWithoutHome(t *testing.T) {
 					path := writeConfig(t, content)
 					c, err := LoadConfig(path)
 					wantErr := tc.wantErr
-					if filepath.IsAbs(env.value) && tc.name != "empty path" {
+					if !filepath.IsAbs(env.value) {
+						wantErr = "resolve state directory"
+					} else if tc.name != "empty path" {
 						wantErr = ""
 					}
 					if wantErr != "" {
@@ -170,8 +359,8 @@ func TestConfigDefaultsAndRelativePaths(t *testing.T) {
 		!c.Logs.Preserve || c.Logs.Retention != Duration(7*24*time.Hour) {
 		t.Fatalf("unexpected defaults: %+v", c)
 	}
-	if c.Runner.WorkRoot != filepath.Join(filepath.Dir(c.Path), "runs") {
-		t.Fatal("workRoot must be relative to config, not the working directory")
+	if c.Runner.WorkRoot != filepath.Join(os.Getenv("XDG_STATE_HOME"), "ghalet", "runs") {
+		t.Fatal("work root must be under XDG_STATE_HOME")
 	}
 	path := writeConfig(t, strings.Replace(testYAML, "tokenEnv: GHALET_TEST_TOKEN", "tokenFile: credentials/token", 1))
 	c, err := LoadConfig(path)
@@ -572,8 +761,9 @@ func TestConfigRejectsInvalidInput(t *testing.T) {
 		"credential env":           strings.Replace(testYAML, `"2.338.0"`, "\"2.338.0\"\n  env:\n    GH_TOKEN: never-copy", 1),
 		"custom credential env":    strings.Replace(testYAML, `"2.338.0"`, "\"2.338.0\"\n  env:\n    GHALET_TEST_TOKEN: never-copy", 1),
 		"identity env":             strings.Replace(testYAML, `"2.338.0"`, "\"2.338.0\"\n  env:\n    HOME: /tmp", 1),
-		"overlapping roots":        strings.Replace(testYAML, `"2.338.0"`, "\"2.338.0\"\n  cacheRoot: runs/downloads", 1),
-		"root directory":           strings.Replace(testYAML, `"2.338.0"`, "\"2.338.0\"\n  workRoot: /", 1),
+		"removed workRoot":         strings.Replace(testYAML, `"2.338.0"`, "\"2.338.0\"\n  workRoot: runs", 1),
+		"removed distributionRoot": strings.Replace(testYAML, `"2.338.0"`, "\"2.338.0\"\n  distributionRoot: runners", 1),
+		"removed cacheRoot":        strings.Replace(testYAML, `"2.338.0"`, "\"2.338.0\"\n  cacheRoot: downloads", 1),
 		"empty log root":           testYAML + "logs:\n  root: \"\"\n",
 	}
 	for name, input := range cases {

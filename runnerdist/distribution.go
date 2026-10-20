@@ -22,12 +22,11 @@ import (
 	"github.com/Songmu/ghalet/fshelper"
 )
 
-// Config identifies the runner release and the directories used to cache its
+// Config identifies the runner release and the directory used to cache its
 // archive and official SHA-256 digest.
 type Config struct {
-	Version          string
-	CacheRoot        string
-	DistributionRoot string
+	Version   string
+	CacheRoot string
 }
 
 // Manager serializes runner preparation and reuses verified cached archives.
@@ -83,13 +82,11 @@ func (d *Manager) Prepare(ctx context.Context, c Config, dest string) error {
 		return err
 	}
 	name := "actions-runner-" + platform + "-" + c.Version + ".tar.gz"
-	for _, dir := range []string{c.CacheRoot, c.DistributionRoot} {
-		if err := fshelper.EnsureDirectory(dir, 0700); err != nil {
-			return err
-		}
+	if err := fshelper.EnsureDirectory(c.CacheRoot, 0700); err != nil {
+		return err
 	}
 	archive := filepath.Join(c.CacheRoot, name)
-	checksumFile := filepath.Join(c.DistributionRoot, name+".sha256")
+	checksumFile := filepath.Join(c.CacheRoot, name+".sha256")
 	checksum, err := os.ReadFile(checksumFile)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
