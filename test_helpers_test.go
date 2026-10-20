@@ -49,6 +49,8 @@ func writeConfig(t *testing.T, content string) string {
 
 func testConfig(t *testing.T) *Config {
 	t.Helper()
+	t.Setenv("STATE_DIRECTORY", "")
+	t.Setenv("CACHE_DIRECTORY", "")
 	t.Setenv("XDG_STATE_HOME", testDirectory(t))
 	t.Setenv("XDG_CACHE_HOME", testDirectory(t))
 	c, err := LoadConfig(writeConfig(t, readFixture(t, "config/base.yaml")+"logs:\n  root: logs\n"))

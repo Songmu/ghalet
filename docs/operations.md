@@ -43,13 +43,20 @@ are based on the selected config's directory, not the shell's current
 directory. Use absolute paths in service definitions; `~` is not expanded
 inside YAML.
 
-Execution directories and recovery state use `$XDG_STATE_HOME/ghalet/runs`
+When set, systemd's `STATE_DIRECTORY` and `CACHE_DIRECTORY` take precedence:
+executions and recovery state use `$STATE_DIRECTORY/runs`, and runner archives
+and digests use `$CACHE_DIRECTORY/runners`. Each variable must contain a single
+absolute directory; relative paths and colon-separated lists are rejected.
+These are application-specific directories, not XDG bases; see
+[systemd's directory management](https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html#RuntimeDirectory=).
+
+Otherwise, execution directories and recovery state use `$XDG_STATE_HOME/ghalet/runs`
 (default: `~/.local/state/ghalet/runs`). Runner archives and their official
 SHA-256 digests share `$XDG_CACHE_HOME/ghalet/runners`
 (default: `~/.cache/ghalet/runners`). Unset, empty, or relative XDG values use
 these HOME-based defaults. Paths follow the controller's environment, not
 `runner.user` or the config directory. Only one daemon can own a given execution
-root; separate instances need distinct `XDG_STATE_HOME` values.
+root; separate instances need distinct state directories.
 These paths are not YAML settings.
 
 Edit the file and run `ghalet apply` to change targets, limits, credentials,
@@ -328,7 +335,9 @@ runtime state. If disconnected, direct GC must acquire the same
 OS workRoot lock and the config's control-address lock. A failed socket
 connection alone never permits bypassing an existing daemon. Lock files
 are not PID files and may remain after a process exits.
-Offline GC must use the same XDG environment as the service to find its state.
+Offline GC must use the same storage environment as the service to find its state
+(for example, `STATE_DIRECTORY=/var/lib/ghalet` and
+`CACHE_DIRECTORY=/var/cache/ghalet` for the packaged service).
 
 After a crash, records are matched to current explicit registrations, process
 UID/group/kernel start identity and, for live executions, GitHub runner IDs.
@@ -372,13 +381,11 @@ select credentials or determine registration identity.
 The `logs` settings control runner log archives, not daemon stdout/stderr.
 With `logs.preserve: true`, `output.log` and `_diag/**/*.log` are archived to
 `logs.root/runs/RUN_ID` before removing the execution. `logs.root`
-defaults to `$XDG_STATE_HOME/ghalet/logs`, or
-`~/.local/state/ghalet/logs` when `XDG_STATE_HOME` is unset, empty, or relative.
+defaults to `$STATE_DIRECTORY/logs` when `STATE_DIRECTORY` is set, otherwise
+`$XDG_STATE_HOME/ghalet/logs`, or `~/.local/state/ghalet/logs` when
+`XDG_STATE_HOME` is unset, empty, or relative.
 An explicit `logs.root` overrides this default; relative values are
-still resolved against the selected config's directory. Existing archives
-in the old config-relative `logs` directory are not moved or expired
-automatically; move them while the daemon is stopped, or set
-`logs.root: logs` to keep using that directory. Credentials and
+still resolved against the selected config's directory. Credentials and
 workspace contents are not archived. Failed archives preserve the original
 logs and state. Once processes are confirmed stopped, file-only cleanup
 failures do not hold execution capacity; `gc` or the next startup retries
@@ -411,9 +418,10 @@ manual service installation.
 
 For Linux, precreate a dedicated `ghalet` user,
 copy `examples/ghalet.service` into `/etc/systemd/system/`, and place the
-configuration at `/etc/ghalet/config.yaml`. The unit sets `XDG_STATE_HOME=/var/lib`
-and `XDG_CACHE_HOME=/var/cache`; `StateDirectory` and `CacheDirectory` create
-`/var/lib/ghalet` and `/var/cache/ghalet` for the service user. Set `logs.root`
+configuration at `/etc/ghalet/config.yaml`. The unit uses `StateDirectory=ghalet`
+and `CacheDirectory=ghalet` to create `/var/lib/ghalet` and `/var/cache/ghalet`
+for the service user and pass them through `STATE_DIRECTORY` and `CACHE_DIRECTORY`.
+No XDG overrides are needed. Set `logs.root`
 only if overriding the default state-based log directory. Authenticate as that
 user, run configuration validation, then `systemctl enable --now ghalet`.
 `KillMode=mixed` sends the initial stop signal only to the controller, allowing

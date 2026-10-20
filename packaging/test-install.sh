@@ -30,8 +30,6 @@ for path in /etc/ghalet /etc/ghalet/credentials /var/cache/ghalet /var/log/ghale
 done
 grep -qx 'User=root' /usr/lib/systemd/system/ghalet.service
 grep -qx 'Group=root' /usr/lib/systemd/system/ghalet.service
-grep -qx 'Environment=XDG_STATE_HOME=/var/lib' /usr/lib/systemd/system/ghalet.service
-grep -qx 'Environment=XDG_CACHE_HOME=/var/cache' /usr/lib/systemd/system/ghalet.service
 grep -qx 'StateDirectory=ghalet' /usr/lib/systemd/system/ghalet.service
 grep -qx 'StateDirectoryMode=0711' /usr/lib/systemd/system/ghalet.service
 grep -qx 'CacheDirectory=ghalet' /usr/lib/systemd/system/ghalet.service
@@ -55,7 +53,7 @@ fi
 test ! -e /etc/ghalet/config.yaml
 cp /usr/share/ghalet/config.yaml.example /etc/ghalet/config.yaml
 config_sum=$(sha256sum < /etc/ghalet/config.yaml)
-XDG_STATE_HOME=/var/lib XDG_CACHE_HOME=/var/cache \
+STATE_DIRECTORY=/var/lib/ghalet CACHE_DIRECTORY=/var/cache/ghalet \
   /usr/bin/ghalet config validate --config /etc/ghalet/config.yaml
 grep -qx '  user: ghalet-runner' /etc/ghalet/config.yaml
 grep -qx 'logs:' /etc/ghalet/config.yaml

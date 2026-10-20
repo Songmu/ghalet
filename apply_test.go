@@ -139,7 +139,7 @@ func TestApplyKeepsScaleSetReferencedByActualID(t *testing.T) {
 }
 
 func TestApplyRejectsInvalidOrRestartOnlyChangesBeforeDrain(t *testing.T) {
-	for _, field := range []string{"syntax", "user", "state home", "cache home", "logs.root"} {
+	for _, field := range []string{"syntax", "user", "state home", "cache home", "state directory", "cache directory", "logs.root"} {
 		t.Run(field, func(t *testing.T) {
 			d, api := testDaemon(t)
 			useFakeManagement(d, api)
@@ -152,6 +152,10 @@ func TestApplyRejectsInvalidOrRestartOnlyChangesBeforeDrain(t *testing.T) {
 				t.Setenv("XDG_STATE_HOME", testDirectory(t))
 			case "cache home":
 				t.Setenv("XDG_CACHE_HOME", testDirectory(t))
+			case "state directory":
+				t.Setenv("STATE_DIRECTORY", testDirectory(t))
+			case "cache directory":
+				t.Setenv("CACHE_DIRECTORY", testDirectory(t))
 			case "logs.root":
 				next.Logs.Root += "-new"
 			}

@@ -147,8 +147,9 @@ properties:
       root:
         $ref: "#/$defs/path"
         description: |
-          Log directory. Defaults to $XDG_STATE_HOME/ghalet/logs when
-          XDG_STATE_HOME is absolute, otherwise ~/.local/state/ghalet/logs.
+          Log directory. Defaults to $STATE_DIRECTORY/logs when set,
+          otherwise $XDG_STATE_HOME/ghalet/logs when XDG_STATE_HOME is
+          absolute, or ~/.local/state/ghalet/logs.
 allOf:
   - if:
       required: [defaults]

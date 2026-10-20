@@ -149,15 +149,26 @@ func configPath(path string) (string, error) {
 	return filepath.Clean(absolute), nil
 }
 
-func xdgHome(name, fallback string) (string, error) {
-	if path := os.Getenv(name); filepath.IsAbs(path) {
+func storageDirectory(serviceEnv, xdgEnv, fallback string) (string, error) {
+	// systemd supplies application directories; expect one path per variable.
+	// https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html#RuntimeDirectory=
+	if path := os.Getenv(serviceEnv); path != "" {
+		if !filepath.IsAbs(path) || strings.ContainsRune(path, ':') {
+			return "", fmt.Errorf("%s must specify a single absolute directory", serviceEnv)
+		}
 		return filepath.Clean(path), nil
 	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
+	// XDG paths are user-specific bases; unset or relative values use HOME.
+	// https://specifications.freedesktop.org/basedir/latest/
+	base := os.Getenv(xdgEnv)
+	if !filepath.IsAbs(base) {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", err
+		}
+		base = filepath.Join(home, fallback)
 	}
-	return filepath.Join(home, fallback), nil
+	return filepath.Join(base, "ghalet"), nil
 }
 
 func LoadConfig(path string) (*Config, error) {
@@ -177,11 +188,11 @@ func LoadConfig(path string) (*Config, error) {
 		return nil, errors.New("config must contain exactly one YAML document")
 	}
 	base := filepath.Dir(path)
-	stateHome, err := xdgHome("XDG_STATE_HOME", filepath.Join(".local", "state"))
+	stateDir, err := storageDirectory("STATE_DIRECTORY", "XDG_STATE_HOME", filepath.Join(".local", "state"))
 	if err != nil {
 		return nil, fmt.Errorf("resolve state directory: %w", err)
 	}
-	cacheHome, err := xdgHome("XDG_CACHE_HOME", ".cache")
+	cacheDir, err := storageDirectory("CACHE_DIRECTORY", "XDG_CACHE_HOME", ".cache")
 	if err != nil {
 		return nil, fmt.Errorf("resolve runner cache directory: %w", err)
 	}
@@ -190,12 +201,12 @@ func LoadConfig(path string) (*Config, error) {
 		Runner: RunnerConfig{
 			Version:        defaultRunnerVersion,
 			StartupTimeout: Duration(2 * time.Minute), DrainTimeout: Duration(10 * time.Minute),
-			WorkRoot:  filepath.Join(stateHome, "ghalet", "runs"),
-			CacheRoot: filepath.Join(cacheHome, "ghalet", "runners"),
+			WorkRoot:  filepath.Join(stateDir, "runs"),
+			CacheRoot: filepath.Join(cacheDir, "runners"),
 		},
 		Logs: LogsConfig{
 			Preserve: true, Retention: Duration(7 * 24 * time.Hour),
-			Root: filepath.Join(stateHome, "ghalet", "logs"),
+			Root: filepath.Join(stateDir, "logs"),
 		},
 	}
 	if err := yaml.NodeToValue(file.Docs[0].Body, c, yaml.Strict()); err != nil {

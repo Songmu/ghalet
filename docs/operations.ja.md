@@ -39,14 +39,20 @@ CLI の更新時はデーモンも再起動してください。旧デーモン�
 シェルのカレントディレクトリではなく、選択した設定ファイルのディレクトリです。
 サービス定義には絶対パスを使ってください。YAML 内の `~` は展開されません。
 
-実行ディレクトリと復旧状態は `$XDG_STATE_HOME/ghalet/runs`
+systemd の `STATE_DIRECTORY` と `CACHE_DIRECTORY` が設定されている場合は優先し、
+実行ディレクトリと復旧状態は `$STATE_DIRECTORY/runs`、runner のアーカイブと
+ダイジェストは `$CACHE_DIRECTORY/runners` に保存します。
+各変数には単一の絶対パスを指定し、相対パスやコロン区切りの複数パスは拒否します。
+これらは XDG の基準ではなくアプリ専用のディレクトリです。
+[systemd のディレクトリ管理](https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html#RuntimeDirectory=)を参照してください。
+
+未指定の場合、実行ディレクトリと復旧状態は `$XDG_STATE_HOME/ghalet/runs`
 （デフォルト: `~/.local/state/ghalet/runs`）、runner のアーカイブと公式 SHA-256
 ダイジェストは共通の `$XDG_CACHE_HOME/ghalet/runners`
 （デフォルト: `~/.cache/ghalet/runners`）に保存します。
 XDG 変数が未設定・空・相対パスの場合は、これらの HOME 基準のデフォルトを使います。
 保存先は `runner.user` や設定ファイルの場所ではなく、管理プロセスの環境に従います。
-同じ実行領域を使えるデーモンは 1 つだけです。複数起動する場合は
-`XDG_STATE_HOME` を分けてください。
+同じ実行領域を使えるデーモンは 1 つだけです。複数起動する場合は state の保存先を分けてください。
 これらの保存先は YAML では設定できません。
 
 target、上限、認証情報、runner バージョン、環境変数、タイムアウト、ログ保存方針は、
@@ -307,7 +313,9 @@ ghalet gc --config /path/to/config.yaml
 設定の制御アドレスのロックを取得する必要があります。
 ソケットへの接続失敗だけでは、既存デーモンを迂回する根拠にはなりません。
 ロックファイルは PID ファイルではなく、プロセス終了後も残ることがあります。
-オフライン GC でサービスの状態を参照するには、サービスと同じ XDG 環境を指定してください。
+オフライン GC でサービスの状態を参照するには、サービスと同じ保存先の環境変数を指定してください。
+配布用サービスでは `STATE_DIRECTORY=/var/lib/ghalet` と
+`CACHE_DIRECTORY=/var/cache/ghalet` です。
 
 クラッシュ後は、記録を現在明示している登録、プロセスの UID・グループ・カーネルの
 開始識別情報、および生存中の実行では GitHub runner ID と照合します。
@@ -348,12 +356,12 @@ runner 開始イベントとアーカイブのメタデータの `scope` は登�
 `logs` は runner ログの保存設定で、デーモンの標準出力・標準エラーは対象外です。
 `logs.preserve: true` では、実行領域の削除前に `output.log` と `_diag/**/*.log` を
 `logs.root/runs/RUN_ID` に退避します。`logs.root` のデフォルトは
-`$XDG_STATE_HOME/ghalet/logs` です。`XDG_STATE_HOME` が未設定・空・相対パスの場合は
-`~/.local/state/ghalet/logs` になります。明示した `logs.root` はこのデフォルトを
+`STATE_DIRECTORY` が設定されていれば `$STATE_DIRECTORY/logs`、
+それ以外は `$XDG_STATE_HOME/ghalet/logs` です。
+`XDG_STATE_HOME` も未設定・空・相対パスの場合は `~/.local/state/ghalet/logs` になります。
+明示した `logs.root` はこのデフォルトを
 上書きします。相対値は引き続き選択した設定ファイルのディレクトリを基準に解決します。
-従来の設定相対の `logs` ディレクトリにあるアーカイブは、自動移動・期限切れ削除しません。
-デーモン停止中に移動するか、`logs.root: logs` で以前のディレクトリを
-継続利用してください。認証情報と workspace の内容は退避しません。
+認証情報と workspace の内容は退避しません。
 退避失敗時は元のログとステートを保持します。プロセス停止確認後のファイル削除だけの失敗は
 実行容量を占有せず、`gc` または次回起動で再試行します。
 `logs.retention` は正常に保存済みのアーカイブだけを期限切れ削除し、毎時の確認も行います。
@@ -381,9 +389,9 @@ Linux パッケージや Docker Compose で導入する場合は、
 
 Linux では、専用の `ghalet` ユーザーを事前に作成し、
 `examples/ghalet.service` を `/etc/systemd/system/` にコピーして、
-`/etc/ghalet/config.yaml` に設定を配置します。unit は `XDG_STATE_HOME=/var/lib` と
-`XDG_CACHE_HOME=/var/cache` を指定し、`StateDirectory` と `CacheDirectory` で
-`/var/lib/ghalet` と `/var/cache/ghalet` をサービスユーザー用に作成します。
+`/etc/ghalet/config.yaml` に設定を配置します。unit は `StateDirectory=ghalet` と
+`CacheDirectory=ghalet` で `/var/lib/ghalet` と `/var/cache/ghalet` をサービスユーザー用に
+作成し、`STATE_DIRECTORY` と `CACHE_DIRECTORY` で渡します。XDG の上書きは不要です。
 `logs.root` は、state 配下のデフォルト保存先を変更する場合のみ指定してください。
 そのユーザーで認証と設定検証を行い、`systemctl enable --now ghalet` を実行します。
 `KillMode=mixed` は最初の停止シグナルをコントローラーだけに送り、

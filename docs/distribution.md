@@ -56,8 +56,9 @@ On older systemd installations, configure an owner-only PAT file with
 `defaults.credential.tokenFile` instead; see
 [operations](operations.md#configuration-and-credentials).
 
-The unit sets `XDG_STATE_HOME=/var/lib` and `XDG_CACHE_HOME=/var/cache`,
-placing executions under `/var/lib/ghalet/runs` and runner archives and digests
+The unit uses `StateDirectory=ghalet` and `CacheDirectory=ghalet`,
+which supply `STATE_DIRECTORY` and `CACHE_DIRECTORY`. Executions go under
+`/var/lib/ghalet/runs` and runner archives and digests
 under `/var/cache/ghalet/runners`. The sample places saved runner logs under
 `/var/log/ghalet/runners` through `logs.root`. Daemon stdout and stderr
 go to the journal; persistence, rotation, and retention follow the host's

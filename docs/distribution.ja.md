@@ -55,7 +55,8 @@ target 間で共有します。パッケージのインストール・更新時�
 `defaults.credential.tokenFile` に指定する構成も使えます。
 [運用ガイド](operations.ja.md#設定と認証情報)を参照してください。
 
-unit は `XDG_STATE_HOME=/var/lib` と `XDG_CACHE_HOME=/var/cache` を指定し、
+unit は `StateDirectory=ghalet` と `CacheDirectory=ghalet` によって
+`STATE_DIRECTORY` と `CACHE_DIRECTORY` を渡し、
 実行データを `/var/lib/ghalet/runs`、runner のアーカイブとダイジェストを
 `/var/cache/ghalet/runners` に配置します。サンプル設定は保存する runner ログを
 `logs.root` により `/var/log/ghalet/runners` 以下に配置します。デーモンの標準出力と標準エラーは
