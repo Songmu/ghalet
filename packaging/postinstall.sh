@@ -20,11 +20,11 @@ if [ ! -e /etc/ghalet/config.yaml ]; then
 Configure ghalet before starting it:
   sudo install -o root -g root -m 0600 /usr/share/ghalet/config.yaml.example /etc/ghalet/config.yaml
   sudoedit /etc/ghalet/config.yaml
-  sudo ghalet credential set default --prompt
+  sudo ghalet systemd credential set default --prompt
   sudo ghalet config validate --config /etc/ghalet/config.yaml
   sudo systemctl enable --now ghalet
 
-For a GitHub App, use ghalet credential set NAME --type github-app --client-id ID --file PATH.
+For a GitHub App, use ghalet systemd credential set NAME --type github-app --client-id ID --file PATH.
 Documentation: https://github.com/Songmu/ghalet/blob/main/docs/credentials.md
 EOF
 fi

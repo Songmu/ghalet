@@ -2,8 +2,8 @@
 
 [English](credentials.md) | [日本語](credentials.ja.md)
 
-`ghalet credential set` は、パッケージの `ghalet.service` 用に名前付きの PAT または
-GitHub App の秘密鍵を登録します。Linux、root 権限、systemd 250 以降、
+`ghalet systemd credential set` は、パッケージの `ghalet.service` 用に名前付きの
+PAT または GitHub App の秘密鍵を登録します。Linux、root 権限、systemd 250 以降、
 `systemd-creds`、`systemctl` が必要です。`--prompt` には
 `systemd-ask-password` と対話端末も必要です。パッケージのインストール・更新中に
 認証情報を要求せず、このコマンドもサービスを起動・再起動しません。
@@ -14,15 +14,15 @@ GitHub App の秘密鍵を登録します。Linux、root 権限、systemd 250 �
 target の scope などを編集してから PAT を登録します。
 
 ```sh
-sudo ghalet credential set default --prompt
+sudo ghalet systemd credential set default --prompt
 ```
 
 デフォルトの方式は `pat` です。入力方法は一つだけ明示してください。
 未指定時に対話入力へ切り替えることはありません。
 
 ```sh
-sudo ghalet credential set default --file /secure/pat-file
-sudo ghalet credential set default --stdin < /secure/pat-file
+sudo ghalet systemd credential set default --file /secure/pat-file
+sudo ghalet systemd credential set default --stdin < /secure/pat-file
 ```
 
 `--file` には所有者だけが読める通常ファイル（通常は `0600`）を指定します。
@@ -84,7 +84,7 @@ sudo journalctl -u ghalet -f
 暗号化されていない RSA PEM 秘密鍵（PKCS#1 または PKCS#8）を一つ取り込みます。
 
 ```sh
-sudo ghalet credential set app-work-key --type github-app \
+sudo ghalet systemd credential set app-work-key --type github-app \
   --client-id APP_CLIENT_ID --file /secure/app.pem
 ```
 
@@ -97,7 +97,7 @@ installation token は既存の SDK が取得するため、手入力は不要�
 YAML を変更せずに追加登録するには `--no-default` を指定します。
 
 ```sh
-sudo ghalet credential set secondary --prompt --no-default
+sudo ghalet systemd credential set secondary --prompt --no-default
 ```
 
 利用する target に `credential.type: pat` と
@@ -114,7 +114,7 @@ target の `installationId` を指定します。同じパスを複数 target �
 `--no-default` で設定を変更せずに新しい値を登録します。
 
 ```sh
-sudo ghalet credential set default --prompt --no-default
+sudo ghalet systemd credential set default --prompt --no-default
 sudo ghalet drain --config /etc/ghalet/config.yaml
 # drain が正常完了した場合だけ続けます。
 sudo systemctl restart ghalet

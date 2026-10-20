@@ -54,18 +54,56 @@ func TestCredentialOptions(t *testing.T) {
 
 func TestCredentialHelp(t *testing.T) {
 	for _, args := range [][]string{
-		{"credential", "--help"},
-		{"credential", "set", "--help"},
-		{"credential", "set", "default", "--help"},
-		{"--config", "custom.yaml", "credential", "set", "--help"},
+		{"systemd", "--help"},
+		{"systemd", "-h"},
+		{"systemd", "credential", "--help"},
+		{"systemd", "credential", "-h"},
+		{"systemd", "credential", "set", "--help"},
+		{"systemd", "credential", "set", "default", "--help"},
+		{"systemd", "credential", "set", "--config", "custom.yaml", "--help"},
+		{"--config", "custom.yaml", "systemd", "--help"},
+		{"--config", "custom.yaml", "systemd", "credential", "set", "--help"},
 	} {
 		var stdout, stderr bytes.Buffer
 		if err := Run(t.Context(), args, &stdout, &stderr); !errors.Is(err, flag.ErrHelp) {
 			t.Fatal(args, err)
 		}
-		if stdout.Len() != 0 || !strings.Contains(stderr.String(), "Usage: ghalet credential") {
+		if stdout.Len() != 0 || !strings.Contains(stderr.String(), "Usage: ghalet systemd credential set") {
 			t.Fatal("help required privileges or wrote to stdout", stdout.String(), stderr.String())
 		}
+	}
+}
+
+func TestSystemdCredentialCommandRejectsInvalidArguments(t *testing.T) {
+	for _, tc := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"systemd"}, "systemd requires the credential subcommand"},
+		{[]string{"systemd", "unknown"}, "systemd requires the credential subcommand"},
+		{[]string{"systemd", "credential"}, "systemd credential requires the set subcommand"},
+		{[]string{"systemd", "credential", "unknown"}, "systemd credential requires the set subcommand"},
+		{[]string{"systemd", "credential", "set", "default"}, "select exactly one"},
+		{[]string{"--config", "custom.yaml", "systemd", "credential", "set", "default"}, "select exactly one"},
+	} {
+		t.Run(strings.Join(tc.args, " "), func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			err := Run(t.Context(), tc.args, &stdout, &stderr)
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("got %v, want %q", err, tc.want)
+			}
+			if stdout.Len() != 0 {
+				t.Fatal("invalid command reported success", stdout.String())
+			}
+		})
+	}
+}
+
+func TestCredentialCommandRequiresSystemdNamespace(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	err := Run(t.Context(), []string{"credential", "set", "default", "--stdin"}, &stdout, &stderr)
+	if err == nil || stdout.Len() != 0 {
+		t.Fatal("accepted credential without the systemd namespace", err, stdout.String())
 	}
 }
 

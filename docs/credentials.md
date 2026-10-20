@@ -2,8 +2,8 @@
 
 [English](credentials.md) | [日本語](credentials.ja.md)
 
-`ghalet credential set` registers a named PAT or GitHub App private key for the
-packaged `ghalet.service`. It requires Linux, root, systemd 250 or later,
+`ghalet systemd credential set` registers a named PAT or GitHub App private key
+for the packaged `ghalet.service`. It requires Linux, root, systemd 250 or later,
 `systemd-creds`, and `systemctl`; `--prompt` also requires
 `systemd-ask-password` and an interactive terminal. Packages never request
 credentials during installation or upgrades, and this command never starts
@@ -15,15 +15,15 @@ First copy and edit the [package configuration](distribution.md#debian-and-rpm-p
 including the target scopes. Then register a PAT:
 
 ```sh
-sudo ghalet credential set default --prompt
+sudo ghalet systemd credential set default --prompt
 ```
 
 The default type is `pat`. Select exactly one input method; no input method
 is chosen implicitly:
 
 ```sh
-sudo ghalet credential set default --file /secure/pat-file
-sudo ghalet credential set default --stdin < /secure/pat-file
+sudo ghalet systemd credential set default --file /secure/pat-file
+sudo ghalet systemd credential set default --stdin < /secure/pat-file
 ```
 
 `--file` requires an owner-only regular file, normally mode `0600`, and does
@@ -88,7 +88,7 @@ not automatically receive those runtime files.
 Import one unencrypted RSA PEM private key (PKCS#1 or PKCS#8):
 
 ```sh
-sudo ghalet credential set app-work-key --type github-app \
+sudo ghalet systemd credential set app-work-key --type github-app \
   --client-id APP_CLIENT_ID --file /secure/app.pem
 ```
 
@@ -101,7 +101,7 @@ Installation tokens are acquired by the existing SDK, not entered manually.
 Use `--no-default` to register another secret without modifying the YAML:
 
 ```sh
-sudo ghalet credential set secondary --prompt --no-default
+sudo ghalet systemd credential set secondary --prompt --no-default
 ```
 
 Set the selected target's `credential.type: pat` and
@@ -119,7 +119,7 @@ type, and App identity unchanged. Register the new value using `--no-default`
 so configuration stays unchanged:
 
 ```sh
-sudo ghalet credential set default --prompt --no-default
+sudo ghalet systemd credential set default --prompt --no-default
 sudo ghalet drain --config /etc/ghalet/config.yaml
 # Continue only after successful drain.
 sudo systemctl restart ghalet

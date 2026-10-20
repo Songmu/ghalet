@@ -40,7 +40,7 @@ configuration, enable the service, or start it.
 sudo install -o root -g root -m 0600 \
   /usr/share/ghalet/config.yaml.example /etc/ghalet/config.yaml
 sudoedit /etc/ghalet/config.yaml
-sudo ghalet credential set default --prompt
+sudo ghalet systemd credential set default --prompt
 sudo ghalet config validate --config /etc/ghalet/config.yaml
 sudo systemctl enable --now ghalet
 ```

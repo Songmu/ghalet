@@ -3,7 +3,7 @@
 defaults:
   credential:
     type: pat
-    tokenFile: /run/credentials/ghalet.service/default # Register with ghalet credential set default --prompt.
+    tokenFile: /run/credentials/ghalet.service/default # Register with ghalet systemd credential set default --prompt.
 
 targets:
   - id: project

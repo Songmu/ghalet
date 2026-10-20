@@ -13,13 +13,24 @@ import (
 	"github.com/Songmu/ghalet/credentialstore"
 )
 
-func credential(ctx context.Context, args []string, config string, out, errOut io.Writer) error {
-	if len(args) == 0 || args[0] != "set" {
-		fmt.Fprintln(errOut, "Usage: ghalet credential set NAME [--prompt|--file PATH|--stdin] [options]")
+func systemd(ctx context.Context, args []string, config string, out, errOut io.Writer) error {
+	if len(args) == 0 || args[0] != "credential" {
+		fmt.Fprintln(errOut, "Usage: ghalet systemd credential set NAME [--prompt|--file PATH|--stdin] [options]")
 		if len(args) == 1 && (args[0] == "--help" || args[0] == "-h") {
 			return flag.ErrHelp
 		}
-		return errors.New("credential requires the set subcommand")
+		return errors.New("systemd requires the credential subcommand")
+	}
+	return credential(ctx, args[1:], config, out, errOut)
+}
+
+func credential(ctx context.Context, args []string, config string, out, errOut io.Writer) error {
+	if len(args) == 0 || args[0] != "set" {
+		fmt.Fprintln(errOut, "Usage: ghalet systemd credential set NAME [--prompt|--file PATH|--stdin] [options]")
+		if len(args) == 1 && (args[0] == "--help" || args[0] == "-h") {
+			return flag.ErrHelp
+		}
+		return errors.New("systemd credential requires the set subcommand")
 	}
 	options, err := parseCredentialOptions(args[1:], config, errOut)
 	if err != nil {
@@ -40,7 +51,7 @@ func parseCredentialOptions(args []string, config string, errOut io.Writer) (cre
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
 		options.Name, args = args[0], args[1:]
 	}
-	fs := flag.NewFlagSet("ghalet credential set", flag.ContinueOnError)
+	fs := flag.NewFlagSet("ghalet systemd credential set", flag.ContinueOnError)
 	fs.SetOutput(errOut)
 	fs.StringVar(&options.Type, "type", "pat", "pat or github-app")
 	fs.BoolVar(&options.Prompt, "prompt", false, "ask for a PAT without displaying it")
@@ -50,7 +61,7 @@ func parseCredentialOptions(args []string, config string, errOut io.Writer) (cre
 	fs.StringVar(&options.ClientID, "client-id", "", "GitHub App client ID (not a secret)")
 	fs.BoolVar(&options.NoDefault, "no-default", false, "register without changing defaults.credential")
 	fs.Usage = func() {
-		fmt.Fprintln(errOut, "Usage: ghalet credential set NAME [--prompt|--file PATH|--stdin] [options]")
+		fmt.Fprintln(errOut, "Usage: ghalet systemd credential set NAME [--prompt|--file PATH|--stdin] [options]")
 		fs.PrintDefaults()
 	}
 	if err := fs.Parse(args); err != nil {
@@ -59,7 +70,7 @@ func parseCredentialOptions(args []string, config string, errOut io.Writer) (cre
 	if options.Name == "" && fs.NArg() == 1 {
 		options.Name = fs.Arg(0)
 	} else if fs.NArg() != 0 {
-		return options, errors.New("credential set accepts exactly one name; secrets must not be passed as arguments")
+		return options, errors.New("systemd credential set accepts exactly one name; secrets must not be passed as arguments")
 	}
 	if err := options.Validate(); err != nil {
 		return options, err

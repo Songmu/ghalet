@@ -75,10 +75,10 @@ func Set(ctx context.Context, options Options, input io.Reader) (Result, error) 
 		return Result{}, err
 	}
 	if runtime.GOOS != "linux" {
-		return Result{}, errors.New("credential set requires Linux and a systemd system service")
+		return Result{}, errors.New("systemd credential set requires Linux and a systemd system service")
 	}
 	if os.Geteuid() != 0 {
-		return Result{}, errors.New("credential set requires root; run with sudo (no secret was requested)")
+		return Result{}, errors.New("systemd credential set requires root; run with sudo (no secret was requested)")
 	}
 	if options.Prompt {
 		terminal := exec.CommandContext(ctx, "/bin/sh", "-c", "test -t 0")
@@ -89,7 +89,7 @@ func Set(ctx context.Context, options Options, input io.Reader) (Result, error) 
 	}
 	for _, tool := range []string{"systemd-creds", "systemctl"} {
 		if _, err := exec.LookPath(tool); err != nil {
-			return Result{}, fmt.Errorf("credential set requires %s: %w", tool, err)
+			return Result{}, fmt.Errorf("systemd credential set requires %s: %w", tool, err)
 		}
 	}
 	if options.Prompt {
@@ -288,7 +288,7 @@ func (s credentialStore) readSecret(ctx context.Context, options Options, input 
 		ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 		defer cancel()
 		var data bytes.Buffer
-		if err := s.run(ctx, "systemd-ask-password", []string{"--timeout=2min", "PAT for ghalet credential " + options.Name + ":"}, nil, &data); err != nil {
+		if err := s.run(ctx, "systemd-ask-password", []string{"--timeout=2min", "PAT for ghalet systemd credential " + options.Name + ":"}, nil, &data); err != nil {
 			clear(data.Bytes())
 			return nil, fmt.Errorf("PAT input canceled or failed: %w", err)
 		}
