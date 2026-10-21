@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Songmu/ghalet/procgroup"
 	"github.com/actions/scaleset"
 )
 
@@ -63,7 +64,7 @@ func TestRunIOKeepsPublicationMetadataPrivate(t *testing.T) {
 	target := d.targets["build"]
 	target.StartError, target.Failures = "previous startup failure", 3
 	state := testState(t, d.config)
-	state.Members = []ProcessIdentity{{PID: 123}}
+	state.Members = []procgroup.ProcessIdentity{{PID: 123}}
 	run := &activeRun{State: state}
 	d.runs[state.RunID] = run
 	entered, release := make(chan struct{}), make(chan struct{})
