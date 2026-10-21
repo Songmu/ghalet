@@ -14,86 +14,8 @@ import (
 	"time"
 
 	"github.com/Songmu/ghalet/fshelper"
+	"github.com/Songmu/ghalet/procgroup"
 )
-
-func TestProcessTableScopesKernelIdentities(t *testing.T) {
-	snapshot := []byte(
-		"10 10 1000 S Mon Oct 19 00:00:00 2026 /runner/bin/Runner.Listener\n" +
-			"11 10 1000 S Mon Oct 19 00:00:00 2026 unknown-descendant\n" +
-			"12 10 1001 S Mon Oct 19 00:00:00 2026 foreign-user\n" +
-			"20 30 1000 S Mon Oct 19 00:00:00 2026 reused-leader\n" +
-			"40 40 1000 S Mon Oct 19 00:00:00 2026 unrelated\n")
-	leader := ProcessIdentity{PID: 10, PGID: 10, UID: 1000, Started: "kernel:10"}
-	for _, tc := range []struct {
-		name       string
-		identities []ProcessIdentity
-		want       []int
-	}{
-		{"owned group", []ProcessIdentity{leader}, []int{10, 11, 12}},
-		{"leader in different group", []ProcessIdentity{{PID: 20, PGID: 20, UID: 1000, Started: "old"}}, []int{20}},
-		{"multiple groups", []ProcessIdentity{leader, {PID: 40, PGID: 40}}, []int{10, 11, 12, 40}},
-		{"launch PID only", []ProcessIdentity{{PID: 10}}, []int{10}},
-		{"no identities", nil, nil},
-		{"unlaunched identity", []ProcessIdentity{{}}, nil},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			var queried []int
-			table, err := parseProcessTable(snapshot, tc.identities, func(pid int) (string, error) {
-				queried = append(queried, pid)
-				return fmt.Sprintf("kernel:%d", pid), nil
-			})
-			if err != nil || !slices.Equal(queried, tc.want) || len(table) != len(tc.want) {
-				t.Fatal("unexpected kernel identity queries or retained entries", queried, table, err)
-			}
-			for _, pid := range tc.want {
-				if table[pid].Started != fmt.Sprintf("kernel:%d", pid) {
-					t.Fatal("kernel start identity was replaced by ps time", table[pid])
-				}
-			}
-			switch tc.name {
-			case "owned group":
-				state := &RunState{UID: 1000, RunnerDir: "/runner", Process: leader}
-				if _, _, err := inspectGroup(state, table); err == nil || !strings.Contains(err.Error(), "unexpected user") {
-					t.Fatal("foreign-UID descendant was hidden by scoping", err)
-				}
-				delete(table, 12)
-				alive, members, err := inspectGroup(state, table)
-				if err != nil || !alive || len(members) != 2 || members[1].PID != 11 {
-					t.Fatal("unknown owned-group descendant was not verified", members, err)
-				}
-			case "leader in different group":
-				state := &RunState{UID: 1000, Process: tc.identities[0]}
-				if _, _, err := inspectGroup(state, table); err == nil || !strings.Contains(err.Error(), "PID was reused") {
-					t.Fatal("reused PID outside its recorded group was hidden", err)
-				}
-			case "launch PID only":
-				if identity, err := launchedProcessIdentity(table, 10, 1000); err != nil || identity != leader {
-					t.Fatal("gated launch identity was not established", identity, err)
-				}
-			}
-		})
-	}
-}
-
-func TestScopedProcessTableRetainsUnverifiableMembers(t *testing.T) {
-	snapshot := []byte(
-		"10 10 1000 S Mon Oct 19 00:00:00 2026 /runner/bin/Runner.Listener\n" +
-			"11 10 1000 S Mon Oct 19 00:00:00 2026 inaccessible-descendant\n" +
-			"12 10 1000 S Mon Oct 19 00:00:00 2026 vanished-descendant\n")
-	identity := ProcessIdentity{PID: 10, PGID: 10, UID: 1000, Started: "old"}
-	table, err := parseProcessTable(snapshot, []ProcessIdentity{identity}, func(pid int) (string, error) {
-		if pid == 12 {
-			return "", syscall.ESRCH
-		}
-		return "", os.ErrPermission
-	})
-	if err != nil || len(table) != 2 || table[11].PID != 11 || table[11].Started != "" {
-		t.Fatal("unverifiable member was hidden or vanished member retained", table, err)
-	}
-	if _, _, err := inspectGroup(&RunState{UID: 1000, Process: identity}, table); err == nil {
-		t.Fatal("unreadable leader identity authorized recovery")
-	}
-}
 
 func TestEmptyProcessSnapshotRetainsForkedDescendant(t *testing.T) {
 	testIncompleteGroupSnapshot(t, false)
@@ -103,11 +25,11 @@ func TestZombieProcessSnapshotRetainsForkedDescendant(t *testing.T) {
 	testIncompleteGroupSnapshot(t, true)
 }
 
-func waitForZombie(t *testing.T, pid int) map[int]processEntry {
+func waitForZombie(t *testing.T, pid int) map[int]procgroup.Entry {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
 	for {
-		table, err := processTable(t.Context(), []ProcessIdentity{{PID: pid, PGID: pid}})
+		table, err := procgroup.Snapshot(t.Context(), []procgroup.ProcessIdentity{{PID: pid, PGID: pid}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -149,13 +71,13 @@ func testIncompleteGroupSnapshot(t *testing.T, zombieLeader bool) {
 			command.Wait()
 		}
 	})
-	start, err := kernelProcessStart(command.Process.Pid)
+	start, err := procgroup.ProcessStart(command.Process.Pid)
 	if err != nil {
 		t.Fatal(err)
 	}
 	state.Phase = "busy"
-	state.Process = ProcessIdentity{PID: command.Process.Pid, PGID: command.Process.Pid, UID: state.UID, Started: start}
-	state.Members = []ProcessIdentity{state.Process}
+	state.Process = procgroup.ProcessIdentity{PID: command.Process.Pid, PGID: command.Process.Pid, UID: state.UID, Started: start}
+	state.Members = []procgroup.ProcessIdentity{state.Process}
 	if err := d.store.save(state); err != nil {
 		t.Fatal(err)
 	}
@@ -178,7 +100,7 @@ func testIncompleteGroupSnapshot(t *testing.T, zombieLeader bool) {
 	if _, err := fmt.Sscanf(string(data), "%d", &childPID); err != nil {
 		t.Fatal(err)
 	}
-	table, err := processTable(t.Context(), []ProcessIdentity{state.Process})
+	table, err := procgroup.Snapshot(t.Context(), []procgroup.ProcessIdentity{state.Process})
 	if err != nil || table[childPID].PID != childPID || table[childPID].Zombie {
 		t.Fatal("forked descendant did not survive its exited leader", err)
 	}
@@ -195,15 +117,15 @@ func testIncompleteGroupSnapshot(t *testing.T, zombieLeader bool) {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", dir+":"+os.Getenv("PATH"))
-	table, err = processTable(t.Context(), []ProcessIdentity{state.Process})
+	table, err = procgroup.Snapshot(t.Context(), []procgroup.ProcessIdentity{state.Process})
 	if err != nil || len(table) != wantEntries {
 		t.Fatal("test did not reproduce the incomplete process snapshot", err)
 	}
-	if _, _, err := inspectGroup(state, table); err == nil {
+	if _, _, err := procgroup.Inspect(state.processGroup(), table); err == nil {
 		t.Fatal("incomplete snapshot was accepted while a descendant still existed")
 	}
 	persisted := false
-	if err := stopGroup(t.Context(), state, func() error { persisted = true; return nil }); err == nil || persisted {
+	if err := procgroup.Stop(t.Context(), state.processGroup(), func(members []procgroup.ProcessIdentity) error { state.Members = members; persisted = true; return nil }); err == nil || persisted {
 		t.Fatal("unverified descendant was treated as terminated or authorized signaling", err)
 	}
 	if err := syscall.Kill(childPID, 0); err != nil {
@@ -222,37 +144,6 @@ func testIncompleteGroupSnapshot(t *testing.T, zombieLeader bool) {
 	}
 	if _, err := os.Stat(filepath.Join(filepath.Dir(state.RunnerDir), "state.json")); err != nil {
 		t.Fatal("incomplete inspection removed the recovery record", err)
-	}
-}
-
-func TestInspectGroupPreservesZombieOnlyHandling(t *testing.T) {
-	command := exec.Command("/bin/sh", "-c", "exit 0")
-	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	if err := command.Start(); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { command.Wait() })
-	table := waitForZombie(t, command.Process.Pid)
-	state := &RunState{UID: os.Geteuid(), Process: table[command.Process.Pid].ProcessIdentity}
-	if stopped, err := kernelGroupStopped(state.Process.PGID, table); err != nil || !stopped {
-		t.Fatal("kernel did not confirm a genuinely zombie-only group", err)
-	}
-	if stopped, err := kernelGroupStopped(state.Process.PGID, nil); err != nil || stopped {
-		t.Fatal("a newly observed zombie was accepted as a stable group", err)
-	}
-	if alive, _, err := inspectGroup(state, table); err != nil || alive {
-		t.Fatal("zombie-only group was treated as live", err)
-	}
-}
-
-func TestKernelProcessStartReportsExitedPID(t *testing.T) {
-	command := exec.Command("/bin/sh", "-c", "exit 0")
-	if err := command.Run(); err != nil {
-		t.Fatal(err)
-	}
-	_, err := kernelProcessStart(command.Process.Pid)
-	if !errors.Is(err, syscall.ESRCH) && !errors.Is(err, os.ErrNotExist) {
-		t.Fatal("exited process was not reported as absent", err)
 	}
 }
 
@@ -276,14 +167,14 @@ func TestRunnerPathPreservesConsecutiveSpaces(t *testing.T) {
 		}
 		return false
 	})
-	table, err := processTable(t.Context(), []ProcessIdentity{run.State.Process})
+	table, err := procgroup.Snapshot(t.Context(), []procgroup.ProcessIdentity{run.State.Process})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(table[run.State.Process.PID].Command, run.State.RunnerDir) {
 		t.Fatal("process command collapsed consecutive spaces", table[run.State.Process.PID].Command)
 	}
-	if alive, _, err := inspectGroup(run.State, table); err != nil || !alive {
+	if alive, _, err := procgroup.Inspect(run.State.processGroup(), table); err != nil || !alive {
 		t.Fatal("valid runner in a consecutive-space path was rejected", err)
 	}
 	d.mu.Lock()
@@ -330,11 +221,11 @@ func TestStopGroupPersistsNewDescendants(t *testing.T) {
 				script = fmt.Sprintf("#!/bin/sh\nfinish() {\nprintf 'term\\n' > %q\nexit 0\n}\ntrap finish TERM\n%sprintf 'Listening for Jobs\\n'\nwait\n", terminated, child)
 			}
 			d, run := startTerminationRunner(t, script)
-			original := make(map[int]ProcessIdentity)
+			original := make(map[int]procgroup.ProcessIdentity)
 			for _, member := range run.State.Members {
 				original[member.PID] = member
 			}
-			run.State.Members = []ProcessIdentity{run.State.Process}
+			run.State.Members = []procgroup.ProcessIdentity{run.State.Process}
 			if err := d.save(run); err != nil {
 				t.Fatal(err)
 			}
@@ -342,7 +233,8 @@ func TestStopGroupPersistsNewDescendants(t *testing.T) {
 			released := false
 			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 			defer cancel()
-			err := stopGroup(ctx, run.State, func() error {
+			err := procgroup.Stop(ctx, run.State.processGroup(), func(members []procgroup.ProcessIdentity) error {
+				run.State.Members = members
 				if err := d.store.save(run.State); err != nil {
 					return err
 				}
@@ -354,7 +246,7 @@ func TestStopGroupPersistsNewDescendants(t *testing.T) {
 				}
 				if duringTermination && !released {
 					for _, member := range run.State.Members {
-						if !sameProcess(original[member.PID], member) {
+						if !procgroup.SameProcess(original[member.PID], member) {
 							if err := os.WriteFile(release, []byte("saved\n"), 0600); err != nil {
 								return err
 							}
@@ -374,11 +266,11 @@ func TestStopGroupPersistsNewDescendants(t *testing.T) {
 			if _, err := os.Stat(terminated); err != nil {
 				t.Fatal("leader did not exit through its SIGTERM handler", err)
 			}
-			table, err := processTable(t.Context(), []ProcessIdentity{run.State.Process})
+			table, err := procgroup.Snapshot(t.Context(), []procgroup.ProcessIdentity{run.State.Process})
 			if err != nil {
 				t.Fatal(err)
 			}
-			if alive, _, err := inspectGroup(run.State, table); err != nil || alive {
+			if alive, _, err := procgroup.Inspect(run.State.processGroup(), table); err != nil || alive {
 				t.Fatal("signal-resistant descendants survived", err)
 			}
 			records, err := d.store.load()
@@ -419,11 +311,11 @@ func TestStopGroupDoesNotSignalBeforeMembershipSave(t *testing.T) {
 	if _, err := os.Stat(terminated); !errors.Is(err, os.ErrNotExist) {
 		t.Fatal("runner was signaled before membership became durable", err)
 	}
-	table, err := processTable(t.Context(), []ProcessIdentity{run.State.Process})
+	table, err := procgroup.Snapshot(t.Context(), []procgroup.ProcessIdentity{run.State.Process})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if alive, _, err := inspectGroup(run.State, table); err != nil || !alive || d.occupied() != 1 {
+	if alive, _, err := procgroup.Inspect(run.State.processGroup(), table); err != nil || !alive || d.occupied() != 1 {
 		t.Fatal("failed persistence stopped the runner or released its capacity", err)
 	}
 }

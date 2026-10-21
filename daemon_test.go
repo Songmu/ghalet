@@ -14,6 +14,7 @@ import (
 
 	settings "github.com/Songmu/ghalet/config"
 	"github.com/Songmu/ghalet/fshelper"
+	"github.com/Songmu/ghalet/procgroup"
 	"github.com/actions/scaleset"
 )
 
@@ -95,7 +96,10 @@ func cleanupProcesses(t *testing.T, d *daemon) {
 			}
 			if run.State.Process.PID != 0 && !run.State.ProcessDone {
 				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-				if err := stopGroup(ctx, run.State, func() error { return d.store.save(run.State) }); err != nil {
+				if err := procgroup.Stop(ctx, run.State.processGroup(), func(members []procgroup.ProcessIdentity) error {
+					run.State.Members = members
+					return d.store.save(run.State)
+				}); err != nil {
 					t.Errorf("test process cleanup: %v", err)
 				}
 				cancel()
@@ -467,20 +471,23 @@ func TestShutdownWaitsForUncertainLiveRunnerAfterDrainDeadline(t *testing.T) {
 		!response.Status.Targets[0].Forced {
 		t.Fatal("shutdown lost diagnostics/control access or did not reach its drain deadline", response)
 	}
-	table, err := processTable(t.Context(), []ProcessIdentity{run.State.Process})
+	table, err := procgroup.Snapshot(t.Context(), []procgroup.ProcessIdentity{run.State.Process})
 	if err != nil {
 		t.Fatal(err)
 	}
 	d.mu.Lock()
 	snapshot := *run.State
 	d.mu.Unlock()
-	if alive, _, err := inspectGroup(&snapshot, table); err != nil || !alive {
+	if alive, _, err := procgroup.Inspect(snapshot.processGroup(), table); err != nil || !alive {
 		t.Fatal("shutdown stopped the uncertain runner", err)
 	}
 	if _, err := os.Stat(filepath.Join(filepath.Dir(snapshot.RunnerDir), "state.json")); err != nil {
 		t.Fatal("shutdown removed the recovery record", err)
 	}
-	err = stopGroup(t.Context(), &snapshot, func() error { return d.store.save(&snapshot) })
+	err = procgroup.Stop(t.Context(), snapshot.processGroup(), func(members []procgroup.ProcessIdentity) error {
+		snapshot.Members = members
+		return d.store.save(&snapshot)
+	})
 	if err != nil {
 		t.Fatal("test could not stop its verified runner", err)
 	}
@@ -532,7 +539,7 @@ func TestDrainedRequiresUncertainGroupAndObserverConfirmation(t *testing.T) {
 	if !d.drained("") {
 		t.Fatal("recovered execution required a nonexistent local exit observer")
 	}
-	state.Process = ProcessIdentity{PID: 2, PGID: 3, UID: state.UID}
+	state.Process = procgroup.ProcessIdentity{PID: 2, PGID: 3, UID: state.UID}
 	reconcileAndWait(d)
 	if run.GroupStopped || d.drained("") {
 		t.Fatal("failed process inspection retained a stale absence confirmation")
@@ -751,7 +758,7 @@ func TestStoppedStatePersistenceFailureDoesNotRestoreCapacityReservation(t *test
 			state := testState(t, d.config)
 			state.Phase = "registered"
 			// Force the absence observation itself to need a state update.
-			state.Members = []ProcessIdentity{{PID: 2}}
+			state.Members = []procgroup.ProcessIdentity{{PID: 2}}
 			run := &activeRun{State: state}
 			d.runs[state.RunID] = run
 			statePath := filepath.Join(filepath.Dir(state.RunnerDir), "state.json")
@@ -760,7 +767,7 @@ func TestStoppedStatePersistenceFailureDoesNotRestoreCapacityReservation(t *test
 			}
 			switch operation {
 			case "reconcile":
-				d.reconcileRun(run, map[int]processEntry{})
+				d.reconcileRun(run, map[int]procgroup.Entry{})
 			case "gc":
 				if response := d.gc(t.Context(), false); response.Error == "" {
 					t.Fatal("gc hid a state persistence failure")
@@ -833,13 +840,13 @@ func TestRecoveryStoppedDiagnosticsDoNotReserveCapacity(t *testing.T) {
 					if err := command.Start(); err != nil {
 						t.Fatal(err)
 					}
-					start, err := kernelProcessStart(command.Process.Pid)
+					start, err := procgroup.ProcessStart(command.Process.Pid)
 					killErr := command.Process.Kill()
 					command.Wait()
 					if err != nil || killErr != nil {
 						t.Fatal("cannot establish exited process identity", err, killErr)
 					}
-					state.Process = ProcessIdentity{PID: command.Process.Pid, PGID: command.Process.Pid, UID: state.UID, Started: start}
+					state.Process = procgroup.ProcessIdentity{PID: command.Process.Pid, PGID: command.Process.Pid, UID: state.UID, Started: start}
 					state.Phase = "busy"
 				}
 				if err := d.store.save(state); err != nil {
@@ -872,7 +879,7 @@ func TestRecoveryStoppedDiagnosticsDoNotReserveCapacity(t *testing.T) {
 				if run == nil || !run.Uncertain || !run.GroupStopped || !run.State.ProcessDone {
 					t.Fatal("stopped process and cleanup uncertainty were not distinguished")
 				}
-				d.reconcileRun(run, map[int]processEntry{})
+				d.reconcileRun(run, map[int]procgroup.Entry{})
 				status := d.statusLocked()
 				if status.Occupied != 0 || d.active("build") != 0 || len(status.Problems) == 0 || !d.canStart(&other) {
 					t.Fatal("stopped diagnostic blocked unrelated capacity or lost diagnostics", status)
@@ -927,11 +934,11 @@ func TestRecoveryPotentiallyLiveDiagnosticsKeepCapacity(t *testing.T) {
 				t.Fatal(err)
 			}
 			t.Cleanup(func() { command.Process.Kill(); command.Wait() })
-			start, err := kernelProcessStart(command.Process.Pid)
+			start, err := procgroup.ProcessStart(command.Process.Pid)
 			if err != nil {
 				t.Fatal(err)
 			}
-			state.Process = ProcessIdentity{PID: command.Process.Pid, PGID: command.Process.Pid, UID: state.UID, Started: start}
+			state.Process = procgroup.ProcessIdentity{PID: command.Process.Pid, PGID: command.Process.Pid, UID: state.UID, Started: start}
 			state.Phase = "busy"
 			state.ScopeURL = "https://github.com/old/repository"
 			if identity != "live" {
@@ -1043,7 +1050,10 @@ func testRecoveredRunner(t *testing.T, missingCompletion bool) {
 		if err := d.save(run); err != nil {
 			t.Fatal(err)
 		}
-		if err := stopGroup(t.Context(), run.State, func() error { return d.store.save(run.State) }); err != nil {
+		if err := procgroup.Stop(t.Context(), run.State.processGroup(), func(members []procgroup.ProcessIdentity) error {
+			run.State.Members = members
+			return d.store.save(run.State)
+		}); err != nil {
 			t.Fatal(err)
 		}
 		reconcileAndWait(d)
@@ -1086,12 +1096,12 @@ func TestReparentedProcessHelper(t *testing.T) {
 	if err := command.Start(); err != nil {
 		t.Fatal(err)
 	}
-	table, err := processTable(t.Context(), []ProcessIdentity{{PID: command.Process.Pid, PGID: command.Process.Pid}})
+	table, err := procgroup.Snapshot(t.Context(), []procgroup.ProcessIdentity{{PID: command.Process.Pid, PGID: command.Process.Pid}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	state.Process = table[command.Process.Pid].ProcessIdentity
-	state.Members = []ProcessIdentity{state.Process}
+	state.Members = []procgroup.ProcessIdentity{state.Process}
 	state.RunnerID, state.Phase, state.Ready = 123, "idle", true
 	state.StartedAt = time.Now()
 	store := stateStore{strings.TrimSuffix(filepath.Dir(filepath.Dir(filepath.Dir(path))), "/")}

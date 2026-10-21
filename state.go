@@ -13,44 +13,47 @@ import (
 
 	settings "github.com/Songmu/ghalet/config"
 	"github.com/Songmu/ghalet/fshelper"
+	"github.com/Songmu/ghalet/procgroup"
 )
 
 const maxStateBytes = 1024 * 1024
-
-type ProcessIdentity struct {
-	PID     int    `json:"pid"`
-	PGID    int    `json:"pgid"`
-	UID     int    `json:"uid"`
-	Started string `json:"started"`
-}
 
 type RunState struct {
 	Schema   int    `json:"schema"`
 	RunID    string `json:"runId"`
 	TargetID string `json:"targetId"`
 	// Retained for existing state files, not used to identify registrations.
-	ScopeRef     string            `json:"scopeRef,omitempty"`
-	ScopeURL     string            `json:"scopeUrl"`
-	GroupName    string            `json:"groupName"`
-	GroupID      int               `json:"groupId"`
-	ScaleSetName string            `json:"scaleSetName"`
-	ScaleSetID   int               `json:"scaleSetId"`
-	RunnerName   string            `json:"runnerName"`
-	RunnerID     int               `json:"runnerId,omitempty"`
-	User         string            `json:"user"`
-	UID          int               `json:"uid"`
-	Home         string            `json:"home"`
-	RunnerDir    string            `json:"runnerDir"`
-	Workspace    string            `json:"workspace"`
-	Phase        string            `json:"phase"`
-	Process      ProcessIdentity   `json:"process"`
-	Members      []ProcessIdentity `json:"members,omitempty"`
-	UpdatedAt    time.Time         `json:"updatedAt"`
-	StartedAt    time.Time         `json:"startedAt,omitempty"`
-	Ready        bool              `json:"ready"`
-	Busy         bool              `json:"busy"`
-	ProcessDone  bool              `json:"processDone"`
-	Error        string            `json:"error,omitempty"`
+	ScopeRef     string                      `json:"scopeRef,omitempty"`
+	ScopeURL     string                      `json:"scopeUrl"`
+	GroupName    string                      `json:"groupName"`
+	GroupID      int                         `json:"groupId"`
+	ScaleSetName string                      `json:"scaleSetName"`
+	ScaleSetID   int                         `json:"scaleSetId"`
+	RunnerName   string                      `json:"runnerName"`
+	RunnerID     int                         `json:"runnerId,omitempty"`
+	User         string                      `json:"user"`
+	UID          int                         `json:"uid"`
+	Home         string                      `json:"home"`
+	RunnerDir    string                      `json:"runnerDir"`
+	Workspace    string                      `json:"workspace"`
+	Phase        string                      `json:"phase"`
+	Process      procgroup.ProcessIdentity   `json:"process"`
+	Members      []procgroup.ProcessIdentity `json:"members,omitempty"`
+	UpdatedAt    time.Time                   `json:"updatedAt"`
+	StartedAt    time.Time                   `json:"startedAt,omitempty"`
+	Ready        bool                        `json:"ready"`
+	Busy         bool                        `json:"busy"`
+	ProcessDone  bool                        `json:"processDone"`
+	Error        string                      `json:"error,omitempty"`
+}
+
+func (s *RunState) processGroup() procgroup.Group {
+	return procgroup.Group{
+		Process: s.Process, Members: s.Members, UID: s.UID,
+		Command:         filepath.Join(s.RunnerDir, "bin", "Runner.Listener"),
+		AllowUnlaunched: s.Phase == "preparing" || s.Phase == "registered",
+		Done:            s.ProcessDone,
+	}
 }
 
 type stateStore struct{ root string }

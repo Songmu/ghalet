@@ -19,6 +19,7 @@ import (
 	settings "github.com/Songmu/ghalet/config"
 	"github.com/Songmu/ghalet/fshelper"
 	"github.com/Songmu/ghalet/logreduct"
+	"github.com/Songmu/ghalet/procgroup"
 	"github.com/Songmu/ghalet/runnerdist"
 	"github.com/actions/scaleset"
 	"github.com/actions/scaleset/listener"
@@ -315,13 +316,13 @@ func (d *daemon) recover(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	var identities []ProcessIdentity
+	var identities []procgroup.ProcessIdentity
 	for _, record := range records {
 		if record.Err == nil {
 			identities = append(identities, record.State.Process)
 		}
 	}
-	table, err := processTable(ctx, identities)
+	table, err := procgroup.Snapshot(ctx, identities)
 	if err != nil {
 		return err
 	}
@@ -337,7 +338,7 @@ func (d *daemon) recover(ctx context.Context) error {
 		state := record.State
 		run := &activeRun{State: state}
 		d.runs[state.RunID] = run
-		alive, members, inspectErr := inspectGroup(state, table)
+		alive, members, inspectErr := procgroup.Inspect(state.processGroup(), table)
 		if inspectErr == nil && !alive {
 			state.ProcessDone, state.Phase = true, "cleaning"
 			run.Exited, run.GroupStopped = true, true
@@ -414,7 +415,7 @@ func (d *daemon) runIO(run *activeRun, operation func(*activeRun) error) <-chan 
 	run.generation++
 	work := *run
 	state := *run.State
-	state.Members = append([]ProcessIdentity(nil), state.Members...)
+	state.Members = append([]procgroup.ProcessIdentity(nil), state.Members...)
 	result := &runIOResult{}
 	work.State, work.ioResult = &state, result
 	work.Target, work.Config = d.runTarget(run), run.Config
@@ -719,7 +720,7 @@ func (d *daemon) inspectRuns() {
 		generation uint64
 	}
 	var candidates []candidate
-	var identities []ProcessIdentity
+	var identities []procgroup.ProcessIdentity
 	for _, run := range d.runs {
 		if run.ioDone != nil || run.Preparing {
 			continue
@@ -743,7 +744,7 @@ func (d *daemon) inspectRuns() {
 	done := make(chan struct{})
 	d.inspecting = done
 	d.workers.Go(func() {
-		table, err := processTable(d.ctx, identities)
+		table, err := procgroup.Snapshot(d.ctx, identities)
 		d.mu.Lock()
 		defer d.mu.Unlock()
 		defer close(done)
@@ -765,13 +766,13 @@ func (d *daemon) inspectRuns() {
 	})
 }
 
-func (d *daemon) reconcileRun(run *activeRun, table map[int]processEntry) {
+func (d *daemon) reconcileRun(run *activeRun, table map[int]procgroup.Entry) {
 	if run.Preparing {
 		return
 	}
 	state := run.State
 	if run.Uncertain {
-		alive, _, err := inspectGroup(state, table)
+		alive, _, err := procgroup.Inspect(state.processGroup(), table)
 		run.GroupStopped = err == nil && !alive
 		if !run.occupiesCapacity() {
 			state.ProcessDone, state.Phase = true, "cleaning"
@@ -797,7 +798,7 @@ func (d *daemon) reconcileRun(run *activeRun, table map[int]processEntry) {
 		}
 		return
 	}
-	alive, members, err := inspectGroup(state, table)
+	alive, members, err := procgroup.Inspect(state.processGroup(), table)
 	if err != nil {
 		run.InspectFailures++
 		// ps collects status and argv separately; an exiting process can
@@ -1207,13 +1208,13 @@ func (d *daemon) launch(ctx context.Context, run *activeRun, jit string) (retErr
 	logOutput.Close()
 	// The child waits on fd 3. No runner can execute until its identity has
 	// been durably recorded; controller death closes the gate without exec.
-	table, err := processTable(ctx, []ProcessIdentity{{PID: command.Process.Pid}})
+	table, err := procgroup.Snapshot(ctx, []procgroup.ProcessIdentity{{PID: command.Process.Pid}})
 	if err == nil {
-		var identity ProcessIdentity
-		identity, err = launchedProcessIdentity(table, command.Process.Pid, d.user.UID)
+		var identity procgroup.ProcessIdentity
+		identity, err = procgroup.LaunchedIdentity(table, command.Process.Pid, d.user.UID)
 		if err == nil {
 			state.Process = identity
-			state.Members = []ProcessIdentity{identity}
+			state.Members = []procgroup.ProcessIdentity{identity}
 			state.StartedAt = time.Now().UTC()
 			err = d.save(run)
 		}
@@ -1346,7 +1347,10 @@ func (d *daemon) stop(run *activeRun, forced bool) error {
 	run.Stopping = true
 	ctx, cancel := context.WithTimeout(d.ctx, 10*time.Second)
 	defer cancel()
-	err := stopGroup(ctx, run.State, func() error { return d.save(run) })
+	err := procgroup.Stop(ctx, run.State.processGroup(), func(members []procgroup.ProcessIdentity) error {
+		run.State.Members = members
+		return d.save(run)
+	})
 	if err != nil {
 		return err
 	}
@@ -1470,7 +1474,7 @@ func (d *daemon) statusLocked() Status {
 	}
 	for _, run := range d.runs {
 		copy := *run.State
-		copy.Members = append([]ProcessIdentity(nil), run.State.Members...)
+		copy.Members = append([]procgroup.ProcessIdentity(nil), run.State.Members...)
 		status.Runs = append(status.Runs, &copy)
 		if run.State.Error != "" || run.Uncertain {
 			status.Problems = append(status.Problems, Problem{TargetID: d.runTargetID(run), RunID: run.State.RunID, Path: run.State.RunnerDir, Reason: run.State.Error})

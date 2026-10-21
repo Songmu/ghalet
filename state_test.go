@@ -12,6 +12,7 @@ import (
 
 	settings "github.com/Songmu/ghalet/config"
 	"github.com/Songmu/ghalet/fshelper"
+	"github.com/Songmu/ghalet/procgroup"
 )
 
 func TestStateSizeLimitPreservesReadableRecord(t *testing.T) {
@@ -32,9 +33,9 @@ func TestStateSizeLimitPreservesReadableRecord(t *testing.T) {
 			if field == "error" {
 				large.Error = strings.Repeat("x", maxStateBytes)
 			} else {
-				large.Members = make([]ProcessIdentity, 8000)
+				large.Members = make([]procgroup.ProcessIdentity, 8000)
 				for i := range large.Members {
-					large.Members[i] = ProcessIdentity{PID: i + 2, PGID: 1234, UID: state.UID, Started: "linux:00000000-0000-0000-0000-000000000000:123456789"}
+					large.Members[i] = procgroup.ProcessIdentity{PID: i + 2, PGID: 1234, UID: state.UID, Started: "linux:00000000-0000-0000-0000-000000000000:123456789"}
 				}
 			}
 			if err := store.save(&large); err == nil || !strings.Contains(err.Error(), "byte limit") {
@@ -240,67 +241,67 @@ func TestWorkRootLockIsOSBacked(t *testing.T) {
 }
 
 func TestLaunchedProcessRequiresCompleteIdentity(t *testing.T) {
-	valid := ProcessIdentity{PID: 1234, PGID: 1234, UID: 501, Started: "kernel-start"}
+	valid := procgroup.ProcessIdentity{PID: 1234, PGID: 1234, UID: 501, Started: "kernel-start"}
 	for _, tc := range []struct {
 		name     string
-		identity ProcessIdentity
+		identity procgroup.ProcessIdentity
 		wantErr  bool
 	}{
 		{"valid", valid, false},
-		{"empty start", ProcessIdentity{PID: 1234, PGID: 1234, UID: 501}, true},
-		{"wrong group", ProcessIdentity{PID: 1234, PGID: 5678, UID: 501, Started: "kernel-start"}, true},
-		{"wrong user", ProcessIdentity{PID: 1234, PGID: 1234, UID: 502, Started: "kernel-start"}, true},
-		{"wrong PID", ProcessIdentity{PID: 5678, PGID: 1234, UID: 501, Started: "kernel-start"}, true},
+		{"empty start", procgroup.ProcessIdentity{PID: 1234, PGID: 1234, UID: 501}, true},
+		{"wrong group", procgroup.ProcessIdentity{PID: 1234, PGID: 5678, UID: 501, Started: "kernel-start"}, true},
+		{"wrong user", procgroup.ProcessIdentity{PID: 1234, PGID: 1234, UID: 502, Started: "kernel-start"}, true},
+		{"wrong PID", procgroup.ProcessIdentity{PID: 5678, PGID: 1234, UID: 501, Started: "kernel-start"}, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			identity, err := launchedProcessIdentity(map[int]processEntry{1234: {ProcessIdentity: tc.identity}}, valid.PID, valid.UID)
+			identity, err := procgroup.LaunchedIdentity(map[int]procgroup.Entry{1234: {ProcessIdentity: tc.identity}}, valid.PID, valid.UID)
 			if (err != nil) != tc.wantErr || (!tc.wantErr && identity != valid) {
 				t.Fatal("unexpected launch identity validation result", identity, err)
 			}
 		})
 	}
-	if _, err := launchedProcessIdentity(nil, valid.PID, valid.UID); err == nil {
+	if _, err := procgroup.LaunchedIdentity(nil, valid.PID, valid.UID); err == nil {
 		t.Fatal("absent launch identity was accepted")
 	}
 }
 
 func TestProcessIdentitySafety(t *testing.T) {
 	state := &RunState{UID: 501, RunnerDir: "/managed/runner", Phase: "busy",
-		Process: ProcessIdentity{PID: 1234, PGID: 1234, UID: 501, Started: "original-start"}}
+		Process: procgroup.ProcessIdentity{PID: 1234, PGID: 1234, UID: 501, Started: "original-start"}}
 	for _, pid := range []int{-1234, -1, 1} {
 		malformed := *state
 		malformed.Process.PID, malformed.Process.PGID = pid, pid
-		if _, _, err := inspectGroup(&malformed, nil); err == nil {
+		if _, _, err := procgroup.Inspect(malformed.processGroup(), nil); err == nil {
 			t.Fatal("invalid recorded PID was accepted as an absent group", pid)
 		}
 	}
-	leader := processEntry{ProcessIdentity: state.Process, Command: "/managed/runner/bin/Runner.Listener run"}
-	alive, members, err := inspectGroup(state, map[int]processEntry{1234: leader})
+	leader := procgroup.Entry{ProcessIdentity: state.Process, Command: "/managed/runner/bin/Runner.Listener run"}
+	alive, members, err := procgroup.Inspect(state.processGroup(), map[int]procgroup.Entry{1234: leader})
 	if err != nil || !alive || len(members) != 1 {
 		t.Fatal("valid identity rejected", err)
 	}
 
 	reused := leader
 	reused.Started = "different-start"
-	if _, _, err := inspectGroup(state, map[int]processEntry{1234: reused}); err == nil {
+	if _, _, err := procgroup.Inspect(state.processGroup(), map[int]procgroup.Entry{1234: reused}); err == nil {
 		t.Fatal("reused PID accepted")
 	}
-	child := processEntry{ProcessIdentity: ProcessIdentity{PID: 5678, PGID: 1234, UID: 501, Started: "child-start"}, Command: "sleep 30"}
-	if _, _, err := inspectGroup(state, map[int]processEntry{5678: child}); err == nil {
+	child := procgroup.Entry{ProcessIdentity: procgroup.ProcessIdentity{PID: 5678, PGID: 1234, UID: 501, Started: "child-start"}, Command: "sleep 30"}
+	if _, _, err := procgroup.Inspect(state.processGroup(), map[int]procgroup.Entry{5678: child}); err == nil {
 		t.Fatal("unverified descendants accepted after leader loss")
 	}
-	state.Members = []ProcessIdentity{child.ProcessIdentity}
-	if alive, _, err := inspectGroup(state, map[int]processEntry{5678: child}); err != nil || !alive {
+	state.Members = []procgroup.ProcessIdentity{child.ProcessIdentity}
+	if alive, _, err := procgroup.Inspect(state.processGroup(), map[int]procgroup.Entry{5678: child}); err != nil || !alive {
 		t.Fatal("previously observed descendants could not be rediscovered")
 	}
 	state.ProcessDone = true
-	if _, _, err := inspectGroup(state, map[int]processEntry{5678: child}); err == nil {
+	if _, _, err := procgroup.Inspect(state.processGroup(), map[int]procgroup.Entry{5678: child}); err == nil {
 		t.Fatal("live processes accepted for a completed record")
 	}
 	state.ProcessDone = false
-	state.Process = ProcessIdentity{}
+	state.Process = procgroup.ProcessIdentity{}
 	state.Phase = "starting"
-	if _, _, err := inspectGroup(state, nil); err == nil {
+	if _, _, err := procgroup.Inspect(state.processGroup(), nil); err == nil {
 		t.Fatal("unrecorded launch boundary treated as safely stopped")
 	}
 }
@@ -309,7 +310,7 @@ func TestRecoveryRetainsMalformedProcessIDs(t *testing.T) {
 	d, _ := testDaemon(t)
 	state := testState(t, d.config)
 	state.Phase = "busy"
-	state.Process = ProcessIdentity{PID: -1234, PGID: -1234, UID: state.UID, Started: "invalid"}
+	state.Process = procgroup.ProcessIdentity{PID: -1234, PGID: -1234, UID: state.UID, Started: "invalid"}
 	if err := d.store.save(state); err != nil {
 		t.Fatal(err)
 	}

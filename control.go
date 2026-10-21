@@ -17,6 +17,8 @@ import (
 	"strconv"
 	"syscall"
 	"time"
+
+	"github.com/Songmu/ghalet/procgroup"
 )
 
 type controlRequest struct {
@@ -277,9 +279,9 @@ func (d *daemon) gc(ctx context.Context, dryRun bool) controlResponse {
 	response := controlResponse{}
 	config := d.config
 	var runs []*activeRun
-	identities := map[*activeRun]ProcessIdentity{}
+	identities := map[*activeRun]procgroup.ProcessIdentity{}
 	generations := map[*activeRun]uint64{}
-	var monitored []ProcessIdentity
+	var monitored []procgroup.ProcessIdentity
 	for _, problem := range d.problems {
 		response.Results = append(response.Results, OperationResult{Path: problem.Path, Error: problem.Reason})
 	}
@@ -290,7 +292,7 @@ func (d *daemon) gc(ctx context.Context, dryRun bool) controlResponse {
 		monitored = append(monitored, run.State.Process)
 	}
 	d.mu.Unlock()
-	table, err := processTable(ctx, monitored)
+	table, err := procgroup.Snapshot(ctx, monitored)
 	if err != nil {
 		return controlResponse{Error: err.Error()}
 	}
@@ -312,7 +314,7 @@ func (d *daemon) gc(ctx context.Context, dryRun bool) controlResponse {
 	return response
 }
 
-func (d *daemon) gcRun(ctx context.Context, run *activeRun, dryRun bool, table map[int]processEntry, identity ProcessIdentity, generation uint64) OperationResult {
+func (d *daemon) gcRun(ctx context.Context, run *activeRun, dryRun bool, table map[int]procgroup.Entry, identity procgroup.ProcessIdentity, generation uint64) OperationResult {
 	d.mu.Lock()
 	result := OperationResult{RunID: run.State.RunID, Path: filepath.Dir(run.State.RunnerDir), Action: "cleanup stopped execution"}
 	for run.ioDone != nil && !run.Preparing && !run.Uncertain {
@@ -351,13 +353,13 @@ func (d *daemon) gcRun(ctx context.Context, run *activeRun, dryRun bool, table m
 		observed := table
 		if refresh {
 			var err error
-			observed, err = processTable(ctx, []ProcessIdentity{state.Process})
+			observed, err = procgroup.Snapshot(ctx, []procgroup.ProcessIdentity{state.Process})
 			if err != nil {
 				result.Error = err.Error()
 				return nil
 			}
 		}
-		alive, _, err := inspectGroup(state, observed)
+		alive, _, err := procgroup.Inspect(state.processGroup(), observed)
 		if err != nil {
 			result.Error = err.Error()
 		} else if alive {
