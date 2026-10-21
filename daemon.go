@@ -605,12 +605,18 @@ func (d *daemon) finishExit(run *activeRun) {
 }
 
 func (d *daemon) reconcile() {
-	table, err := processTable(d.ctx)
-	if err != nil {
-		slog.Error("Process inspection failed; scheduling suspended", "event", "process.inspect_failed", "error", d.secrets.Redact(err.Error()))
-		return
-	}
+	var table map[int]processEntry
 	for _, run := range d.runs {
+		// Preparation and confirmed completion need no snapshot, but uncertain
+		// runs still require inspection even when marked process-done.
+		if table == nil && !run.Preparing && (!run.State.ProcessDone || run.Uncertain) {
+			var err error
+			table, err = processTable(d.ctx)
+			if err != nil {
+				slog.Error("Process inspection failed; scheduling suspended", "event", "process.inspect_failed", "error", d.secrets.Redact(err.Error()))
+				return
+			}
+		}
 		d.reconcileRun(run, table)
 	}
 	for _, target := range d.targets {

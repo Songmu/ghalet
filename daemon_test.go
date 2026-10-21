@@ -96,6 +96,80 @@ func TestCanRetireIdle(t *testing.T) {
 	}
 }
 
+func TestReconcileInspectsOnlyMonitoredRuns(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		preparing   bool
+		processDone bool
+		uncertain   bool
+		wantInspect bool
+	}{
+		{name: "empty"},
+		{name: "preparing", preparing: true},
+		{name: "completed", processDone: true},
+		{name: "live", wantInspect: true},
+		{name: "uncertain", uncertain: true, wantInspect: true},
+		{name: "uncertain completed", processDone: true, uncertain: true, wantInspect: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d, _ := testDaemon(t)
+			if tc.name != "empty" {
+				state := testState(t, d.config)
+				state.ProcessDone = tc.processDone
+				d.runs[state.RunID] = &activeRun{
+					State: state, Preparing: tc.preparing, Uncertain: tc.uncertain, CleanupTried: true,
+				}
+			}
+			dir := testDirectory(t)
+			marker := filepath.Join(dir, "inspected")
+			t.Setenv("GHALET_TEST_PS_MARKER", marker)
+			if err := os.WriteFile(filepath.Join(dir, "ps"), []byte("#!/bin/sh\nprintf inspected > \"$GHALET_TEST_PS_MARKER\"\nexit 1\n"), 0700); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("PATH", dir+":"+os.Getenv("PATH"))
+			d.nextRetention = time.Now().Add(-time.Hour)
+			before := d.nextRetention
+			d.reconcile()
+			_, err := os.Stat(marker)
+			if tc.wantInspect {
+				if err != nil || !d.nextRetention.Equal(before) {
+					t.Fatal("failed process inspection did not suspend reconciliation", err)
+				}
+			} else if !os.IsNotExist(err) || d.nextRetention.Equal(before) {
+				t.Fatal("reconciliation inspected processes or skipped maintenance without monitored runs", err)
+			}
+		})
+	}
+}
+
+func TestReconcileSchedulesFirstRunWithoutProcessInspection(t *testing.T) {
+	d, api := testDaemon(t)
+	seedDistribution(t, d.config, "#!/bin/sh\nexit 0\n")
+	api.jitErr = errTestAPI // Stop preparation before the independent launch-time inspection.
+	dir := testDirectory(t)
+	marker := filepath.Join(dir, "inspected")
+	t.Setenv("GHALET_TEST_PS_MARKER", marker)
+	if err := os.WriteFile(filepath.Join(dir, "ps"), []byte("#!/bin/sh\nprintf inspected > \"$GHALET_TEST_PS_MARKER\"\nexit 1\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+":"+os.Getenv("PATH"))
+	d.targets["build"].Assigned = 1
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.reconcile()
+	if len(d.runs) != 1 || d.active("build") != 1 {
+		t.Fatal("idle process inspection failure prevented the first reservation")
+	}
+	for _, run := range d.runs {
+		if !run.Preparing {
+			t.Fatal("first run was not scheduled for preparation")
+		}
+	}
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatal("scheduling the first run inspected the process table", err)
+	}
+}
+
 func TestEphemeralJobsNeverReuseExecutionDirectories(t *testing.T) {
 	d, _ := testDaemon(t)
 	cleanupProcesses(t, d)
