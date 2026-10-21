@@ -134,11 +134,20 @@ func RunDaemon(ctx context.Context, config *settings.Config) error {
 	if err != nil {
 		return err
 	}
-	defer d.cancel()
+	defer func() {
+		d.cancel()
+		d.workers.Wait()
+	}()
 	if err := d.initialize(ctx, false); err != nil {
 		return err
 	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	go server.serve(d)
+	if err := notifyReady(); err != nil {
+		return fmt.Errorf("notify service readiness: %w", err)
+	}
 	slog.Info("Daemon ready", "event", "daemon.ready", "config", d.secrets.Redact(config.Path), "capacity", config.Capacity.MaxRunners)
 	return d.serve(ctx)
 }

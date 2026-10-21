@@ -28,6 +28,8 @@ test "$(stat -c %U:%G:%a /var/lib/ghalet)" = root:root:755
 for path in /etc/ghalet /etc/ghalet/credentials /var/cache/ghalet /var/log/ghalet; do
   test "$(stat -c %U:%G:%a "$path")" = root:root:700
 done
+grep -qx 'Type=notify' /usr/lib/systemd/system/ghalet.service
+grep -qx 'NotifyAccess=main' /usr/lib/systemd/system/ghalet.service
 grep -qx 'User=root' /usr/lib/systemd/system/ghalet.service
 grep -qx 'Group=root' /usr/lib/systemd/system/ghalet.service
 grep -qx 'StateDirectory=ghalet' /usr/lib/systemd/system/ghalet.service

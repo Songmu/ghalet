@@ -37,6 +37,10 @@ The runner can traverse `/var/lib/ghalet` to reach its own execution directories
 but cannot modify that parent directory. Installation does **not** create a live
 configuration, enable the service, or start it.
 
+The unit uses `Type=notify`: `systemctl start` waits until daemon initialization
+is complete and the management socket can serve requests. This does not guarantee
+a successful `ghalet doctor`; target and execution diagnostics remain separate.
+
 To create a GitHub App and configure its encrypted service key:
 
 ```sh
