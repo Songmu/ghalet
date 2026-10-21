@@ -25,11 +25,14 @@ import (
 )
 
 type targetRuntime struct {
+	scaleMu       *sync.Mutex
+	directoryMu   *sync.Mutex
 	Config        Target
 	Client        scaleAPI
 	Set           *scaleset.RunnerScaleSet
 	Assigned      int
 	Pending       int
+	Acquiring     bool
 	LastMessage   int
 	HasMessage    bool
 	Draining      bool
@@ -60,6 +63,16 @@ func permanentTargetFailure(err error) bool {
 }
 
 type activeRun struct {
+	ioDone          chan struct{}
+	generation      uint64
+	events          []runEvent
+	detached        bool
+	removed         bool
+	persistError    string
+	startError      error
+	readySaved      bool
+	forceStop       bool
+	output          *runOutputState
 	State           *RunState
 	Config          *Config
 	Preparing       bool
@@ -76,9 +89,16 @@ type activeRun struct {
 	OutputError     error
 	OutputReady     bool
 	Stopping        bool
+	Retiring        bool
 	Target          *targetRuntime
 	InspectFailures int
 	JITSecrets      []string
+}
+
+type runOutputState struct {
+	ready bool
+	err   error
+	done  chan struct{}
 }
 
 type runExit struct {
@@ -87,6 +107,14 @@ type runExit struct {
 }
 
 func (r *activeRun) outputCollected() bool {
+	if r.output != nil {
+		select {
+		case <-r.output.done:
+			return true
+		default:
+			return false
+		}
+	}
 	if r.WaitDone == nil {
 		return true
 	}
@@ -99,7 +127,7 @@ func (r *activeRun) outputCollected() bool {
 }
 
 func (r *activeRun) canRetireIdle() bool {
-	return r.State.Ready && !r.State.Busy && !r.State.ProcessDone && !r.Uncertain &&
+	return r.ioDone == nil && r.State.Ready && !r.State.Busy && !r.State.ProcessDone && !r.Uncertain &&
 		!r.Preparing && r.InspectFailures == 0 && r.State.Phase != "exiting"
 }
 
@@ -152,29 +180,34 @@ type runEvent struct {
 }
 
 type daemon struct {
-	mu            sync.Mutex
-	config        *Config
-	secrets       *logreduct.Redactor
-	store         stateStore
-	user          executionUser
-	distribution  *runnerdist.Manager
-	targets       map[string]*targetRuntime
-	order         []string
-	runs          map[string]*activeRun
-	problems      []Problem
-	events        chan runEvent
-	ctx           context.Context
-	cancel        context.CancelFunc
-	workers       sync.WaitGroup
-	retired       []*targetRuntime
-	applying      bool
-	reloading     bool
-	applyCancel   context.CancelFunc
-	stopping      bool
-	offline       bool
-	nextRetention time.Time
-	clientFactory func(context.Context, Target) (scaleAPI, error)
-	listen        func(*targetRuntime)
+	mu               sync.Mutex
+	retentionMu      sync.Mutex
+	config           *Config
+	secrets          *logreduct.Redactor
+	store            stateStore
+	user             executionUser
+	distribution     *runnerdist.Manager
+	targets          map[string]*targetRuntime
+	order            []string
+	runs             map[string]*activeRun
+	problems         []Problem
+	events           chan runEvent
+	ctx              context.Context
+	cancel           context.CancelFunc
+	workers          sync.WaitGroup
+	retired          []*targetRuntime
+	applying         bool
+	reloading        bool
+	applyCancel      context.CancelFunc
+	stopping         bool
+	offline          bool
+	retaining        bool
+	gcActive         int
+	inspecting       chan struct{}
+	nextRetention    time.Time
+	clientFactory    func(context.Context, Target) (scaleAPI, error)
+	listen           func(*targetRuntime)
+	makeRunDirectory func(string) error
 }
 
 func newDaemon(c *Config) (*daemon, error) {
@@ -195,6 +228,7 @@ func newDaemon(c *Config) (*daemon, error) {
 		store: stateStore{c.Runner.WorkRoot}, distribution: runnerdist.New(preparationTimeout),
 		targets: map[string]*targetRuntime{}, runs: map[string]*activeRun{}, events: make(chan runEvent, 1024),
 		ctx: ctx, cancel: cancel,
+		makeRunDirectory: createRunDirectory,
 	}
 	d.clientFactory = func(ctx context.Context, target Target) (scaleAPI, error) {
 		return newScaleClient(ctx, target, secret)
@@ -364,13 +398,80 @@ func (d *daemon) save(run *activeRun) error {
 	if err := d.store.save(run.State); err != nil {
 		run.Uncertain = true
 		run.State.Error = fmt.Sprintf("persist state: %v", err)
-		if target := d.runTarget(run); target != nil {
+		if run.detached {
+			run.persistError = run.State.Error
+		} else if target := d.runTarget(run); target != nil {
 			target.Fault = run.State.Error
 		}
 		slog.Error("State update failed; execution retained", "event", "state.failed", "runId", d.secrets.Redact(run.State.RunID), "error", d.secrets.Redact(err.Error()))
 		return err
 	}
 	return nil
+}
+
+// runIO transfers a private execution snapshot to one worker. The live record
+// remains a coherent, conservative snapshot until the worker publishes its
+// result. Callers hold mu; the I/O functions themselves never unlock it.
+func (d *daemon) runIO(run *activeRun, operation func(*activeRun) error) <-chan struct{} {
+	if run.ioDone != nil {
+		return run.ioDone
+	}
+	done := make(chan struct{})
+	run.generation++
+	work := *run
+	state := *run.State
+	state.Members = append([]ProcessIdentity(nil), state.Members...)
+	work.State, work.detached = &state, true
+	work.startError, work.persistError = nil, ""
+	work.readySaved = false
+	work.Target, work.Config = d.runTarget(run), run.Config
+	if work.Target != nil {
+		work.forceStop = work.Target.Forced
+	}
+	if work.Config == nil {
+		work.Config = d.config
+	}
+	run.ioDone = done
+	d.workers.Go(func() {
+		err := operation(&work)
+		d.mu.Lock()
+		defer d.mu.Unlock()
+		events := run.events
+		*run.State = *work.State
+		state := run.State
+		*run = work
+		run.State, run.detached, run.ioDone, run.events = state, false, nil, nil
+		run.generation++
+		if work.persistError != "" && work.Target != nil {
+			work.Target.Fault = work.persistError
+		}
+		if work.readySaved && work.Target != nil {
+			work.Target.StartError, work.Target.Failures = "", 0
+		}
+		if work.startError != nil && work.Target != nil {
+			d.startFailure(work.Target, work.startError)
+		}
+		if err != nil {
+			run.State.Error = d.secrets.Redact(err.Error())
+		}
+		if work.removed {
+			for _, event := range events {
+				if event.kind == "exit" {
+					d.processEvent(event)
+				}
+			}
+			d.finishExit(run)
+			delete(d.runs, state.RunID)
+			d.secrets.Release(run.JITSecrets)
+		} else {
+			for _, event := range events {
+				d.processEvent(event)
+			}
+			d.finishExit(run)
+		}
+		close(done)
+	})
+	return done
 }
 
 func (d *daemon) startListener(target *targetRuntime) {
@@ -527,34 +628,30 @@ func (s *targetScaler) Scale(ctx context.Context, message *scaleset.RunnerScaleS
 	}
 	d := s.daemon
 	d.mu.Lock()
-	defer d.mu.Unlock()
 	target := s.target
+	if target.scaleMu == nil {
+		target.scaleMu = &sync.Mutex{}
+	}
+	scaleMu := target.scaleMu
+	d.mu.Unlock()
+	// A target's callbacks remain ordered, including ambiguous acquisitions,
+	// without serializing any other target or control request.
+	scaleMu.Lock()
+	defer scaleMu.Unlock()
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	if message.Statistics != nil && (!target.HasMessage || message.MessageID != target.LastMessage) {
 		target.Assigned = max(0, message.Statistics.TotalAssignedJobs)
 		target.Pending = 0
 	}
 	for _, event := range message.JobStartedMessages {
-		for _, run := range d.runs {
-			if d.runTargetID(run) == target.Config.ID && run.State.RunnerID == event.RunnerID && run.State.RunnerName == event.RunnerName {
-				newlyReady := !run.State.Ready
-				run.State.Busy, run.State.Ready, run.State.Phase = true, true, "busy"
-				if err := d.save(run); err != nil {
-					return err
-				}
-				if newlyReady {
-					target.StartError, target.Failures = "", 0
-				}
-			}
+		if err := d.jobEvent(ctx, target, event.RunnerID, event.RunnerName, true); err != nil {
+			return err
 		}
 	}
 	for _, event := range message.JobCompletedMessages {
-		for _, run := range d.runs {
-			if d.runTargetID(run) == target.Config.ID && run.State.RunnerID == event.RunnerID && run.State.RunnerName == event.RunnerName {
-				run.State.Busy, run.State.Phase = false, "exiting"
-				if err := d.save(run); err != nil {
-					return err
-				}
-			}
+		if err := d.jobEvent(ctx, target, event.RunnerID, event.RunnerName, false); err != nil {
+			return err
 		}
 	}
 	if !target.Draining && target.Fault == "" && (!target.HasMessage || target.LastMessage != message.MessageID) {
@@ -576,20 +673,72 @@ func (s *targetScaler) Scale(ctx context.Context, message *scaleset.RunnerScaleS
 			requests = append(requests, event.RunnerRequestID)
 		}
 		if len(requests) > 0 {
+			target.Pending += len(requests)
+			target.Acquiring = true
+			// Mark the message before releasing mu: even a lost response must
+			// not cause a duplicate acquisition on redelivery.
+			target.LastMessage, target.HasMessage = message.MessageID, true
 			acquireCtx, cancel := context.WithTimeout(ctx, apiTimeout)
+			d.mu.Unlock()
 			acquired, err := s.session.AcquireJobs(acquireCtx, requests)
 			cancel()
+			d.mu.Lock()
+			target.Acquiring = false
 			if err != nil {
 				// The server may have accepted the request before the response
 				// was lost. Keep the reservation until authoritative statistics.
-				target.Pending += len(requests)
 				return err
 			}
-			target.Pending += len(acquired)
+			target.Pending -= len(requests) - len(acquired)
 		}
 	}
 	target.LastMessage, target.HasMessage = message.MessageID, true
 	return nil
+}
+
+// jobEvent is called with mu held and waits only for this execution's I/O.
+func (d *daemon) jobEvent(ctx context.Context, target *targetRuntime, runnerID int, name string, busy bool) error {
+	var run *activeRun
+	for _, candidate := range d.runs {
+		if d.runTarget(candidate) == target && candidate.State.RunnerName == name {
+			run = candidate
+			break
+		}
+	}
+	if run == nil {
+		return nil
+	}
+	for run.ioDone != nil {
+		done := run.ioDone
+		d.mu.Unlock()
+		select {
+		case <-done:
+		case <-ctx.Done():
+			d.mu.Lock()
+			return ctx.Err()
+		}
+		d.mu.Lock()
+	}
+	if d.runs[run.State.RunID] != run || run.State.RunnerID != runnerID {
+		return nil
+	}
+	newlyReady := busy && !run.State.Ready
+	run.State.Busy = busy
+	if busy {
+		run.State.Ready, run.State.Phase = true, "busy"
+	} else {
+		run.State.Phase = "exiting"
+	}
+	var err error
+	done := d.runIO(run, func(work *activeRun) error {
+		err = d.save(work)
+		work.readySaved = err == nil && newlyReady
+		return err
+	})
+	d.mu.Unlock()
+	<-done
+	d.mu.Lock()
+	return err
 }
 
 func (d *daemon) occupied() int {
@@ -610,6 +759,24 @@ func (d *daemon) active(targetID string) int {
 		}
 	}
 	return count
+}
+
+func (d *daemon) retiring(targetID string) int {
+	count := 0
+	for _, run := range d.runs {
+		if (targetID == "" || d.runTargetID(run) == targetID) && run.Retiring && run.occupiesCapacity() {
+			count++
+		}
+	}
+	return count
+}
+
+func (d *daemon) retire(run *activeRun) {
+	run.Retiring = true
+	d.runIO(run, func(work *activeRun) error {
+		defer func() { work.Retiring = false }()
+		return d.retireIdle(work)
+	})
 }
 
 func (d *daemon) beginDrain(target *targetRuntime) {
@@ -650,11 +817,16 @@ func (d *daemon) serve(ctx context.Context) error {
 			d.mu.Unlock()
 		case <-ticker.C:
 			d.mu.Lock()
-			d.reconcile()
 			done := shutdown && !d.applying && d.drained("")
-			d.mu.Unlock()
+			if !done {
+				d.reconcile()
+				done = shutdown && !d.applying && d.drained("")
+			}
 			if done {
 				d.cancel()
+			}
+			d.mu.Unlock()
+			if done {
 				d.workers.Wait()
 				d.mu.Lock()
 				problems := d.statusLocked().Problems
@@ -677,6 +849,11 @@ func (d *daemon) processEvent(event runEvent) {
 	if run == nil {
 		return
 	}
+	if run.ioDone != nil {
+		run.events = append(run.events, event)
+		return
+	}
+	run.generation++
 	switch event.kind {
 	case "ready":
 		if run.State.ProcessDone || run.Stopping || run.Uncertain {
@@ -687,11 +864,11 @@ func (d *daemon) processEvent(event runEvent) {
 		if !run.State.Busy {
 			run.State.Phase = "idle"
 		}
-		if d.save(run) == nil && newlyReady {
-			if target := d.runTarget(run); target != nil {
-				target.StartError, target.Failures = "", 0
-			}
-		}
+		d.runIO(run, func(work *activeRun) error {
+			err := d.save(work)
+			work.readySaved = err == nil && newlyReady
+			return err
+		})
 	case "exit":
 		run.Exited = true
 		run.ExitResult = &runExit{err: event.err, stopping: run.Stopping}
@@ -706,8 +883,11 @@ func (d *daemon) processEvent(event runEvent) {
 }
 
 func (d *daemon) finishExit(run *activeRun) {
-	if run.ExitResult == nil || !run.outputCollected() {
+	if run.detached || run.ioDone != nil || run.ExitResult == nil || !run.outputCollected() {
 		return
+	}
+	if run.output != nil {
+		run.OutputReady, run.OutputError = run.output.ready, run.output.err
 	}
 	result := run.ExitResult
 	run.ExitResult = nil
@@ -734,26 +914,6 @@ func (d *daemon) finishExit(run *activeRun) {
 }
 
 func (d *daemon) reconcile() {
-	var identities []ProcessIdentity
-	for _, run := range d.runs {
-		if !run.Preparing && (!run.State.ProcessDone || run.Uncertain) {
-			identities = append(identities, run.State.Process)
-		}
-	}
-	var table map[int]processEntry
-	for _, run := range d.runs {
-		// Preparation and confirmed completion need no snapshot, but uncertain
-		// runs still require inspection even when marked process-done.
-		if table == nil && !run.Preparing && (!run.State.ProcessDone || run.Uncertain) {
-			var err error
-			table, err = processTable(d.ctx, identities)
-			if err != nil {
-				slog.Error("Process inspection failed; scheduling suspended", "event", "process.inspect_failed", "error", d.secrets.Redact(err.Error()))
-				return
-			}
-		}
-		d.reconcileRun(run, table)
-	}
 	for _, target := range d.targets {
 		if !d.reloading {
 			d.enforceDrainDeadline(target)
@@ -779,6 +939,62 @@ func (d *daemon) reconcile() {
 	for _, id := range d.order {
 		d.reconcileIdle(d.targets[id], realDemand)
 	}
+	d.inspectRuns()
+}
+
+func (d *daemon) inspectRuns() {
+	if d.inspecting != nil {
+		return
+	}
+	type candidate struct {
+		run        *activeRun
+		generation uint64
+	}
+	var candidates []candidate
+	var identities []ProcessIdentity
+	for _, run := range d.runs {
+		if run.ioDone != nil || run.Preparing {
+			continue
+		}
+		if run.State.ProcessDone && !run.Uncertain {
+			if run.CleanupTried && (run.CleanupRetryAt.IsZero() || time.Now().Before(run.CleanupRetryAt)) {
+				continue
+			}
+			d.runIO(run, func(work *activeRun) error {
+				d.reconcileRun(work, nil)
+				return nil
+			})
+		} else {
+			candidates = append(candidates, candidate{run, run.generation})
+			identities = append(identities, run.State.Process)
+		}
+	}
+	if len(candidates) == 0 {
+		return
+	}
+	done := make(chan struct{})
+	d.inspecting = done
+	d.workers.Go(func() {
+		table, err := processTable(d.ctx, identities)
+		d.mu.Lock()
+		defer d.mu.Unlock()
+		defer close(done)
+		d.inspecting = nil
+		if err != nil {
+			slog.Error("Process inspection failed; executions retained", "event", "process.inspect_failed", "error", d.secrets.Redact(err.Error()))
+			return
+		}
+		for _, candidate := range candidates {
+			run := candidate.run
+			if d.ctx.Err() != nil || d.runs[run.State.RunID] != run || run.ioDone != nil || run.generation != candidate.generation {
+				continue
+			}
+			d.runIO(run, func(work *activeRun) error {
+				d.reconcileRun(work, table)
+				return nil
+			})
+		}
+	})
 }
 
 func (d *daemon) reconcileRun(run *activeRun, table map[int]processEntry) {
@@ -801,6 +1017,15 @@ func (d *daemon) reconcileRun(run *activeRun, table map[int]processEntry) {
 	if state.ProcessDone {
 		if !run.CleanupTried || (!run.CleanupRetryAt.IsZero() && !time.Now().Before(run.CleanupRetryAt)) {
 			d.cleanup(run)
+		}
+		return
+	}
+	if run.forceStop {
+		if err := d.stop(run, true); err != nil {
+			state.Error = d.secrets.Redact(err.Error())
+			if !state.ProcessDone {
+				run.Uncertain = true
+			}
 		}
 		return
 	}
@@ -836,11 +1061,15 @@ func (d *daemon) reconcileRun(run *activeRun, table map[int]processEntry) {
 		}
 		return
 	}
-	if !state.Ready && !state.Busy && time.Since(state.StartedAt) > time.Duration(d.config.Runner.StartupTimeout) {
+	config := run.Config
+	if config == nil {
+		config = d.config
+	}
+	if !state.Ready && !state.Busy && time.Since(state.StartedAt) > time.Duration(config.Runner.StartupTimeout) {
 		if err := d.retireIdle(run); err != nil {
 			state.Error = d.secrets.Redact(err.Error())
 		} else {
-			d.startFailure(target, errors.New("runner startup timeout before readiness"))
+			run.startError = errors.New("runner startup timeout before readiness")
 		}
 	}
 }
@@ -848,6 +1077,9 @@ func (d *daemon) reconcileRun(run *activeRun, table map[int]processEntry) {
 func (d *daemon) enforceDrainDeadline(target *targetRuntime) {
 	if !target.Draining || target.Forced || d.drained(target.Config.ID) ||
 		time.Since(target.DrainStarted) < time.Duration(d.config.Runner.DrainTimeout) {
+		return
+	}
+	if target.Assigned+target.Pending == 0 && d.active(target.Config.ID) == 0 {
 		return
 	}
 	target.Forced = true
@@ -859,23 +1091,40 @@ func (d *daemon) enforceDrainDeadline(target *targetRuntime) {
 		if run.Cancel != nil {
 			run.Cancel()
 		}
+		if run.ioDone != nil {
+			continue
+		}
 		if !run.Preparing && !run.Uncertain && !run.State.ProcessDone {
-			if err := d.stop(run, true); err != nil {
-				run.State.Error = d.secrets.Redact(err.Error())
-				if !run.State.ProcessDone {
-					run.Uncertain = true
+			d.runIO(run, func(work *activeRun) error {
+				err := d.stop(work, true)
+				if err != nil && !work.State.ProcessDone {
+					work.Uncertain = true
 				}
-			}
+				return err
+			})
 		}
 	}
 }
 
 func (d *daemon) expireLogsIfDue() {
-	if !time.Now().After(d.nextRetention) {
+	if d.retaining || !time.Now().After(d.nextRetention) {
 		return
 	}
 	d.nextRetention = time.Now().Add(time.Hour)
-	results, err := expireLogs(d.ctx, d.config, false)
+	d.retaining = true
+	config := d.config
+	d.workers.Go(func() {
+		d.expireLogs(config)
+		d.mu.Lock()
+		d.retaining = false
+		d.mu.Unlock()
+	})
+}
+
+func (d *daemon) expireLogs(config *Config) {
+	d.retentionMu.Lock()
+	defer d.retentionMu.Unlock()
+	results, err := expireLogs(d.ctx, config, false)
 	if err != nil {
 		slog.Error("Log retention failed", "event", "logs.expire_failed", "error", d.secrets.Redact(err.Error()))
 	}
@@ -895,14 +1144,12 @@ func (d *daemon) reconcileIdle(target *targetRuntime, realDemand bool) {
 	if !realDemand && !target.Draining && d.canStart(target) {
 		d.fill(target, wanted)
 	}
-	if d.active(id) <= wanted && !(target.Draining && target.Assigned == 0 && target.Pending == 0) {
+	if d.active(id)-d.retiring(id) <= wanted && !(target.Draining && target.Assigned == 0 && target.Pending == 0) {
 		return
 	}
 	for _, run := range d.runs {
 		if d.runTargetID(run) == id && run.canRetireIdle() {
-			if err := d.retireIdle(run); err != nil {
-				run.State.Error = d.secrets.Redact(err.Error())
-			}
+			d.retire(run)
 			break
 		}
 	}
@@ -945,17 +1192,17 @@ func (d *daemon) fill(target *targetRuntime, wanted int) {
 }
 
 func (d *daemon) yieldIdle(forTarget string) {
+	if d.retiring("") != 0 {
+		return
+	}
 	for _, id := range d.order {
 		target := d.targets[id]
-		if id == forTarget || d.active(id) <= target.Assigned+target.Pending {
+		if id == forTarget || d.active(id)-d.retiring(id) <= target.Assigned+target.Pending {
 			continue
 		}
 		for _, run := range d.runs {
 			if d.runTargetID(run) == id && run.canRetireIdle() {
-				if err := d.retireIdle(run); err != nil {
-					run.State.Error = d.secrets.Redact(err.Error())
-					slog.Warn("Idle runner could not yield capacity", "event", "capacity.yield_failed", "runId", d.secrets.Redact(run.State.RunID), "error", run.State.Error)
-				}
+				d.retire(run)
 				return
 			}
 		}
@@ -968,6 +1215,60 @@ func (d *daemon) reserve(target *targetRuntime) error {
 		return err
 	}
 	dir := filepath.Join(d.config.Runner.WorkRoot, target.Config.ID, id)
+	state := &RunState{
+		Schema: 1, RunID: id, TargetID: target.Config.ID,
+		ScopeURL: target.Config.URL, GroupName: target.Config.RunnerGroup,
+		GroupID: target.Set.RunnerGroupID, ScaleSetName: target.Config.ScaleSetName, ScaleSetID: target.Set.ID,
+		RunnerName: "runner-" + id, User: d.user.Name, UID: d.user.UID, Home: d.user.Home,
+		RunnerDir: filepath.Join(dir, "runner"), Workspace: filepath.Join(dir, "work"), Phase: "preparing",
+	}
+	run := &activeRun{State: state, Preparing: true, Target: target, Config: d.config}
+	d.runs[id] = run
+	ctx, cancel := context.WithTimeout(d.ctx, preparationTimeout)
+	run.Cancel = cancel
+	if target.directoryMu == nil {
+		target.directoryMu = &sync.Mutex{}
+	}
+	directoryMu := target.directoryMu
+	target.RetryAt = time.Now().Add(time.Second)
+	d.runIO(run, func(work *activeRun) error {
+		defer cancel()
+		// A second reservation must not observe a newly created target
+		// directory before its creator has synced the WorkRoot entry.
+		directoryMu.Lock()
+		err := d.makeRunDirectory(dir)
+		directoryMu.Unlock()
+		if err != nil {
+			work.Preparing, work.removed, work.startError = false, true, err
+			return err
+		}
+		err = d.save(work)
+		if err == nil {
+			err = d.prepare(ctx, target, work)
+		}
+		work.Preparing = false
+		if err != nil {
+			work.State.Error = d.secrets.Redact(err.Error())
+			if work.Uncertain {
+				err = errors.Join(errUnsafeTarget, err)
+			}
+			// Rollback may wait on GitHub or files; stop accepting work for
+			// a failed target before entering that slow cleanup.
+			d.mu.Lock()
+			d.startFailure(target, err)
+			d.mu.Unlock()
+			if !work.Uncertain {
+				if stopErr := d.stop(work, true); stopErr != nil {
+					return errors.Join(err, fmt.Errorf("cleanup: %w", stopErr))
+				}
+			}
+		}
+		return err
+	})
+	return nil
+}
+
+func createRunDirectory(dir string) error {
 	if err := ensureExecutionDirectory(filepath.Dir(dir)); err != nil {
 		var pathErr *os.PathError
 		if errors.As(err, &pathErr) {
@@ -984,49 +1285,15 @@ func (d *daemon) reserve(target *targetRuntime) error {
 	if err := fshelper.SyncDirectory(filepath.Dir(dir)); err != nil {
 		return errors.Join(err, os.Remove(dir))
 	}
-	state := &RunState{
-		Schema: 1, RunID: id, TargetID: target.Config.ID,
-		ScopeURL: target.Config.URL, GroupName: target.Config.RunnerGroup,
-		GroupID: target.Set.RunnerGroupID, ScaleSetName: target.Config.ScaleSetName, ScaleSetID: target.Set.ID,
-		RunnerName: "runner-" + id, User: d.user.Name, UID: d.user.UID, Home: d.user.Home,
-		RunnerDir: filepath.Join(dir, "runner"), Workspace: filepath.Join(dir, "work"), Phase: "preparing",
-	}
-	run := &activeRun{State: state, Preparing: true}
-	d.runs[id] = run
-	if err := d.save(run); err != nil {
-		run.Preparing = false
-		return err
-	}
-	ctx, cancel := context.WithTimeout(d.ctx, preparationTimeout)
-	run.Cancel = cancel
-	target.RetryAt = time.Now().Add(time.Second)
-	d.workers.Go(func() {
-		err := d.prepare(ctx, target, run)
-		cancel()
-		d.mu.Lock()
-		defer d.mu.Unlock()
-		run.Preparing = false
-		if err != nil {
-			run.State.Error = d.secrets.Redact(err.Error())
-			if run.Uncertain {
-				err = errors.Join(errUnsafeTarget, err)
-			}
-			d.startFailure(target, err)
-			if !run.Uncertain {
-				if stopErr := d.stop(run, true); stopErr != nil {
-					run.State.Error += "; cleanup: " + d.secrets.Redact(stopErr.Error())
-				}
-			}
-		}
-	})
 	return nil
 }
 
 func (d *daemon) prepare(ctx context.Context, target *targetRuntime, run *activeRun) error {
 	state := run.State
+	config := run.Config
 	start := time.Now()
 	if err := d.distribution.Prepare(ctx, runnerdist.Config{
-		Version: d.config.Runner.Version, CacheRoot: d.config.Runner.CacheRoot,
+		Version: config.Runner.Version, CacheRoot: config.Runner.CacheRoot,
 	}, state.RunnerDir); err != nil {
 		return fmt.Errorf("prepare runner: %w", err)
 	}
@@ -1046,7 +1313,7 @@ func (d *daemon) prepare(ctx context.Context, target *targetRuntime, run *active
 		}
 	}
 	check := exec.CommandContext(ctx, "/bin/sh", "-c", `test -d "$HOME" && test -w "$1" && test -x "$2"`, "ghalet-access", state.Workspace, filepath.Join(state.RunnerDir, "bin", "Runner.Listener"))
-	check.Dir, check.Env, check.SysProcAttr = state.RunnerDir, runnerEnvironment(d.config, d.user, ""), processAttributes(d.user)
+	check.Dir, check.Env, check.SysProcAttr = state.RunnerDir, runnerEnvironment(config, d.user, ""), processAttributes(d.user)
 	if err := check.Run(); err != nil {
 		if ctx.Err() != nil {
 			return ctx.Err()
@@ -1057,8 +1324,6 @@ func (d *daemon) prepare(ctx context.Context, target *targetRuntime, run *active
 		}
 		return fmt.Errorf("%w: execution user cannot access HOME, workspace or runner: %w", errUnsafeTarget, err)
 	}
-	d.mu.Lock()
-	defer d.mu.Unlock()
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -1075,7 +1340,7 @@ func (d *daemon) prepare(ctx context.Context, target *targetRuntime, run *active
 		return fmt.Errorf("%w: GitHub returned incomplete JIT configuration; registration must be inspected", errUnsafeTarget)
 	}
 	run.JITSecrets = d.secrets.AddJIT(jit.EncodedJITConfig)
-	for key, value := range d.config.Runner.Env {
+	for key, value := range config.Runner.Env {
 		if d.secrets.Redact(value) != value {
 			return fmt.Errorf("%w: runner.env %s contains a management credential; refusing to copy it into a job", errUnsafeTarget, key)
 		}
@@ -1087,14 +1352,17 @@ func (d *daemon) prepare(ctx context.Context, target *targetRuntime, run *active
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if err := d.launch(run, jit.EncodedJITConfig); err != nil {
+	if err := d.launch(ctx, run, jit.EncodedJITConfig); err != nil {
 		return err
 	}
 	slog.Info("Runner started", "event", "runner.started", "scope", d.secrets.Redact(state.ScopeURL), "targetId", d.secrets.Redact(state.TargetID), "runId", d.secrets.Redact(state.RunID), "durationMs", time.Since(start).Milliseconds())
 	return nil
 }
 
-func (d *daemon) launch(run *activeRun, jit string) (retErr error) {
+func (d *daemon) launch(ctx context.Context, run *activeRun, jit string) (retErr error) {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	state := run.State
 	spawned := false
 	defer func() {
@@ -1138,8 +1406,9 @@ func (d *daemon) launch(run *activeRun, jit string) (retErr error) {
 	if err != nil {
 		return err
 	}
+	collected := &runOutputState{done: make(chan struct{})}
 	writer := &runnerOutput{file: logFile, secrets: d.secrets, ready: func() {
-		run.OutputReady = true
+		collected.ready = true
 		select {
 		case d.events <- runEvent{id: state.RunID, kind: "ready"}:
 		case <-d.ctx.Done():
@@ -1156,7 +1425,11 @@ func (d *daemon) launch(run *activeRun, jit string) (retErr error) {
 			logInput.Close()
 		}
 	}()
-	command.Dir, command.Env, command.SysProcAttr = state.RunnerDir, runnerEnvironment(d.config, d.user, jit), processAttributes(d.user)
+	config := run.Config
+	if config == nil {
+		config = d.config
+	}
+	command.Dir, command.Env, command.SysProcAttr = state.RunnerDir, runnerEnvironment(config, d.user, jit), processAttributes(d.user)
 	command.Stdout, command.Stderr = logOutput, logOutput
 	if err := command.Start(); err != nil {
 		writer.close()
@@ -1166,7 +1439,7 @@ func (d *daemon) launch(run *activeRun, jit string) (retErr error) {
 	logOutput.Close()
 	// The child waits on fd 3. No runner can execute until its identity has
 	// been durably recorded; controller death closes the gate without exec.
-	table, err := processTable(d.ctx, []ProcessIdentity{{PID: command.Process.Pid}})
+	table, err := processTable(ctx, []ProcessIdentity{{PID: command.Process.Pid}})
 	if err == nil {
 		var identity ProcessIdentity
 		identity, err = launchedProcessIdentity(table, command.Process.Pid, d.user.UID)
@@ -1181,20 +1454,32 @@ func (d *daemon) launch(run *activeRun, jit string) (retErr error) {
 		output.Close()
 		command.Wait()
 		writer.close()
-		run.Uncertain = true
+		if ctx.Err() != nil {
+			state.Phase = "registered"
+		} else {
+			run.Uncertain = true
+		}
 		return err
 	}
-	if _, err := output.Write([]byte("ready\n")); err != nil {
+	// Drain cancellation and gate release have one ordering point. The empty
+	// pipe has room for this short write; no API, inspection or fsync is locked.
+	d.mu.Lock()
+	err = ctx.Err()
+	if err == nil {
+		_, err = output.Write([]byte("ready\n"))
+	}
+	d.mu.Unlock()
+	if err != nil {
 		output.Close()
 		command.Wait()
 		writer.close()
 		return err
 	}
-	run.WaitDone = make(chan struct{})
+	run.output, run.WaitDone = collected, collected.done
 	go func() {
 		_, err := io.Copy(writer, logInput)
-		run.OutputError = errors.Join(err, logInput.Close(), writer.close())
-		close(run.WaitDone)
+		collected.err = errors.Join(err, logInput.Close(), writer.close())
+		close(collected.done)
 	}()
 	// Reaping and output collection remain independent so shutdown can
 	// observe both without blocking diagnostics and control access.
@@ -1271,7 +1556,9 @@ func (d *daemon) retireIdle(run *activeRun) error {
 			newlyReady := !run.State.Ready
 			run.State.Busy, run.State.Ready, run.State.Phase = true, true, "busy"
 			if d.save(run) == nil && newlyReady {
-				if target := d.runTarget(run); target != nil {
+				if run.detached {
+					run.readySaved = true
+				} else if target := d.runTarget(run); target != nil {
 					target.StartError, target.Failures = "", 0
 				}
 			}
@@ -1322,6 +1609,9 @@ func (d *daemon) cleanup(run *activeRun) error {
 		return errors.New("runner exit observation has not completed")
 	}
 	d.finishExit(run)
+	if run.output != nil {
+		run.OutputReady, run.OutputError = run.output.ready, run.output.err
+	}
 	run.CleanupTried = true
 	fail := func(err error, retryable bool) error {
 		run.CleanupRetryAt = time.Time{}
@@ -1350,18 +1640,25 @@ func (d *daemon) cleanup(run *activeRun) error {
 	if err := d.store.removeFiles(run.State); err != nil {
 		return fail(err, cleanupRetryable(err))
 	}
-	delete(d.runs, run.State.RunID)
-	d.secrets.Release(run.JITSecrets)
+	if run.detached {
+		run.removed = true
+	} else {
+		delete(d.runs, run.State.RunID)
+		d.secrets.Release(run.JITSecrets)
+	}
 	slog.Info("Execution cleaned", "event", "runner.removed", "targetId", d.secrets.Redact(run.State.TargetID), "runId", d.secrets.Redact(run.State.RunID))
 	return nil
 }
 
 func (d *daemon) drained(id string) bool {
+	if id == "" && d.gcActive != 0 {
+		return false
+	}
 	for _, target := range d.targets {
 		if id != "" && id != target.Config.ID {
 			continue
 		}
-		if !target.Forced && (target.Assigned+target.Pending > 0) {
+		if target.Acquiring || (!target.Forced && (target.Assigned+target.Pending > 0)) {
 			return false
 		}
 	}
@@ -1369,7 +1666,7 @@ func (d *daemon) drained(id string) bool {
 		if id != "" && d.runTargetID(run) != id {
 			continue
 		}
-		if run.Preparing {
+		if run.Preparing || run.ioDone != nil {
 			return false
 		}
 		if run.Uncertain {

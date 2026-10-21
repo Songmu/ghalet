@@ -3,7 +3,6 @@ package ghalet
 import (
 	"context"
 	"encoding/base64"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -297,13 +296,15 @@ func TestReservationDirectoryFailuresRemainClassified(t *testing.T) {
 				}
 				t.Cleanup(func() { os.Chmod(d.config.Runner.WorkRoot, 0711) })
 			}
+			d.mu.Lock()
 			err := d.reserve(target)
-			if err == nil {
-				t.Fatal("invalid or inaccessible directory was accepted")
+			d.mu.Unlock()
+			if err != nil {
+				t.Fatal("could not schedule reservation", err)
 			}
-			d.startFailure(target, err)
-			if (target.Fault != "") != unsafe {
-				t.Fatal("operational and unsafe directory failures were confused", err, target.Fault)
+			settleRuns(d)
+			if target.StartError == "" || len(d.runs) != 0 || (target.Fault != "") != unsafe {
+				t.Fatal("operational and unsafe directory failures were confused", target.StartError, target.Fault)
 			}
 		})
 	}
@@ -367,7 +368,10 @@ func TestPreparationRetryDiagnosticSurvivesUntilStartupRecovers(t *testing.T) {
 	state.Ready, state.Phase = true, "idle"
 	run := &activeRun{State: state}
 	d.runs[state.RunID] = run
+	d.mu.Lock()
 	d.processEvent(runEvent{id: state.RunID, kind: "ready"})
+	d.mu.Unlock()
+	settleRuns(d)
 	run.ExitResult = &runExit{}
 	d.finishExit(run)
 	if target.StartError == "" {
@@ -375,7 +379,10 @@ func TestPreparationRetryDiagnosticSurvivesUntilStartupRecovers(t *testing.T) {
 	}
 	state.Ready = false
 	target.RetryError = "listener unavailable"
+	d.mu.Lock()
 	d.processEvent(runEvent{id: state.RunID, kind: "ready"})
+	d.mu.Unlock()
+	settleRuns(d)
 	if target.StartError != "" || target.RetryError == "" || target.Failures != 0 {
 		t.Fatal("startup recovery cleared the wrong diagnostic", target)
 	}
@@ -401,9 +408,10 @@ func TestAssignmentArbitrationClearsOnlyNewStartupRecovery(t *testing.T) {
 			api.removeErr = scaleset.JobStillRunningError
 			run := &activeRun{State: state}
 			d.runs[state.RunID] = run
-			if err := d.retireIdle(run); !errors.Is(err, scaleset.JobStillRunningError) {
-				t.Fatal(err)
-			}
+			d.mu.Lock()
+			d.retire(run)
+			d.mu.Unlock()
+			settleRuns(d)
 			if !state.Ready || !state.Busy || (target.StartError != "") != ready {
 				t.Fatal("assignment readiness transition did not preserve the correct diagnostic", target)
 			}

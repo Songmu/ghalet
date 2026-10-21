@@ -316,7 +316,7 @@ func TestRecoveryRetainsMalformedProcessIDs(t *testing.T) {
 		t.Fatal(err)
 	}
 	run := d.runs[state.RunID]
-	d.reconcile()
+	reconcileAndWait(d)
 	if run == nil || !run.Uncertain || run.State.ProcessDone || d.occupied() != 1 || d.drained("") {
 		t.Fatal("malformed process identity was treated as safely stopped")
 	}

@@ -42,7 +42,7 @@ func TestCleanupRetriesArePacedAndCapped(t *testing.T) {
 			}
 			for attempt := 1; attempt <= 9; attempt++ {
 				before := time.Now()
-				d.reconcileRun(run, nil)
+				reconcileAndWait(d)
 				delay := min(5*time.Second<<uint(min(attempt, 7)-1), 5*time.Minute)
 				if run.CleanupFailures != min(attempt, 7) ||
 					run.CleanupRetryAt.Before(before.Add(delay)) || run.CleanupRetryAt.After(time.Now().Add(delay)) {
@@ -51,7 +51,7 @@ func TestCleanupRetriesArePacedAndCapped(t *testing.T) {
 				retryAt := run.CleanupRetryAt
 				calls := api.removeCalls
 				for range 3 {
-					d.reconcileRun(run, nil)
+					reconcileAndWait(d)
 				}
 				if run.CleanupRetryAt != retryAt || api.removeCalls != calls ||
 					d.occupied() != 0 || !d.drained("") || state.Error == "" || run.Uncertain {
@@ -63,7 +63,7 @@ func TestCleanupRetriesArePacedAndCapped(t *testing.T) {
 				run.CleanupRetryAt = time.Now().Add(-time.Second)
 			}
 			api.getErr, api.removeErr = nil, nil
-			d.reconcileRun(run, nil)
+			reconcileAndWait(d)
 			if d.runs[state.RunID] != nil {
 				t.Fatal("ordinary reconcile did not finish recovered cleanup")
 			}

@@ -170,7 +170,7 @@ func TestRunnerGuardControllerHelper(t *testing.T) {
 	if err := json.Unmarshal(data, &state); err != nil {
 		t.Fatal(err)
 	}
-	if err := d.launch(&activeRun{State: &state}, "test-jit-secret"); err != nil {
+	if err := d.launch(t.Context(), &activeRun{State: &state}, "test-jit-secret"); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(filepath.Dir(state.RunnerDir), "controller-ready"), []byte("ready"), 0600); err != nil {

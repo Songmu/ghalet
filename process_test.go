@@ -212,7 +212,7 @@ func testIncompleteGroupSnapshot(t *testing.T, zombieLeader bool) {
 	if err := d.recover(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	d.reconcile()
+	reconcileAndWait(d)
 	run := d.runs[state.RunID]
 	if run == nil || !run.Uncertain || run.State.ProcessDone || run.GroupStopped || d.occupied() != 1 || d.drained("") {
 		t.Fatal("incomplete snapshot released capacity or allowed shutdown")
@@ -325,7 +325,7 @@ func TestStopGroupPersistsNewDescendants(t *testing.T) {
 			child := fmt.Sprintf("(\n  trap '' TERM\n  printf 'ready\\n' > %q\n  exec sleep 30\n) &\nread -r childReady < %q\n", fifo, fifo)
 			var script string
 			if duringTermination {
-				script = fmt.Sprintf("#!/bin/sh\nfinish() {\n%swhile [ ! -f %q ]; do :; done\nprintf 'term\\n' > %q\nexit 0\n}\ntrap finish TERM\nsleep 30 &\nprintf 'Listening for Jobs\\n'\nwait\n", child, release, terminated)
+				script = fmt.Sprintf("#!/bin/sh\nfinish() {\n%swhile [ ! -f %q ]; do :; done\nprintf 'term\\n' > %q\nexit 0\n}\ntrap finish TERM\n(trap '' TERM; exec sleep 30) &\nprintf 'Listening for Jobs\\n'\nwait\n", child, release, terminated)
 			} else {
 				script = fmt.Sprintf("#!/bin/sh\nfinish() {\nprintf 'term\\n' > %q\nexit 0\n}\ntrap finish TERM\n%sprintf 'Listening for Jobs\\n'\nwait\n", terminated, child)
 			}

@@ -320,6 +320,13 @@ reload の期限と `TimeoutStopSec` を延ばしてください。
 
 ## 診断・ガベージコレクション
 
+GitHub API の遅延、runner の準備、プロセスの停止、cleanup の間も、デーモンの
+状態取得・スケジューリング用の共有ロックは保持しません。他のターゲットは
+スケジューリングを継続でき、`status` / `doctor` は処理中も直近の整合した
+実行スナップショットを返します。準備や cleanup の結果が反映されるまで、
+予約した実行は表示され続けます。drain と apply は実行ごとの処理完了を待ちます。
+`gc` も単に処理をキューに入れて返るのではなく、報告対象の cleanup 完了を待ちます。
+
 ```sh
 ghalet status --config /path/to/config.yaml
 ghalet doctor --config /path/to/config.yaml
