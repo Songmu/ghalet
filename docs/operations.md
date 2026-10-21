@@ -337,9 +337,15 @@ Offline GC must use the same storage environment as the service to find its stat
 After a crash, records are matched to current explicit registrations, process
 UID/group/kernel start identity and, for live executions, GitHub runner IDs.
 Linux identity includes the boot ID and `/proc` start ticks; macOS uses the
-kernel process start time with microsecond precision. Unmatched, corrupt,
-incomplete or unverifiable records reserve conservative capacity and appear
-in diagnostics. Recovery of a surviving process does not recreate `Wait` or
+kernel process start time with microsecond precision. Process liveness is checked
+independently of registration and execution-user matching. Records whose processes
+are verified stopped do not reserve capacity, even if a target was removed,
+authentication fails, or registration/user matching prevents cleanup. Their
+records, files and diagnostics remain; stopping alone does not authorize deletion.
+Potentially live or unverifiable processes still reserve conservative capacity.
+Malformed records also reserve capacity because they provide no trusted identity
+with which to prove process absence; they are never used to authorize cleanup.
+Recovery of a surviving process does not recreate `Wait` or
 invent its exit code. Descendants observed in the original process group can
 be recovered; escaped descendants cannot be completely detected or isolated.
 

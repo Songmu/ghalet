@@ -394,6 +394,9 @@ func TestDrainedRequiresUncertainGroupAndObserverConfirmation(t *testing.T) {
 	if !run.GroupStopped || d.drained("") {
 		t.Fatal("group absence bypassed exit/output observers")
 	}
+	if d.occupied() != 1 {
+		t.Fatal("group absence released capacity before exit/output observers")
+	}
 	close(run.WaitDone)
 	if d.drained("") {
 		t.Fatal("collected output bypassed local exit observation")
@@ -401,6 +404,9 @@ func TestDrainedRequiresUncertainGroupAndObserverConfirmation(t *testing.T) {
 	d.processEvent(runEvent{id: state.RunID, kind: "exit"})
 	if !d.drained("") || !run.Uncertain || len(d.statusLocked().Problems) == 0 {
 		t.Fatal("confirmed stopped execution blocked shutdown or lost its diagnostics")
+	}
+	if d.occupied() != 0 || d.active("build") != 0 {
+		t.Fatal("confirmed stopped execution retained capacity")
 	}
 	run.WaitDone = nil
 	run.Exited = false
@@ -556,16 +562,27 @@ func TestRecoveryKeepsUnmatchedAndCorruptStateConservative(t *testing.T) {
 	d, _ := testDaemon(t)
 	state := testState(t, d.config)
 	state.ScopeURL = "https://github.com/old/repository"
+	state.Phase = "launching"
 	d.store.save(state)
 	brokenID, _ := newID()
 	broken := filepath.Join(d.config.Runner.WorkRoot, "build", brokenID)
 	fshelper.EnsureDirectory(broken, 0700)
 	os.WriteFile(filepath.Join(broken, "state.json"), []byte("{"), 0600)
+	invalid := testState(t, d.config)
+	invalid.Schema, invalid.ProcessDone = 2, true
+	if err := d.store.save(invalid); err != nil {
+		t.Fatal(err)
+	}
 	if err := d.recover(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	if d.occupied() != 2 || !d.runs[state.RunID].Uncertain || len(d.statusLocked().Problems) < 2 {
+	if d.occupied() != 3 || !d.runs[state.RunID].Uncertain || len(d.statusLocked().Problems) < 3 {
 		t.Fatal("unknown state did not reserve capacity and produce diagnostics")
+	}
+	session := &fakeSession{}
+	scaler := &targetScaler{daemon: d, target: d.targets["build"], session: session}
+	if err := scaler.Scale(t.Context(), availableMessage(1, 5)); err != nil || len(session.acquired) != 0 {
+		t.Fatal("malformed records did not retain acquisition capacity", err)
 	}
 	response := d.gc(t.Context(), false)
 	if response.Error == "" {
@@ -573,6 +590,252 @@ func TestRecoveryKeepsUnmatchedAndCorruptStateConservative(t *testing.T) {
 	}
 	if _, err := os.Stat(broken); err != nil {
 		t.Fatal("corrupt recovery record was deleted")
+	}
+	if _, err := os.Stat(filepath.Join(filepath.Dir(invalid.RunnerDir), "state.json")); err != nil {
+		t.Fatal("invalid record's stopped marker authorized deletion")
+	}
+}
+
+func TestRecoveredStoppedRunnerLookupFailureReleasesCapacity(t *testing.T) {
+	d, api := testDaemon(t)
+	state := testState(t, d.config)
+	state.ProcessDone, state.Phase = true, "cleaning"
+	if err := d.store.save(state); err != nil {
+		t.Fatal(err)
+	}
+	api.getErr = scaleset.UnauthorizedError
+	if err := d.recover(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	d.reconcile()
+	run := d.runs[state.RunID]
+	if run == nil || !run.CleanupTried || run.State.Error == "" || run.Uncertain ||
+		d.occupied() != 0 || d.active("build") != 0 || !d.drained("") {
+		t.Fatal("remote cleanup failure retained execution capacity or lost diagnostics")
+	}
+	if api.removeCalls != 0 {
+		t.Fatal("lookup failure authorized runner deletion")
+	}
+	if response := d.gc(t.Context(), false); response.Error == "" || d.runs[state.RunID] == nil || d.occupied() != 0 {
+		t.Fatal("gc hid remote cleanup failure or retained its capacity", response)
+	}
+}
+
+func TestStoppedStatePersistenceFailureDoesNotRestoreCapacityReservation(t *testing.T) {
+	for _, operation := range []string{"reconcile", "gc", "stop"} {
+		t.Run(operation, func(t *testing.T) {
+			d, _ := testDaemon(t)
+			state := testState(t, d.config)
+			state.Phase = "registered"
+			// Force the absence observation itself to need a state update.
+			state.Members = []ProcessIdentity{{PID: 2}}
+			run := &activeRun{State: state}
+			d.runs[state.RunID] = run
+			statePath := filepath.Join(filepath.Dir(state.RunnerDir), "state.json")
+			if err := os.MkdirAll(statePath, 0700); err != nil {
+				t.Fatal(err)
+			}
+			switch operation {
+			case "reconcile":
+				d.reconcileRun(run, map[int]processEntry{})
+			case "gc":
+				if response := d.gc(t.Context(), false); response.Error == "" {
+					t.Fatal("gc hid a state persistence failure")
+				}
+			case "stop":
+				if err := d.stop(run, false); err == nil {
+					t.Fatal("stop hid a state persistence failure")
+				}
+			}
+			if !run.Uncertain || !run.GroupStopped || run.State.Error == "" ||
+				d.occupied() != 0 || d.active("build") != 0 || !d.drained("") {
+				t.Fatal("persistence failure restored a verified stopped reservation or lost diagnostics")
+			}
+			if err := d.cleanup(run); err == nil {
+				t.Fatal("persistence failure authorized cleanup")
+			}
+		})
+	}
+}
+
+func TestStoppedRecoveryAllowsUnrelatedRunnerLaunch(t *testing.T) {
+	d, _ := testDaemon(t)
+	cleanupProcesses(t, d)
+	seedDistribution(t, d.config, "#!/bin/sh\nprintf 'Listening for Jobs\\n'\nsleep 30\n")
+	state := testState(t, d.config)
+	state.ProcessDone, state.Phase = true, "cleaning"
+	if err := d.store.save(state); err != nil {
+		t.Fatal(err)
+	}
+	delete(d.targets, "build")
+	otherAPI := newFakeAPI()
+	other := &targetRuntime{Config: d.config.Targets[0], Client: otherAPI, Set: otherAPI.set, Assigned: 1}
+	other.Config.ID = "other"
+	d.targets["other"], d.order = other, []string{"other"}
+	d.config.Capacity.MaxRunners = 1
+	if err := d.recover(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	pumpUntil(t, d, func() bool {
+		for _, run := range d.runs {
+			if run.State.TargetID == "other" && run.State.Ready && !run.Preparing {
+				return true
+			}
+		}
+		return false
+	})
+	if d.occupied() != 1 || d.active("other") != 1 || d.active("build") != 0 || d.runs[state.RunID] == nil {
+		t.Fatal("unrelated launch lost retained state or miscounted shared capacity")
+	}
+}
+
+func TestRecoveryStoppedDiagnosticsDoNotReserveCapacity(t *testing.T) {
+	for _, stopped := range []string{"persisted stopped", "native absence"} {
+		for _, mismatch := range []string{"removed target", "authentication", "registration", "execution user"} {
+			t.Run(stopped+"/"+mismatch, func(t *testing.T) {
+				d, api := testDaemon(t)
+				state := testState(t, d.config)
+				if stopped == "persisted stopped" {
+					state.ProcessDone, state.Phase = true, "cleaning"
+				} else {
+					command := exec.Command("/bin/sh", "-c", "read -r release")
+					input, release, err := os.Pipe()
+					if err != nil {
+						t.Fatal(err)
+					}
+					defer input.Close()
+					defer release.Close()
+					command.Stdin = input
+					command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+					if err := command.Start(); err != nil {
+						t.Fatal(err)
+					}
+					start, err := kernelProcessStart(command.Process.Pid)
+					killErr := command.Process.Kill()
+					command.Wait()
+					if err != nil || killErr != nil {
+						t.Fatal("cannot establish exited process identity", err, killErr)
+					}
+					state.Process = ProcessIdentity{PID: command.Process.Pid, PGID: command.Process.Pid, UID: state.UID, Started: start}
+					state.Phase = "busy"
+				}
+				if err := d.store.save(state); err != nil {
+					t.Fatal(err)
+				}
+				before, err := os.ReadFile(filepath.Join(filepath.Dir(state.RunnerDir), "state.json"))
+				if err != nil {
+					t.Fatal(err)
+				}
+				other := *d.targets["build"]
+				other.Config.ID = "other"
+				d.targets["other"] = &other
+				d.order = append(d.order, "other")
+				switch mismatch {
+				case "removed target":
+					delete(d.targets, "build")
+					d.order = []string{"other"}
+				case "authentication":
+					d.targets["build"].Fault = "authentication failed"
+					d.targets["build"].Set = nil
+				case "registration":
+					d.targets["build"].Config.ScaleSetName = "replacement"
+				case "execution user":
+					d.user.Home += "/changed"
+				}
+				if err := d.recover(t.Context()); err != nil {
+					t.Fatal(err)
+				}
+				run := d.runs[state.RunID]
+				if run == nil || !run.Uncertain || !run.GroupStopped || !run.State.ProcessDone {
+					t.Fatal("stopped process and cleanup uncertainty were not distinguished")
+				}
+				d.reconcileRun(run, map[int]processEntry{})
+				status := d.statusLocked()
+				if status.Occupied != 0 || d.active("build") != 0 || len(status.Problems) == 0 || !d.canStart(&other) {
+					t.Fatal("stopped diagnostic blocked unrelated capacity or lost diagnostics", status)
+				}
+				session := &fakeSession{}
+				scaler := &targetScaler{daemon: d, target: &other, session: session}
+				if err := scaler.Scale(t.Context(), availableMessage(1, 5)); err != nil || len(session.acquired) != d.config.Capacity.MaxRunners {
+					t.Fatal("stopped diagnostic reduced acquisition capacity", err, session.acquired)
+				}
+				other.Pending = 0
+				ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+				defer cancel()
+				if response := d.drain(ctx, ""); response.Error == "" || ctx.Err() != nil || !d.drained("") {
+					t.Fatal("stopped diagnostic blocked drain completion or hid incomplete cleanup", response)
+				}
+				for _, dryRun := range []bool{true, false} {
+					if response := d.gc(t.Context(), dryRun); response.Error == "" {
+						t.Fatal("gc authorized cleanup of an unmatched execution")
+					}
+				}
+				after, err := os.ReadFile(filepath.Join(filepath.Dir(state.RunnerDir), "state.json"))
+				if err != nil || string(before) != string(after) || api.removeCalls != 0 {
+					t.Fatal("unmatched recovery mutated records or removed a registration", err)
+				}
+			})
+		}
+	}
+}
+
+func TestRecoveryPotentiallyLiveDiagnosticsKeepCapacity(t *testing.T) {
+	for _, identity := range []string{"live", "reused PID", "stopped marker with reused PID"} {
+		t.Run(identity, func(t *testing.T) {
+			d, api := testDaemon(t)
+			state := testState(t, d.config)
+			if err := os.MkdirAll(filepath.Join(state.RunnerDir, "bin"), 0700); err != nil {
+				t.Fatal(err)
+			}
+			path := filepath.Join(state.RunnerDir, "bin", "Runner.Listener")
+			if err := os.WriteFile(path, []byte("#!/bin/sh\nread -r release\n"), 0700); err != nil {
+				t.Fatal(err)
+			}
+			input, release, err := os.Pipe()
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer input.Close()
+			defer release.Close()
+			command := exec.Command(path)
+			command.Stdin = input
+			command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+			if err := command.Start(); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { command.Process.Kill(); command.Wait() })
+			start, err := kernelProcessStart(command.Process.Pid)
+			if err != nil {
+				t.Fatal(err)
+			}
+			state.Process = ProcessIdentity{PID: command.Process.Pid, PGID: command.Process.Pid, UID: state.UID, Started: start}
+			state.Phase = "busy"
+			state.ScopeURL = "https://github.com/old/repository"
+			if identity != "live" {
+				state.Process.Started += "-old"
+			}
+			state.ProcessDone = identity == "stopped marker with reused PID"
+			if err := d.store.save(state); err != nil {
+				t.Fatal(err)
+			}
+			if err := d.recover(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			run := d.runs[state.RunID]
+			if run == nil || !run.Uncertain || run.GroupStopped || d.occupied() != 1 || d.active("build") != 1 || d.drained("") {
+				t.Fatal("potentially live execution did not retain capacity and block drain")
+			}
+			scaler := &targetScaler{daemon: d, target: d.targets["build"], session: &fakeSession{}}
+			if err := scaler.Scale(t.Context(), availableMessage(1, 5)); err != nil || d.targets["build"].Pending != d.config.Capacity.MaxRunners-1 {
+				t.Fatal("scaler ignored a potentially live reservation", err)
+			}
+			if response := d.gc(t.Context(), false); response.Error == "" || api.removeCalls != 0 {
+				t.Fatal("gc authorized cleanup of a potentially live execution")
+			}
+			if err := command.Process.Signal(syscall.Signal(0)); err != nil {
+				t.Fatal("recovery or gc signaled the uncertain process", err)
+			}
+		})
 	}
 }
 
