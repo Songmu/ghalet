@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -203,7 +204,47 @@ func TestPreparationWaitingForCacheCanBeCanceled(t *testing.T) {
 	if err := d.Prepare(ctx, testConfig(t), filepath.Join(testDirectory(t), "runner")); err == nil {
 		t.Fatal("canceled cache wait succeeded")
 	}
+
 	if time.Since(start) > time.Second {
 		t.Fatal("cache serialization prevented drain cancellation")
+	}
+}
+
+func TestExtractionDoesNotHoldCacheGate(t *testing.T) {
+	c := testConfig(t)
+	seedDistribution(t, c, "#!/bin/sh\nexit 0\n")
+	d := New(time.Minute)
+	first, second := filepath.Join(testDirectory(t), "first"), filepath.Join(testDirectory(t), "second")
+	started, release := make(chan struct{}), make(chan struct{})
+	d.extract = func(ctx context.Context, archive, dest string) error {
+		if dest == first {
+			close(started)
+			select {
+			case <-release:
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		}
+		return extractRunner(ctx, archive, dest)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	var workers sync.WaitGroup
+	defer func() {
+		cancel()
+		workers.Wait()
+	}()
+	result := make(chan error, 1)
+	workers.Go(func() { result <- d.Prepare(ctx, c, first) })
+	select {
+	case <-started:
+	case <-ctx.Done():
+		t.Fatal("first extraction did not start", ctx.Err())
+	}
+	if err := d.Prepare(ctx, c, second); err != nil {
+		t.Fatal("another extraction retained the cache gate", err)
+	}
+	close(release)
+	if err := <-result; err != nil {
+		t.Fatal(err)
 	}
 }
