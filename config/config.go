@@ -438,8 +438,9 @@ func (c *Config) validateDirectories() error {
 		return fmt.Errorf("resolve config directory: %w", err)
 	}
 	for i, path := range paths {
-		if within(path, c.ManagedFile) || within(path, c.ManagedFile+".lock") {
-			return fmt.Errorf("managedFile must be outside runner and log directories: %s", c.ManagedFile)
+		if within(path, c.ManagedFile) || within(c.ManagedFile, path) ||
+			within(path, c.ManagedFile+".lock") || within(c.ManagedFile+".lock", path) {
+			return fmt.Errorf("managedFile and its lock must not overlap runner or log directories: %s", c.ManagedFile)
 		}
 		if !filepath.IsAbs(path) || path == "/" || within(path, config) || (home != "" && within(path, home)) {
 			return fmt.Errorf("unsafe managed directory %q", path)

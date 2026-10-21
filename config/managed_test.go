@@ -207,6 +207,29 @@ func TestManagedSizeLimitIncludesGeneratedHeader(t *testing.T) {
 	}
 }
 
+func TestManagedFilesCannotContainRuntimeDirectories(t *testing.T) {
+	_, path := managedFixture(t)
+	for _, field := range []struct {
+		name, yaml string
+	}{
+		{"logs", "logs:\n  root: "},
+		{"work", "runner:\n  workRoot: "},
+		{"cache", "runner:\n  cacheRoot: "},
+	} {
+		for _, parent := range []string{"generated", "generated.lock"} {
+			t.Run(field.name+"/"+parent, func(t *testing.T) {
+				data := "managedFile: generated\n" + field.yaml + parent + "/runtime\ntargets: []\n"
+				if _, err := ParseConfig(path, []byte(data)); err == nil || !strings.Contains(err.Error(), "managedFile") {
+					t.Fatal("runtime directory below a managed file or lock was not rejected", err)
+				}
+			})
+		}
+	}
+	if _, err := ParseConfig(path, []byte("managedFile: generated/managed.yaml\nlogs:\n  root: generated/logs\ntargets: []\n")); err != nil {
+		t.Fatal("managed file and runtime directory cannot share a parent", err)
+	}
+}
+
 func TestManagedPathRejectsFinalConfigSymlinkCollision(t *testing.T) {
 	root, _ := managedFixture(t)
 	actual := filepath.Join(root, "actual.yaml")
