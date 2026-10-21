@@ -52,6 +52,34 @@ func TestPreparationFailureStopsAcquisitionBeforeSlowRollback(t *testing.T) {
 	}
 }
 
+func TestGCRefreshesSnapshotAfterSameIdentityStop(t *testing.T) {
+	d, run := startTerminationRunner(t, "#!/bin/sh\nsleep 30 &\nprintf 'Listening for Jobs\\n'\nwait\n")
+	table, err := processTable(t.Context(), []ProcessIdentity{run.State.Process})
+	if err != nil {
+		t.Fatal(err)
+	}
+	api := d.targets["build"].Client.(*fakeScaleAPI)
+	api.mu.Lock()
+	api.removeErr = errTestAPI
+	api.mu.Unlock()
+	d.mu.Lock()
+	identity := run.State.Process
+	done := d.runIO(run, func(work *activeRun) error { return d.stop(work, true) })
+	generation := run.generation
+	d.mu.Unlock()
+	<-done
+	if !run.State.ProcessDone || run.State.Process != identity || run.State.Error == "" {
+		t.Fatal("test did not establish a same-identity stopped execution with pending cleanup")
+	}
+	api.mu.Lock()
+	api.removeErr = nil
+	api.mu.Unlock()
+	result := d.gcRun(t.Context(), run, false, table, identity, generation)
+	if result.Error != "" || d.runs[run.State.RunID] != nil {
+		t.Fatal("GC reused the live snapshot after the stop completed", result)
+	}
+}
+
 func TestShutdownWaitsForWholeGCPass(t *testing.T) {
 	d, _ := testDaemon(t)
 	dir := testDirectory(t)

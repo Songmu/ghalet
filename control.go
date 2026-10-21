@@ -278,6 +278,7 @@ func (d *daemon) gc(ctx context.Context, dryRun bool) controlResponse {
 	config := d.config
 	var runs []*activeRun
 	identities := map[*activeRun]ProcessIdentity{}
+	generations := map[*activeRun]uint64{}
 	var monitored []ProcessIdentity
 	for _, problem := range d.problems {
 		response.Results = append(response.Results, OperationResult{Path: problem.Path, Error: problem.Reason})
@@ -285,6 +286,7 @@ func (d *daemon) gc(ctx context.Context, dryRun bool) controlResponse {
 	for _, run := range d.runs {
 		runs = append(runs, run)
 		identities[run] = run.State.Process
+		generations[run] = run.generation
 		monitored = append(monitored, run.State.Process)
 	}
 	d.mu.Unlock()
@@ -293,7 +295,7 @@ func (d *daemon) gc(ctx context.Context, dryRun bool) controlResponse {
 		return controlResponse{Error: err.Error()}
 	}
 	for _, run := range runs {
-		response.Results = append(response.Results, d.gcRun(ctx, run, dryRun, table, identities[run]))
+		response.Results = append(response.Results, d.gcRun(ctx, run, dryRun, table, identities[run], generations[run]))
 	}
 	d.retentionMu.Lock()
 	expired, err := expireLogs(ctx, config, dryRun)
@@ -310,7 +312,7 @@ func (d *daemon) gc(ctx context.Context, dryRun bool) controlResponse {
 	return response
 }
 
-func (d *daemon) gcRun(ctx context.Context, run *activeRun, dryRun bool, table map[int]processEntry, identity ProcessIdentity) OperationResult {
+func (d *daemon) gcRun(ctx context.Context, run *activeRun, dryRun bool, table map[int]processEntry, identity ProcessIdentity, generation uint64) OperationResult {
 	d.mu.Lock()
 	result := OperationResult{RunID: run.State.RunID, Path: filepath.Dir(run.State.RunnerDir), Action: "cleanup stopped execution"}
 	for run.ioDone != nil && !run.Preparing && !run.Uncertain {
@@ -343,9 +345,19 @@ func (d *daemon) gcRun(ctx context.Context, run *activeRun, dryRun bool, table m
 		d.mu.Unlock()
 		return result
 	}
+	refresh := run.generation != generation
 	done := d.runIO(run, func(work *activeRun) error {
 		state := work.State
-		alive, _, err := inspectGroup(state, table)
+		observed := table
+		if refresh {
+			var err error
+			observed, err = processTable(ctx, []ProcessIdentity{state.Process})
+			if err != nil {
+				result.Error = err.Error()
+				return nil
+			}
+		}
+		alive, _, err := inspectGroup(state, observed)
 		if err != nil {
 			result.Error = err.Error()
 		} else if alive {

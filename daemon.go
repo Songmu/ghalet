@@ -403,6 +403,7 @@ func (d *daemon) runIO(run *activeRun, operation func(*activeRun) error) <-chan 
 		state := run.State
 		*run = work
 		run.State, run.detached, run.ioDone, run.events = state, false, nil, nil
+		run.generation++
 		if work.persistError != "" && work.Target != nil {
 			work.Target.Fault = work.persistError
 		}
