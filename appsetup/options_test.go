@@ -12,6 +12,7 @@ func TestNormalizeScope(t *testing.T) {
 		{"https://github.com/Songmu/ghalet/", "Songmu/ghalet"},
 		{"https://GITHUB.COM/Songmu", "Songmu"},
 		{"owner/repo.name", "owner/repo.name"},
+		{"Owner_09/repo-name._09", "Owner_09/repo-name._09"},
 	} {
 		got, err := normalizeScope(tc.input)
 		if err != nil || got != tc.want {
@@ -25,6 +26,7 @@ func TestNormalizeScope(t *testing.T) {
 		"https://github.com/owner/repo?query", "https://github.com/owner/repo?",
 		"https://github.com/owner/repo#fragment", "https://github.com/owner/re%70o",
 		"owner/repo name", "owner\\repo", "enterprises/example", "owner/日本語",
+		"owner/repo%0A", "owner/repo+name", "owner/repo:name",
 	} {
 		if got, err := normalizeScope(input); err == nil {
 			t.Fatalf("accepted %q as %q", input, got)

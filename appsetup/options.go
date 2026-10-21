@@ -3,6 +3,7 @@ package appsetup
 import (
 	"errors"
 	"net/url"
+	"regexp"
 	"strings"
 
 	"github.com/Songmu/ghalet/credentialstore"
@@ -29,6 +30,8 @@ func validateID(id string) error {
 	return (credentialstore.Options{Name: id, Type: "github-app", Stdin: true, NoDefault: true}).Validate()
 }
 
+var scopePart = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
+
 func normalizeScope(scope string) (string, error) {
 	if scope == "" {
 		return "", errors.New("--scope is required (OWNER/REPO or ORG)")
@@ -50,11 +53,8 @@ func normalizeScope(scope string) (string, error) {
 		if part == "" || part == "." || part == ".." {
 			return "", errors.New("invalid --scope path")
 		}
-		for _, char := range part {
-			if !(char >= 'a' && char <= 'z' || char >= 'A' && char <= 'Z' ||
-				char >= '0' && char <= '9' || char == '-' || char == '_' || char == '.') {
-				return "", errors.New("--scope must use ASCII organization and repository names")
-			}
+		if !scopePart.MatchString(part) {
+			return "", errors.New("--scope must use ASCII organization and repository names")
 		}
 	}
 	return scope, nil
