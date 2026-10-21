@@ -55,6 +55,8 @@ type activeRun struct {
 	Uncertain       bool
 	GroupStopped    bool // Observed absence does not authorize cleanup of uncertain state.
 	CleanupTried    bool
+	CleanupFailures int
+	CleanupRetryAt  time.Time
 	WaitDone        chan struct{}
 	OutputError     error
 	OutputReady     bool
@@ -683,7 +685,7 @@ func (d *daemon) reconcileRun(run *activeRun, table map[int]processEntry) {
 		return
 	}
 	if state.ProcessDone {
-		if !run.CleanupTried {
+		if !run.CleanupTried || (!run.CleanupRetryAt.IsZero() && !time.Now().Before(run.CleanupRetryAt)) {
 			d.cleanup(run)
 		}
 		return
@@ -1176,27 +1178,32 @@ func (d *daemon) cleanup(run *activeRun) error {
 	}
 	d.finishExit(run)
 	run.CleanupTried = true
-	fail := func(err error) error {
+	fail := func(err error, retryable bool) error {
+		run.CleanupRetryAt = time.Time{}
 		run.State.Error = d.secrets.Redact(err.Error())
-		d.save(run)
-		slog.Error("Cleanup incomplete; state and files retained", "event", "cleanup.failed", "runId", d.secrets.Redact(run.State.RunID), "targetId", d.secrets.Redact(run.State.TargetID), "error", d.secrets.Redact(err.Error()))
+		if d.save(run) == nil && retryable && d.ctx.Err() == nil {
+			run.CleanupFailures = min(run.CleanupFailures+1, 7)
+			delay := min(5*time.Second<<uint(run.CleanupFailures-1), 5*time.Minute)
+			run.CleanupRetryAt = time.Now().Add(delay)
+		}
+		slog.Error("Cleanup incomplete; state and files retained", "event", "cleanup.failed", "runId", d.secrets.Redact(run.State.RunID), "targetId", d.secrets.Redact(run.State.TargetID), "error", d.secrets.Redact(err.Error()), "retryAt", run.CleanupRetryAt)
 		return err
 	}
 	if run.OutputError != nil {
-		return fail(fmt.Errorf("collect runner output: %w", run.OutputError))
+		return fail(fmt.Errorf("collect runner output: %w", run.OutputError), false)
 	}
 	if err := d.unregister(run); err != nil {
-		return fail(err)
+		return fail(err, cleanupRetryable(err))
 	}
 	config := run.Config
 	if config == nil {
 		config = d.config
 	}
 	if err := archiveLogs(config, run.State, d.secrets); err != nil {
-		return fail(err)
+		return fail(err, cleanupRetryable(err))
 	}
 	if err := d.store.removeFiles(run.State); err != nil {
-		return fail(err)
+		return fail(err, cleanupRetryable(err))
 	}
 	delete(d.runs, run.State.RunID)
 	d.secrets.Release(run.JITSecrets)
