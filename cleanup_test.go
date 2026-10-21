@@ -81,7 +81,7 @@ func TestArchiveFailurePreservesOriginalAndReleasesProcessCapacity(t *testing.T)
 	if err := d.cleanup(run); err == nil {
 		t.Fatal("archive failure was ignored")
 	}
-	if d.occupied() != 0 || d.runs[state.RunID] == nil {
+	if d.occupied() != 0 || d.runs[state.RunID] == nil || !run.CleanupRetryAt.IsZero() {
 		t.Fatal("file-only cleanup should retain state, not a process capacity slot")
 	}
 	if data, err := os.ReadFile(source); err != nil || string(data) != "must-survive" {

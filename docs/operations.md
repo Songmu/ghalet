@@ -417,9 +417,16 @@ defaults to `$STATE_DIRECTORY/logs` when `STATE_DIRECTORY` is set, otherwise
 An explicit `logs.root` overrides this default; relative values are
 still resolved against the selected config's directory. Credentials and
 workspace contents are not archived. Failed archives preserve the original
-logs and state. Once processes are confirmed stopped, file-only cleanup
-failures do not hold execution capacity; `gc` or the next startup retries
-them. `logs.retention` expires only complete saved archives (also checked
+logs and state. Once processes are confirmed stopped, cleanup failures do not
+hold execution capacity or indefinitely block drain completion. During normal
+operation, transient network/API failures (timeouts, rate limits and recoverable
+server errors) and temporary filesystem failures are retried after 5 seconds,
+with exponential waits capped at 5 minutes. Authentication/permission errors,
+identity mismatches, invalid state and output-collection failures require
+operator attention, not automatic retries. `gc` retries immediately regardless
+of the wait; the next startup also revalidates retained records. Unknown
+process or registration identities never authorize cleanup.
+`logs.retention` expires only complete saved archives (also checked
 hourly). There is no disk quota, disk-pressure monitor or automatic external
 log shipping.
 

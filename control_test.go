@@ -134,11 +134,11 @@ func TestCleanupDoesNotCountPendingObserversAsAttempt(t *testing.T) {
 	state.ProcessDone = true
 	run := &activeRun{State: state, WaitDone: make(chan struct{})}
 	d.runs[state.RunID] = run
-	if err := d.cleanup(run); err == nil || run.CleanupTried || d.drained("build") {
+	if err := d.cleanup(run); err == nil || run.CleanupTried || !run.CleanupRetryAt.IsZero() || d.drained("build") {
 		t.Fatal("pending output counted as a cleanup attempt", err)
 	}
 	close(run.WaitDone)
-	if err := d.cleanup(run); err == nil || run.CleanupTried || d.drained("build") {
+	if err := d.cleanup(run); err == nil || run.CleanupTried || !run.CleanupRetryAt.IsZero() || d.drained("build") {
 		t.Fatal("pending exit observation counted as a cleanup attempt", err)
 	}
 }
@@ -320,7 +320,7 @@ func TestGCReportsOutputCollectionFailureWithoutDeletingLogs(t *testing.T) {
 	close(run.WaitDone)
 	d.runs[state.RunID] = run
 	response := d.gc(t.Context(), false)
-	if response.Error == "" || d.runs[state.RunID] == nil || !strings.Contains(state.Error, "collect runner output") {
+	if response.Error == "" || d.runs[state.RunID] == nil || !strings.Contains(state.Error, "collect runner output") || !run.CleanupRetryAt.IsZero() {
 		t.Fatal("output failure was ignored", response)
 	}
 	if data, err := os.ReadFile(source); err != nil || string(data) != "retained output" {
