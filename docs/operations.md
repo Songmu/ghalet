@@ -350,8 +350,15 @@ invent its exit code. Descendants observed in the original process group can
 be recovered; escaped descendants cannot be completely detected or isolated.
 
 Empty and zombie-only process-group snapshots require kernel revalidation.
-Linux checks a fresh `/proc` enumeration, retrying disappearing-PID races
-without silently skipping them; macOS queries `kern.proc.pgrp`. A group is
+Linux checks kernel group membership before reading each enumerated PID's
+`/proc` state, so a PID identified outside the group need not remain readable.
+Disappearance of a known group member still triggers bounded retries.
+If an unclassified PID disappears, a second enumeration must also find only
+previously identified, single-threaded zombies in the group, so a child forked
+before that disappearance can be discovered. This bounded check tolerates
+unrelated PID churn; it is not an atomic snapshot against deliberately timed,
+repeated fork/exit chains, consistent with the trusted-job model.
+macOS queries `kern.proc.pgrp`. A group is
 treated as stopped only when absent or when every fresh member was already
 observed as a zombie with the same kernel identity. Newly observed zombies
 cannot establish safety because they may have just forked. Failed
