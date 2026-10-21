@@ -364,6 +364,9 @@ records, files and diagnostics remain; stopping alone does not authorize deletio
 Potentially live or unverifiable processes still reserve conservative capacity.
 Malformed records also reserve capacity because they provide no trusted identity
 with which to prove process absence; they are never used to authorize cleanup.
+Ordinary files directly in workRoot or a target directory are retained and logged
+as warnings without reserving capacity; unrecognized directories and symlinks
+remain conservative diagnostics.
 Recovery of a surviving process does not recreate `Wait` or
 invent its exit code. Descendants observed in the original process group can
 be recovered; escaped descendants cannot be completely detected or isolated.

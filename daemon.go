@@ -268,6 +268,10 @@ func (d *daemon) recover(ctx context.Context) error {
 		return err
 	}
 	for _, record := range records {
+		if record.NonExecutionFile {
+			slog.Warn("Non-execution file ignored", "event", "recovery.unrelated_file", "path", d.secrets.Redact(record.Path))
+			continue
+		}
 		if record.Err != nil {
 			d.problems = append(d.problems, Problem{Path: record.Path, Reason: record.Err.Error()})
 			continue
