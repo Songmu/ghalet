@@ -13,6 +13,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	settings "github.com/Songmu/ghalet/config"
 )
 
 // DaemonInfo identifies an accessible daemon and its running snapshot.
@@ -31,7 +33,7 @@ func ListDaemons(ctx context.Context, config string) ([]DaemonInfo, error) {
 func discoverDaemons(ctx context.Context, root, config string) ([]DaemonInfo, error) {
 	if config != "" {
 		var err error
-		config, err = configPath(config)
+		config, err = settings.ResolvePath(config)
 		if err != nil {
 			return nil, err
 		}

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	settings "github.com/Songmu/ghalet/config"
 	"github.com/Songmu/ghalet/logreduct"
 	"github.com/actions/scaleset"
 )
@@ -35,7 +36,7 @@ func readProtected(path string) (string, error) {
 	return strings.TrimSpace(string(data)), nil
 }
 
-func newScaleClient(ctx context.Context, target Target, secret *logreduct.Redactor) (*scaleset.Client, error) {
+func newScaleClient(ctx context.Context, target settings.Target, secret *logreduct.Redactor) (*scaleset.Client, error) {
 	credential := target.Credential
 	options := []scaleset.HTTPOption{scaleset.WithTimeout(apiTimeout), scaleset.WithRetryMax(0)}
 	info := scaleset.SystemInfo{System: "ghalet", Version: Version, CommitSHA: Revision}
@@ -56,7 +57,7 @@ func newScaleClient(ctx context.Context, target Target, secret *logreduct.Redact
 	var err error
 	switch credential.Type {
 	case "gh":
-		u, _ := scopeURL(target.URL)
+		u, _ := settings.ScopeURL(target.URL)
 		host := credential.Hostname
 		if host == "" {
 			host = u.Host
@@ -105,15 +106,8 @@ type scaleAPI interface {
 	RemoveRunner(context.Context, int64) error
 }
 
-func runnerGroupName(name string) string {
-	if name == "" {
-		return scaleset.DefaultRunnerGroup
-	}
-	return name
-}
-
-func registration(ctx context.Context, client scaleAPI, target Target, create bool) (*scaleset.RunnerScaleSet, error) {
-	groupName := runnerGroupName(target.RunnerGroup)
+func registration(ctx context.Context, client scaleAPI, target settings.Target, create bool) (*scaleset.RunnerScaleSet, error) {
+	groupName := settings.RunnerGroupName(target.RunnerGroup)
 	group, err := client.GetRunnerGroupByName(ctx, groupName)
 	if err != nil {
 		return nil, fmt.Errorf("reference existing runner group %q (requires runner administration permission): %w", groupName, err)

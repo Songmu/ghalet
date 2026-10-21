@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	settings "github.com/Songmu/ghalet/config"
 	"github.com/Songmu/ghalet/fshelper"
 	"github.com/Songmu/ghalet/logreduct"
 )
@@ -95,7 +96,7 @@ type archivedRun struct {
 	ArchivedAt time.Time `json:"archivedAt"`
 }
 
-func archiveLogs(c *Config, state *RunState, secret *logreduct.Redactor) error {
+func archiveLogs(c *settings.Config, state *RunState, secret *logreduct.Redactor) error {
 	if !c.Logs.Preserve {
 		return nil
 	}
@@ -237,7 +238,7 @@ func syncLogArchive(path string) error {
 	return nil
 }
 
-func expireLogs(ctx context.Context, c *Config, dryRun bool) ([]OperationResult, error) {
+func expireLogs(ctx context.Context, c *settings.Config, dryRun bool) ([]OperationResult, error) {
 	base := filepath.Join(c.Logs.Root, "runs")
 	if err := fshelper.CheckDirectory(base); err != nil {
 		if errors.Is(err, os.ErrNotExist) {

@@ -7,10 +7,11 @@ import (
 	"syscall"
 
 	"github.com/Songmu/ghalet"
+	settings "github.com/Songmu/ghalet/config"
 )
 
 func run(ctx context.Context, path string) error {
-	config, err := ghalet.LoadConfig(path)
+	config, err := settings.LoadConfig(path)
 	if err != nil {
 		return err
 	}

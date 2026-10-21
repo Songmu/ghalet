@@ -16,7 +16,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Songmu/ghalet"
+	settings "github.com/Songmu/ghalet/config"
 )
 
 func testDirectory(t *testing.T) string {
@@ -60,7 +60,7 @@ func TestDefaultCredentialConfig(t *testing.T) {
 		if err := os.WriteFile(path, updated, 0600); err != nil {
 			t.Fatal(err)
 		}
-		config, err := ghalet.LoadConfig(path)
+		config, err := settings.LoadConfig(path)
 		if err != nil {
 			t.Fatal(err, string(updated))
 		}
@@ -107,7 +107,7 @@ func TestDefaultCredentialConfigPreservesExplicitAliases(t *testing.T) {
 	if err := os.WriteFile(path, updated, 0600); err != nil {
 		t.Fatal(err)
 	}
-	config, err := ghalet.LoadConfig(path)
+	config, err := settings.LoadConfig(path)
 	if err != nil {
 		t.Fatal(err, string(updated))
 	}

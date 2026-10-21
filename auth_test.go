@@ -14,6 +14,7 @@ import (
 	"strings"
 	"testing"
 
+	settings "github.com/Songmu/ghalet/config"
 	"github.com/Songmu/ghalet/logreduct"
 	"github.com/actions/scaleset"
 )
@@ -94,7 +95,7 @@ func TestDirectAPILogRedactionWithOrdinaryHandler(t *testing.T) {
 			data := strings.Replace(readFixture(t, "config/base.yaml"), "tokenEnv: GHALET_TEST_TOKEN", "tokenFile: missing-"+credential, 1)
 			data = strings.Replace(data, "id: build", "id: "+credential, 1)
 			path := writeConfig(t, data)
-			config, err := LoadConfig(path)
+			config, err := settings.LoadConfig(path)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -164,11 +165,11 @@ func TestSharedAppKeyUsesTargetInstallations(t *testing.T) {
 	c := testConfig(t)
 	first := c.Targets[0]
 	first.URL = "https://github.com/first"
-	first.Credential = Credential{Type: "github-app", ClientID: "app-client", PrivateKeyFile: "/protected/app.pem"}
+	first.Credential = settings.Credential{Type: "github-app", ClientID: "app-client", PrivateKeyFile: "/protected/app.pem"}
 	first.InstallationID = 100
 	second := first
 	second.ID, second.URL, second.InstallationID = "second", "https://github.com/second", 200
-	c.Targets = []Target{first, second}
+	c.Targets = []settings.Target{first, second}
 	if err := c.Validate(); err != nil {
 		t.Fatal("shared App key rejected across installations", err)
 	}
@@ -187,7 +188,7 @@ func TestGhAuthenticationUsesHostAndFiniteCommand(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", dir+":"+os.Getenv("PATH"))
-	c.Targets[0].Credential = Credential{Type: "gh"}
+	c.Targets[0].Credential = settings.Credential{Type: "gh"}
 	secret := &logreduct.Redactor{}
 	if _, err := newScaleClient(t.Context(), c.Targets[0], secret); err != nil {
 		t.Fatal(err)

@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	settings "github.com/Songmu/ghalet/config"
 	"github.com/Songmu/ghalet/fshelper"
 )
 
@@ -36,7 +37,7 @@ func TestConfigCanonicalTrustedBases(t *testing.T) {
 				stateBase, cacheBase = filepath.Join(canonical, "state", "ghalet"), filepath.Join(canonical, "cache", "ghalet")
 			}
 			path := filepath.Join(link, "config.yaml")
-			c, err := ParseConfig(path, []byte(readFixture(t, "config/base.yaml")))
+			c, err := settings.ParseConfig(path, []byte(readFixture(t, "config/base.yaml")))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -74,7 +75,7 @@ func TestConfigCanonicalLogRootAndOverlap(t *testing.T) {
 		t.Fatal(err)
 	}
 	content := readFixture(t, "config/base.yaml") + "logs:\n  root: " + link + "\n"
-	parsed, err := ParseConfig(c.Path, []byte(content))
+	parsed, err := settings.ParseConfig(c.Path, []byte(content))
 	if err != nil || parsed.Logs.Root != canonical {
 		t.Fatal("explicit log base was not canonicalized", parsed, err)
 	}
@@ -87,7 +88,7 @@ func TestConfigCanonicalLogRootAndOverlap(t *testing.T) {
 	if err := os.Symlink(c.Runner.WorkRoot, link); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ParseConfig(c.Path, []byte(content)); err == nil || !strings.Contains(err.Error(), "overlap") {
+	if _, err := settings.ParseConfig(c.Path, []byte(content)); err == nil || !strings.Contains(err.Error(), "overlap") {
 		t.Fatal("symlink alias bypassed storage overlap validation", err)
 	}
 }
@@ -103,7 +104,7 @@ func TestConfigDoesNotResolveManagedStorageChildren(t *testing.T) {
 			if err := os.Symlink(outside, path); err != nil {
 				t.Fatal(err)
 			}
-			c, err := ParseConfig(writeConfig(t, ""), []byte(readFixture(t, "config/base.yaml")))
+			c, err := settings.ParseConfig(writeConfig(t, ""), []byte(readFixture(t, "config/base.yaml")))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -139,7 +140,7 @@ func TestConfigStateDirectories(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			c, err := LoadConfig(writeConfig(t, testYAML))
+			c, err := settings.LoadConfig(writeConfig(t, testYAML))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -150,7 +151,7 @@ func TestConfigStateDirectories(t *testing.T) {
 			if c.Runner.WorkRoot != wantWork {
 				t.Fatalf("got work root %q, want %q", c.Runner.WorkRoot, wantWork)
 			}
-			other, err := LoadConfig(writeConfig(t, testYAML))
+			other, err := settings.LoadConfig(writeConfig(t, testYAML))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -188,7 +189,7 @@ func TestConfigRunnerCacheDirectory(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			c, err := LoadConfig(writeConfig(t, readFixture(t, "config/base.yaml")))
+			c, err := settings.LoadConfig(writeConfig(t, readFixture(t, "config/base.yaml")))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -229,7 +230,7 @@ func TestConfigServiceDirectories(t *testing.T) {
 					}
 				}
 			}
-			c, err := LoadConfig(writeConfig(t, readFixture(t, "config/base.yaml")))
+			c, err := settings.LoadConfig(writeConfig(t, readFixture(t, "config/base.yaml")))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -267,7 +268,7 @@ func TestConfigRejectsInvalidServiceDirectories(t *testing.T) {
 				t.Setenv("XDG_STATE_HOME", testDirectory(t))
 				t.Setenv("XDG_CACHE_HOME", testDirectory(t))
 				t.Setenv(name, value)
-				if _, err := LoadConfig(writeConfig(t, readFixture(t, "config/base.yaml"))); err == nil ||
+				if _, err := settings.LoadConfig(writeConfig(t, readFixture(t, "config/base.yaml"))); err == nil ||
 					!strings.Contains(err.Error(), name+" must specify a single absolute directory") {
 					t.Fatalf("expected invalid service directory to be rejected, got %v", err)
 				}
@@ -280,7 +281,7 @@ func TestConfigServiceLogRootOverride(t *testing.T) {
 	t.Setenv("STATE_DIRECTORY", testDirectory(t))
 	t.Setenv("CACHE_DIRECTORY", testDirectory(t))
 	path := writeConfig(t, readFixture(t, "config/base.yaml")+"logs:\n  root: archived-logs\n")
-	c, err := LoadConfig(path)
+	c, err := settings.LoadConfig(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -306,7 +307,7 @@ func TestConfigRejectsOverlappingXDGDirectories(t *testing.T) {
 			case "cache in runs":
 				t.Setenv("XDG_CACHE_HOME", filepath.Join(stateHome, "ghalet", "runs"))
 			}
-			if _, err := LoadConfig(writeConfig(t, content)); err == nil || !strings.Contains(err.Error(), "must not overlap") {
+			if _, err := settings.LoadConfig(writeConfig(t, content)); err == nil || !strings.Contains(err.Error(), "must not overlap") {
 				t.Fatalf("expected overlapping directories to be rejected, got %v", err)
 			}
 		})
@@ -328,7 +329,7 @@ func TestConfigRejectsOverlappingServiceDirectories(t *testing.T) {
 			}
 			t.Setenv("STATE_DIRECTORY", stateDir)
 			t.Setenv("CACHE_DIRECTORY", cacheDir)
-			if _, err := LoadConfig(writeConfig(t, content)); err == nil || !strings.Contains(err.Error(), "must not overlap") {
+			if _, err := settings.LoadConfig(writeConfig(t, content)); err == nil || !strings.Contains(err.Error(), "must not overlap") {
 				t.Fatalf("expected overlapping directories to be rejected, got %v", err)
 			}
 		})
@@ -342,7 +343,7 @@ func TestConfigLogRootOverride(t *testing.T) {
 	for _, root := range []string{"logs", "custom/logs", filepath.Join(testDirectory(t), "logs")} {
 		t.Run(root, func(t *testing.T) {
 			path := writeConfig(t, testYAML+"logs:\n  root: "+root+"\n")
-			c, err := LoadConfig(path)
+			c, err := settings.LoadConfig(path)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -372,11 +373,11 @@ func TestConfigLogs(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			path := writeConfig(t, testYAML+tc.logs)
-			c, err := LoadConfig(path)
+			c, err := settings.LoadConfig(path)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if c.Logs.Preserve != tc.preserve || c.Logs.Retention != Duration(tc.retention) {
+			if c.Logs.Preserve != tc.preserve || c.Logs.Retention != settings.Duration(tc.retention) {
 				t.Fatalf("unexpected log settings: %+v", c.Logs)
 			}
 			if tc.name == "all fields" && c.Logs.Root != filepath.Join(filepath.Dir(path), "archived-logs") {
@@ -427,7 +428,7 @@ func TestConfigLogRootWithoutHome(t *testing.T) {
 						content += "logs:\n  root: " + tc.root + "\n"
 					}
 					path := writeConfig(t, content)
-					c, err := LoadConfig(path)
+					c, err := settings.LoadConfig(path)
 					wantErr := tc.wantErr
 					if !filepath.IsAbs(env.value) {
 						wantErr = "resolve state directory"
@@ -464,16 +465,16 @@ func TestConfigLogRootWithoutHome(t *testing.T) {
 func TestConfigDefaultsAndRelativePaths(t *testing.T) {
 	testYAML := readFixture(t, "config/base.yaml")
 	c := testConfig(t)
-	if c.Capacity.MaxRunners != 2 || c.Runner.StartupTimeout != Duration(2*time.Minute) ||
-		c.Runner.DrainTimeout != Duration(10*time.Minute) ||
-		!c.Logs.Preserve || c.Logs.Retention != Duration(7*24*time.Hour) {
+	if c.Capacity.MaxRunners != 2 || c.Runner.StartupTimeout != settings.Duration(2*time.Minute) ||
+		c.Runner.DrainTimeout != settings.Duration(10*time.Minute) ||
+		!c.Logs.Preserve || c.Logs.Retention != settings.Duration(7*24*time.Hour) {
 		t.Fatalf("unexpected defaults: %+v", c)
 	}
 	if c.Runner.WorkRoot != filepath.Join(os.Getenv("XDG_STATE_HOME"), "ghalet", "runs") {
 		t.Fatal("work root must be under XDG_STATE_HOME")
 	}
 	path := writeConfig(t, strings.Replace(testYAML, "tokenEnv: GHALET_TEST_TOKEN", "tokenFile: credentials/token", 1))
-	c, err := LoadConfig(path)
+	c, err := settings.LoadConfig(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -487,17 +488,17 @@ func TestConfigCredentialDefaults(t *testing.T) {
 	const credential = "    credential:\n      type: pat\n      tokenEnv: GHALET_TEST_TOKEN\n"
 	for _, tc := range []struct {
 		name, input string
-		want        Credential
+		want        settings.Credential
 	}{
-		{"omitted", "", Credential{Type: "gh"}},
-		{"empty", "    credential: {}\n", Credential{Type: "gh"}},
-		{"hostname only", "    credential:\n      hostname: github.com\n", Credential{Type: "gh", Hostname: "github.com"}},
-		{"explicit gh", "    credential:\n      type: gh\n", Credential{Type: "gh"}},
-		{"explicit PAT", credential, Credential{Type: "pat", TokenEnv: "GHALET_TEST_TOKEN"}},
+		{"omitted", "", settings.Credential{Type: "gh"}},
+		{"empty", "    credential: {}\n", settings.Credential{Type: "gh"}},
+		{"hostname only", "    credential:\n      hostname: github.com\n", settings.Credential{Type: "gh", Hostname: "github.com"}},
+		{"explicit gh", "    credential:\n      type: gh\n", settings.Credential{Type: "gh"}},
+		{"explicit PAT", credential, settings.Credential{Type: "pat", TokenEnv: "GHALET_TEST_TOKEN"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			content := strings.Replace(testYAML, credential, tc.input, 1)
-			c, err := LoadConfig(writeConfig(t, content))
+			c, err := settings.LoadConfig(writeConfig(t, content))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -517,14 +518,14 @@ func TestConfigMinimal(t *testing.T) {
 		{"with schema comment", "# yaml-language-server: $schema=https://raw.githubusercontent.com/Songmu/ghalet/main/schema.yaml\n\n"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			c, err := LoadConfig(writeConfig(t, tc.prefix+input))
+			c, err := settings.LoadConfig(writeConfig(t, tc.prefix+input))
 			if err != nil {
 				t.Fatal(err)
 			}
 			target := c.Targets[0]
-			if target.Credential != (Credential{Type: "gh"}) ||
-				target.ScaleSetName != target.ID || target.Scaling != (ScalingConfig{MaxRunners: 2}) ||
-				c.Runner.Version != defaultRunnerVersion {
+			if target.Credential != (settings.Credential{Type: "gh"}) ||
+				target.ScaleSetName != target.ID || target.Scaling != (settings.ScalingConfig{MaxRunners: 2}) ||
+				c.Runner.Version != settings.DefaultRunnerVersion {
 				t.Fatalf("unexpected minimal config defaults: %+v", c)
 			}
 		})
@@ -536,14 +537,14 @@ func TestConfigRunnerVersionDefault(t *testing.T) {
 	for _, tc := range []struct {
 		name, runner, want string
 	}{
-		{"omitted runner", "", defaultRunnerVersion},
-		{"empty runner", "runner: {}\n", defaultRunnerVersion},
-		{"omitted version", "runner:\n  startupTimeout: 3m\n", defaultRunnerVersion},
+		{"omitted runner", "", settings.DefaultRunnerVersion},
+		{"empty runner", "runner: {}\n", settings.DefaultRunnerVersion},
+		{"omitted version", "runner:\n  startupTimeout: 3m\n", settings.DefaultRunnerVersion},
 		{"explicit version", "runner:\n  version: \"2.337.0\"\n", "2.337.0"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			content := strings.Replace(testYAML, "runner:\n  version: \"2.338.0\"\n", tc.runner, 1)
-			c, err := LoadConfig(writeConfig(t, content))
+			c, err := settings.LoadConfig(writeConfig(t, content))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -559,17 +560,17 @@ func TestConfigScalingDefaults(t *testing.T) {
 	const scaling = "    scaling:\n      minRunners: 0\n      maxRunners: 2\n"
 	for _, tc := range []struct {
 		name, input string
-		want        ScalingConfig
+		want        settings.ScalingConfig
 	}{
-		{"omitted", "", ScalingConfig{MaxRunners: 2}},
-		{"empty", "    scaling: {}\n", ScalingConfig{MaxRunners: 2}},
-		{"minimum only", "    scaling:\n      minRunners: 1\n", ScalingConfig{MinRunners: 1, MaxRunners: 2}},
-		{"maximum only", "    scaling:\n      maxRunners: 4\n", ScalingConfig{MaxRunners: 4}},
-		{"explicit", "    scaling:\n      minRunners: 1\n      maxRunners: 3\n", ScalingConfig{MinRunners: 1, MaxRunners: 3}},
+		{"omitted", "", settings.ScalingConfig{MaxRunners: 2}},
+		{"empty", "    scaling: {}\n", settings.ScalingConfig{MaxRunners: 2}},
+		{"minimum only", "    scaling:\n      minRunners: 1\n", settings.ScalingConfig{MinRunners: 1, MaxRunners: 2}},
+		{"maximum only", "    scaling:\n      maxRunners: 4\n", settings.ScalingConfig{MaxRunners: 4}},
+		{"explicit", "    scaling:\n      minRunners: 1\n      maxRunners: 3\n", settings.ScalingConfig{MinRunners: 1, MaxRunners: 3}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			content := strings.Replace(testYAML, scaling, tc.input, 1)
-			c, err := LoadConfig(writeConfig(t, content))
+			c, err := settings.LoadConfig(writeConfig(t, content))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -582,12 +583,12 @@ func TestConfigScalingDefaults(t *testing.T) {
 
 func TestConfigScalingAliasDefaults(t *testing.T) {
 	content := readFixture(t, "config/scaling-alias.yaml")
-	c, err := LoadConfig(writeConfig(t, content))
+	c, err := settings.LoadConfig(writeConfig(t, content))
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, target := range c.Targets {
-		if target.Scaling != (ScalingConfig{MaxRunners: 2}) {
+		if target.Scaling != (settings.ScalingConfig{MaxRunners: 2}) {
 			t.Fatalf("unexpected aliased scaling defaults: %+v", target.Scaling)
 		}
 	}
@@ -625,7 +626,7 @@ func TestConfigTargetScope(t *testing.T) {
 	} {
 		t.Run(tc.input, func(t *testing.T) {
 			content := strings.Replace(testYAML, "https://github.com/owner/repository", tc.input, 1)
-			c, err := LoadConfig(writeConfig(t, content))
+			c, err := settings.LoadConfig(writeConfig(t, content))
 			if tc.want == "" {
 				if err == nil {
 					t.Fatal("invalid registration accepted")
@@ -657,7 +658,7 @@ func TestConfigScaleSetName(t *testing.T) {
 			if tc.scaleSetName != "" {
 				content = strings.Replace(content, "    scaling:", "    scaleSet: "+tc.scaleSetName+"\n    scaling:", 1)
 			}
-			c, err := LoadConfig(writeConfig(t, content))
+			c, err := settings.LoadConfig(writeConfig(t, content))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -690,7 +691,7 @@ runner:`
 			content := strings.Replace(testYAML, "    scaleSet: build\n", "", 1)
 			second := strings.Replace(extra, "owner/repository", tc.scope, 1)
 			content = strings.Replace(content, "\nrunner:", second, 1)
-			c, err := LoadConfig(writeConfig(t, content))
+			c, err := settings.LoadConfig(writeConfig(t, content))
 			if !tc.valid {
 				if err == nil || !strings.Contains(err.Error(), "duplicate scope/group/scale set registration") {
 					t.Fatalf("expected duplicate registration, got %v", err)
@@ -730,7 +731,7 @@ runner:`
 			t.Run(registration+"/"+tc.prefix, func(t *testing.T) {
 				content := strings.Replace(testYAML, "https://github.com/owner/repository", registration, 1)
 				content = strings.Replace(content, "\nrunner:", strings.Replace(extra, "REGISTRATION", tc.prefix+registration, 1), 1)
-				_, err := LoadConfig(writeConfig(t, content))
+				_, err := settings.LoadConfig(writeConfig(t, content))
 				if err == nil {
 					t.Fatal("duplicate or invalid registration was accepted")
 				}
@@ -765,7 +766,7 @@ func TestConfigAliases(t *testing.T) {
 			content = strings.NewReplacer("CREDENTIAL", tc.credential,
 				"FIRST_INSTALLATION", firstInstallation, "SECOND_INSTALLATION", secondInstallation).Replace(content)
 			path := writeConfig(t, content)
-			c, err := LoadConfig(path)
+			c, err := settings.LoadConfig(path)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -795,23 +796,23 @@ func TestConfigAliases(t *testing.T) {
 func TestConfigTargetCredentials(t *testing.T) {
 	for _, tc := range []struct {
 		name           string
-		credential     Credential
+		credential     settings.Credential
 		installationID int64
 		valid          bool
 	}{
-		{"gh", Credential{Type: "gh"}, 0, true},
-		{"gh host", Credential{Type: "gh", Hostname: "github.com"}, 0, true},
-		{"wrong gh host", Credential{Type: "gh", Hostname: "ghe.example.com"}, 0, false},
-		{"gh with PAT", Credential{Type: "gh", TokenEnv: "TOKEN"}, 0, false},
-		{"PAT file", Credential{Type: "pat", TokenFile: "/private/token"}, 0, true},
-		{"PAT invalid env", Credential{Type: "pat", TokenEnv: "BAD-NAME"}, 0, false},
-		{"PAT host", Credential{Type: "pat", TokenEnv: "TOKEN", Hostname: "github.com"}, 0, false},
-		{"App", Credential{Type: "github-app", ClientID: "app", PrivateKeyFile: "/private/app.pem"}, 100, true},
-		{"App missing installation", Credential{Type: "github-app", ClientID: "app", PrivateKeyFile: "/private/app.pem"}, 0, false},
-		{"App negative installation", Credential{Type: "github-app", ClientID: "app", PrivateKeyFile: "/private/app.pem"}, -1, false},
-		{"App missing key", Credential{Type: "github-app", ClientID: "app"}, 100, false},
-		{"App with PAT", Credential{Type: "github-app", ClientID: "app", PrivateKeyFile: "/private/app.pem", TokenEnv: "TOKEN"}, 100, false},
-		{"unknown type", Credential{Type: "other"}, 0, false},
+		{"gh", settings.Credential{Type: "gh"}, 0, true},
+		{"gh host", settings.Credential{Type: "gh", Hostname: "github.com"}, 0, true},
+		{"wrong gh host", settings.Credential{Type: "gh", Hostname: "ghe.example.com"}, 0, false},
+		{"gh with PAT", settings.Credential{Type: "gh", TokenEnv: "TOKEN"}, 0, false},
+		{"PAT file", settings.Credential{Type: "pat", TokenFile: "/private/token"}, 0, true},
+		{"PAT invalid env", settings.Credential{Type: "pat", TokenEnv: "BAD-NAME"}, 0, false},
+		{"PAT host", settings.Credential{Type: "pat", TokenEnv: "TOKEN", Hostname: "github.com"}, 0, false},
+		{"App", settings.Credential{Type: "github-app", ClientID: "app", PrivateKeyFile: "/private/app.pem"}, 100, true},
+		{"App missing installation", settings.Credential{Type: "github-app", ClientID: "app", PrivateKeyFile: "/private/app.pem"}, 0, false},
+		{"App negative installation", settings.Credential{Type: "github-app", ClientID: "app", PrivateKeyFile: "/private/app.pem"}, -1, false},
+		{"App missing key", settings.Credential{Type: "github-app", ClientID: "app"}, 100, false},
+		{"App with PAT", settings.Credential{Type: "github-app", ClientID: "app", PrivateKeyFile: "/private/app.pem", TokenEnv: "TOKEN"}, 100, false},
+		{"unknown type", settings.Credential{Type: "other"}, 0, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			c := testConfig(t)
@@ -878,7 +879,7 @@ func TestConfigRejectsInvalidInput(t *testing.T) {
 	}
 	for name, input := range cases {
 		t.Run(name, func(t *testing.T) {
-			if _, err := LoadConfig(writeConfig(t, input)); err == nil {
+			if _, err := settings.LoadConfig(writeConfig(t, input)); err == nil {
 				t.Fatal("invalid config was accepted")
 			}
 		})
@@ -895,7 +896,7 @@ func TestConfigRejectsRunnerInputEnvironmentCaseInsensitively(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			input := strings.Replace(testYAML, `"2.338.0"`, "\"2.338.0\"\n  env:\n    "+name+": \"true\"", 1)
-			if _, err := LoadConfig(writeConfig(t, input)); err == nil {
+			if _, err := settings.LoadConfig(writeConfig(t, input)); err == nil {
 				t.Fatal("runner input override was accepted", name)
 			}
 		})
@@ -914,18 +915,18 @@ func TestConfigDurationDecoding(t *testing.T) {
 		{"1h30m", 90 * time.Minute},
 	} {
 		t.Run(tc.input, func(t *testing.T) {
-			c, err := LoadConfig(writeConfig(t, testYAML+"logs:\n  retention: "+tc.input+"\n"))
+			c, err := settings.LoadConfig(writeConfig(t, testYAML+"logs:\n  retention: "+tc.input+"\n"))
 			if err != nil {
 				t.Fatal(err)
 			}
-			if c.Logs.Retention != Duration(tc.want) {
+			if c.Logs.Retention != settings.Duration(tc.want) {
 				t.Fatalf("got %v, want %v", time.Duration(c.Logs.Retention), tc.want)
 			}
 		})
 	}
 	for _, input := range []string{"0s", "-1d", "invalid", "2562048d", "2562048h", "true", "[7d]", "{days: 7}", "1h1d", "2m1d", "1d2h"} {
 		t.Run(input, func(t *testing.T) {
-			if _, err := LoadConfig(writeConfig(t, testYAML+"logs:\n  retention: "+input+"\n")); err == nil {
+			if _, err := settings.LoadConfig(writeConfig(t, testYAML+"logs:\n  retention: "+input+"\n")); err == nil {
 				t.Fatal("invalid duration was accepted")
 			}
 		})
@@ -954,26 +955,26 @@ func TestConfigDuplicateRegistrationAndID(t *testing.T) {
 func TestConfigValidationOrder(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
-		change func(*Config)
+		change func(*settings.Config)
 		want   string
 	}{
-		{"ID before scope", func(c *Config) {
+		{"ID before scope", func(c *settings.Config) {
 			c.Targets[0].ID, c.Targets[0].URL = "!", "invalid"
 		}, `invalid or duplicate target id "!"`},
-		{"scope before credential", func(c *Config) {
+		{"scope before credential", func(c *settings.Config) {
 			c.Targets[0].URL, c.Targets[0].Credential.Type = "invalid", "invalid"
 		}, "target build: scope URL must be an HTTPS organization or repository URL"},
-		{"credential before installation", func(c *Config) {
+		{"credential before installation", func(c *settings.Config) {
 			c.Targets[0].Credential.Type, c.Targets[0].InstallationID = "invalid", 1
 		}, `target build: unsupported credential type "invalid"`},
-		{"target before total minimum", func(c *Config) {
+		{"target before total minimum", func(c *settings.Config) {
 			c.Targets[0].Scaling.MinRunners = c.Capacity.MaxRunners + 1
 		}, "target build: require 0 <= minRunners <= maxRunners <= 10000"},
-		{"total minimum before environment", func(c *Config) {
-			c.Targets[0].Scaling = ScalingConfig{MinRunners: c.Capacity.MaxRunners + 1, MaxRunners: 10000}
+		{"total minimum before environment", func(c *settings.Config) {
+			c.Targets[0].Scaling = settings.ScalingConfig{MinRunners: c.Capacity.MaxRunners + 1, MaxRunners: 10000}
 			c.Runner.Env = map[string]string{"HOME": "/tmp"}
 		}, "sum of minRunners exceeds capacity.maxRunners"},
-		{"environment before directories", func(c *Config) {
+		{"environment before directories", func(c *settings.Config) {
 			c.Runner.Env = map[string]string{"HOME": "/tmp"}
 			c.Runner.WorkRoot = "/"
 		}, `runner.env cannot set invalid, identity or management credential variable "HOME"`},
@@ -1005,7 +1006,7 @@ func TestScopeURLValidation(t *testing.T) {
 		{"uppercase enterprise scope", "https://github.com/ENTERPRISES/acme", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if _, err := scopeURL(tc.raw); (err != nil) != tc.wantErr {
+			if _, err := settings.ScopeURL(tc.raw); (err != nil) != tc.wantErr {
 				t.Fatalf("scopeURL(%q): got %v, want error=%v", tc.raw, err, tc.wantErr)
 			}
 		})

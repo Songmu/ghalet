@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Songmu/ghalet"
+	settings "github.com/Songmu/ghalet/config"
 	"github.com/Songmu/ghalet/credentialstore"
 )
 
@@ -143,7 +143,7 @@ func TestSetupResumesAfterTrustedBaseMigration(t *testing.T) {
 				f.conversions.Load() != 1 || f.ownerCalls.Load() != 1 {
 				t.Fatal("resumption did not reuse the migrated App and canonical key", second, err)
 			}
-			config, err := ghalet.LoadConfig(f.options.Config)
+			config, err := settings.LoadConfig(f.options.Config)
 			if err != nil || config.Targets[0].Credential.PrivateKeyFile != want {
 				t.Fatal("configuration did not use the canonical key", config, err)
 			}

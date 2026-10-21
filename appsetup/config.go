@@ -9,31 +9,31 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/Songmu/ghalet"
+	settings "github.com/Songmu/ghalet/config"
 	"github.com/Songmu/ghalet/fshelper"
 	"github.com/goccy/go-yaml"
 )
 
-func setupConfig(options Options) (Options, []byte, []byte, ghalet.Target, error) {
+func setupConfig(options Options) (Options, []byte, []byte, settings.Target, error) {
 	if options.Config == "" {
 		if options.Systemd {
 			options.Config = "/etc/ghalet/config.yaml"
 		} else {
 			home, err := os.UserHomeDir()
 			if err != nil {
-				return options, nil, nil, ghalet.Target{}, err
+				return options, nil, nil, settings.Target{}, err
 			}
 			options.Config = filepath.Join(home, ".config", "ghalet", "config.yaml")
 		}
 	}
 	path, err := filepath.Abs(options.Config)
 	if err != nil {
-		return options, nil, nil, ghalet.Target{}, err
+		return options, nil, nil, settings.Target{}, err
 	}
 	options.Config = path
 	before, err := configSnapshot(path)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return options, nil, nil, ghalet.Target{}, err
+		return options, nil, nil, settings.Target{}, err
 	}
 	data := before
 	if errors.Is(err, os.ErrNotExist) {
@@ -43,15 +43,15 @@ func setupConfig(options Options) (Options, []byte, []byte, ghalet.Target, error
 			data = append(data, []byte("runner:\n  user: ghalet-runner\nlogs:\n  root: /var/log/ghalet/runners\n")...)
 		}
 	}
-	config, err := ghalet.ParseConfig(path, data)
+	config, err := settings.ParseConfig(path, data)
 	if err != nil {
-		return options, nil, nil, ghalet.Target{}, err
+		return options, nil, nil, settings.Target{}, err
 	}
-	var matches []ghalet.Target
+	var matches []settings.Target
 	for _, target := range config.Targets {
 		if options.ID != "" && target.ID == options.ID {
 			if !strings.EqualFold(target.URL, "https://github.com/"+options.Scope) {
-				return options, nil, nil, ghalet.Target{}, errors.New("--id already belongs to a target with a different scope")
+				return options, nil, nil, settings.Target{}, errors.New("--id already belongs to a target with a different scope")
 			}
 			return options, before, data, target, nil
 		}
@@ -61,7 +61,7 @@ func setupConfig(options Options) (Options, []byte, []byte, ghalet.Target, error
 	}
 	if options.ID == "" {
 		if len(matches) > 1 {
-			return options, nil, nil, ghalet.Target{}, errors.New("multiple targets match --scope; select one with --id")
+			return options, nil, nil, settings.Target{}, errors.New("multiple targets match --scope; select one with --id")
 		}
 		if len(matches) == 1 {
 			options.ID = matches[0].ID
@@ -70,20 +70,20 @@ func setupConfig(options Options) (Options, []byte, []byte, ghalet.Target, error
 		options.ID = strings.NewReplacer("/", "-", ".", "-").Replace(strings.ToLower(options.Scope))
 	}
 	if err := validateID(options.ID); err != nil {
-		return options, nil, nil, ghalet.Target{}, fmt.Errorf("%w; specify --id explicitly", err)
+		return options, nil, nil, settings.Target{}, fmt.Errorf("%w; specify --id explicitly", err)
 	}
 	for _, target := range config.Targets {
 		if target.ID == options.ID {
-			return options, nil, nil, ghalet.Target{}, errors.New("derived target ID collides with another scope; specify --id explicitly")
+			return options, nil, nil, settings.Target{}, errors.New("derived target ID collides with another scope; specify --id explicitly")
 		}
 	}
 	data, err = appendTarget(data, options.ID, options.Scope)
 	if err != nil {
-		return options, nil, nil, ghalet.Target{}, err
+		return options, nil, nil, settings.Target{}, err
 	}
-	config, err = ghalet.ParseConfig(path, data)
+	config, err = settings.ParseConfig(path, data)
 	if err != nil {
-		return options, nil, nil, ghalet.Target{}, err
+		return options, nil, nil, settings.Target{}, err
 	}
 	return options, before, data, config.Targets[len(config.Targets)-1], nil
 }

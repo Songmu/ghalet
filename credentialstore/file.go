@@ -12,7 +12,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/Songmu/ghalet"
+	settings "github.com/Songmu/ghalet/config"
 	"github.com/Songmu/ghalet/fshelper"
 	"golang.org/x/sys/unix"
 	"golang.org/x/term"
@@ -20,7 +20,7 @@ import (
 
 // Directory returns the ordinary credential directory for the current user/service.
 func Directory() (string, error) {
-	root, err := ghalet.StateDirectory()
+	root, err := settings.StateDirectory()
 	if err != nil {
 		return "", err
 	}

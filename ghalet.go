@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+
+	settings "github.com/Songmu/ghalet/config"
 )
 
 // OperationError reports a management failure returned with the daemon's results.
@@ -14,7 +16,7 @@ type OperationError string
 func (e OperationError) Error() string { return string(e) }
 
 func selectedConfigPath(path string) (string, error) {
-	path, err := configPath(path)
+	path, err := settings.ResolvePath(path)
 	if err != nil {
 		return "", err
 	}
@@ -77,7 +79,7 @@ func GC(ctx context.Context, path string, dryRun bool) ([]OperationResult, error
 }
 
 func offlineDaemon(ctx context.Context, path string, connectionErr error) (*daemon, func(), error) {
-	config, err := LoadConfig(path)
+	config, err := settings.LoadConfig(path)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -117,7 +119,7 @@ func offlineDaemon(ctx context.Context, path string, connectionErr error) (*daem
 }
 
 // RunDaemon runs the daemon until ctx is canceled and its runners are drained.
-func RunDaemon(ctx context.Context, config *Config) error {
+func RunDaemon(ctx context.Context, config *settings.Config) error {
 	lock, err := lockWorkRoot(config.Runner.WorkRoot)
 	if err != nil {
 		return err

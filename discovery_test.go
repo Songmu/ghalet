@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	settings "github.com/Songmu/ghalet/config"
 )
 
 func discoveryRoot(t *testing.T) string {
@@ -235,7 +237,7 @@ func TestManagementDiscoversDaemonAndApplyKeepsItsConfig(t *testing.T) {
 	d, api := testDaemon(t)
 	useFakeManagement(d, api)
 	next := nextConfig(d)
-	next.Targets = []Target{}
+	next.Targets = []settings.Target{}
 	writeApplyConfig(t, next)
 	original, err := os.ReadFile(next.Path)
 	if err != nil {

@@ -10,18 +10,19 @@ import (
 	"testing"
 	"time"
 
+	settings "github.com/Songmu/ghalet/config"
 	"github.com/Songmu/ghalet/fshelper"
 	"github.com/actions/scaleset"
 	"github.com/goccy/go-yaml"
 )
 
-func nextConfig(d *daemon) *Config {
+func nextConfig(d *daemon) *settings.Config {
 	next := *d.config
-	next.Targets = append([]Target{}, next.Targets...)
+	next.Targets = append([]settings.Target{}, next.Targets...)
 	return &next
 }
 
-func writeApplyConfig(t *testing.T, c *Config) {
+func writeApplyConfig(t *testing.T, c *settings.Config) {
 	t.Helper()
 	data, err := yaml.Marshal(map[string]any{
 		"capacity": c.Capacity, "targets": c.Targets,
@@ -48,7 +49,7 @@ func TestApplyRemovesAllTargetsAndDeletesUnusedScaleSet(t *testing.T) {
 	d, api := testDaemon(t)
 	useFakeManagement(d, api)
 	next := nextConfig(d)
-	next.Targets = []Target{}
+	next.Targets = []settings.Target{}
 	writeApplyConfig(t, next)
 	server, err := listenControl(d.config.Path)
 	if err != nil {
@@ -142,8 +143,8 @@ func TestApplyReplacesRegistrationAndUsesOldCredentialsForDeletion(t *testing.T)
 			case "scale set":
 				next.Targets[0].ScaleSetName = "other"
 			}
-			var received Target
-			d.clientFactory = func(_ context.Context, target Target) (scaleAPI, error) {
+			var received settings.Target
+			d.clientFactory = func(_ context.Context, target settings.Target) (scaleAPI, error) {
 				received = target
 				return newAPI, nil
 			}
@@ -210,7 +211,7 @@ func TestApplyRetriesFailedDeletionWithoutRollingBackConfig(t *testing.T) {
 	useFakeManagement(d, api)
 	api.deleteErr = errors.New("deletion unavailable")
 	next := nextConfig(d)
-	next.Targets = []Target{}
+	next.Targets = []settings.Target{}
 	writeApplyConfig(t, next)
 	response := d.apply(t.Context())
 	if response.Error == "" || len(d.config.Targets) != 0 || len(d.targets) != 0 || len(d.retired) != 1 ||
@@ -253,7 +254,7 @@ func TestApplyRetainsUnsafeScaleSets(t *testing.T) {
 				d.runs[state.RunID] = &activeRun{State: state, CleanupTried: true}
 			}
 			next := nextConfig(d)
-			next.Targets = []Target{}
+			next.Targets = []settings.Target{}
 			writeApplyConfig(t, next)
 			response := d.apply(t.Context())
 			if response.Error == "" || api.deleteCalls != 0 || len(d.config.Targets) != 0 || len(d.retired) != 1 {
@@ -276,7 +277,7 @@ func TestApplyPreservesRetainedExecutionContext(t *testing.T) {
 	oldConfig, oldTarget := d.config, d.targets["build"]
 	newAPI := newFakeAPI()
 	newAPI.set.ID = 20
-	d.clientFactory = func(context.Context, Target) (scaleAPI, error) { return newAPI, nil }
+	d.clientFactory = func(context.Context, settings.Target) (scaleAPI, error) { return newAPI, nil }
 	next := nextConfig(d)
 	next.Targets[0].ScaleSetName = "new"
 	next.Logs.Preserve = false
@@ -299,7 +300,7 @@ func TestApplyWaitsForDrainAndKeepsStatusResponsive(t *testing.T) {
 	d, api := testDaemon(t)
 	useFakeManagement(d, api)
 	next := nextConfig(d)
-	next.Targets = []Target{}
+	next.Targets = []settings.Target{}
 	writeApplyConfig(t, next)
 	d.targets["build"].Assigned = 1
 	ctx, cancel := context.WithCancel(t.Context())
@@ -370,7 +371,7 @@ func TestApplyRegistersNewTargetAndReportsPartialFailure(t *testing.T) {
 	next.Targets = append(next.Targets, second)
 	newAPI := newFakeAPI()
 	newAPI.set = nil
-	d.clientFactory = func(_ context.Context, target Target) (scaleAPI, error) {
+	d.clientFactory = func(_ context.Context, target settings.Target) (scaleAPI, error) {
 		if target.ID == "build" {
 			return nil, scaleset.UnauthorizedError
 		}
@@ -386,7 +387,7 @@ func TestApplyRegistersNewTargetAndReportsPartialFailure(t *testing.T) {
 
 func TestConfigAllowsExplicitEmptyTargets(t *testing.T) {
 	for _, content := range []string{"targets: []\n", "targets: null\n", "{}\n"} {
-		_, err := LoadConfig(writeConfig(t, content))
+		_, err := settings.LoadConfig(writeConfig(t, content))
 		if (err == nil) != (content == "targets: []\n") {
 			t.Fatalf("%q: unexpected validation result: %v", content, err)
 		}
@@ -441,7 +442,7 @@ func TestApplyDrainsLiveRunnerBeforeDeletingScaleSet(t *testing.T) {
 	d.targets["build"].Assigned = 0
 	d.mu.Unlock()
 	next := nextConfig(d)
-	next.Targets = []Target{}
+	next.Targets = []settings.Target{}
 	writeApplyConfig(t, next)
 	engineCtx, cancel := context.WithCancel(t.Context())
 	engineDone := make(chan error, 1)
@@ -472,7 +473,7 @@ func TestShutdownInterruptsApplyWithoutRestartingListeners(t *testing.T) {
 	next.Targets = append(next.Targets, second)
 	writeApplyConfig(t, next)
 	registering := make(chan struct{})
-	d.clientFactory = func(ctx context.Context, _ Target) (scaleAPI, error) {
+	d.clientFactory = func(ctx context.Context, _ settings.Target) (scaleAPI, error) {
 		close(registering)
 		<-ctx.Done()
 		return nil, ctx.Err()

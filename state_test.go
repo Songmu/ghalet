@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	settings "github.com/Songmu/ghalet/config"
 	"github.com/Songmu/ghalet/fshelper"
 )
 
@@ -336,7 +337,7 @@ func TestStateIdentityThroughTrustedBaseAlias(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("STATE_DIRECTORY", link)
-	c, err := ParseConfig(c.Path, []byte(readFixture(t, "config/base.yaml")))
+	c, err := settings.ParseConfig(c.Path, []byte(readFixture(t, "config/base.yaml")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -354,7 +355,7 @@ func TestStateIdentityThroughTrustedBaseAlias(t *testing.T) {
 	}
 	defer lock.close()
 	t.Setenv("STATE_DIRECTORY", base)
-	reloaded, err := LoadConfig(c.Path)
+	reloaded, err := settings.LoadConfig(c.Path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -415,7 +416,7 @@ func TestStateRecoveryAfterTrustedBaseMigration(t *testing.T) {
 			c := testConfig(t)
 			base := testDirectory(t)
 			t.Setenv("STATE_DIRECTORY", base)
-			c, err := LoadConfig(c.Path)
+			c, err := settings.LoadConfig(c.Path)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -439,7 +440,7 @@ func TestStateRecoveryAfterTrustedBaseMigration(t *testing.T) {
 			if err := os.Symlink(moved, source); err != nil {
 				t.Fatal(err)
 			}
-			reloaded, err := LoadConfig(c.Path)
+			reloaded, err := settings.LoadConfig(c.Path)
 			if err != nil {
 				t.Fatal(err)
 			}

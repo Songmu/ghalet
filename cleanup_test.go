@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	settings "github.com/Songmu/ghalet/config"
 	"github.com/Songmu/ghalet/fshelper"
 	"github.com/Songmu/ghalet/logreduct"
 )
@@ -173,7 +174,7 @@ func TestLogRetentionThroughTrustedBaseAlias(t *testing.T) {
 	if err := os.Symlink(base, link); err != nil {
 		t.Fatal(err)
 	}
-	c, err := ParseConfig(c.Path, []byte(readFixture(t, "config/base.yaml")+"logs:\n  root: "+link+"\n"))
+	c, err := settings.ParseConfig(c.Path, []byte(readFixture(t, "config/base.yaml")+"logs:\n  root: "+link+"\n"))
 	if err != nil || c.Logs.Root != base {
 		t.Fatal("log base was not canonicalized", c, err)
 	}

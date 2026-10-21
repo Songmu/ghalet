@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	settings "github.com/Songmu/ghalet/config"
 	"github.com/Songmu/ghalet/fshelper"
 	"github.com/Songmu/ghalet/logreduct"
 	"github.com/Songmu/ghalet/runnerdist"
@@ -27,7 +28,7 @@ import (
 type targetRuntime struct {
 	scaleMu       *sync.Mutex
 	directoryMu   *sync.Mutex
-	Config        Target
+	Config        settings.Target
 	Client        scaleAPI
 	Set           *scaleset.RunnerScaleSet
 	Assigned      int
@@ -74,7 +75,7 @@ type activeRun struct {
 	forceStop       bool
 	output          *runOutputState
 	State           *RunState
-	Config          *Config
+	Config          *settings.Config
 	Preparing       bool
 	Cancel          context.CancelFunc
 	Exited          bool
@@ -182,7 +183,7 @@ type runEvent struct {
 type daemon struct {
 	mu               sync.Mutex
 	retentionMu      sync.Mutex
-	config           *Config
+	config           *settings.Config
 	secrets          *logreduct.Redactor
 	store            stateStore
 	user             executionUser
@@ -205,12 +206,12 @@ type daemon struct {
 	gcActive         int
 	inspecting       chan struct{}
 	nextRetention    time.Time
-	clientFactory    func(context.Context, Target) (scaleAPI, error)
+	clientFactory    func(context.Context, settings.Target) (scaleAPI, error)
 	listen           func(*targetRuntime)
 	makeRunDirectory func(string) error
 }
 
-func newDaemon(c *Config) (*daemon, error) {
+func newDaemon(c *settings.Config) (*daemon, error) {
 	account, err := resolveUser(c.Runner.User)
 	if err != nil {
 		return nil, err
@@ -218,7 +219,7 @@ func newDaemon(c *Config) (*daemon, error) {
 	secret := &logreduct.Default
 	for _, entry := range os.Environ() {
 		name, value, _ := strings.Cut(entry, "=")
-		if c.secretEnv(name) {
+		if c.SecretEnv(name) {
 			secret.Add(value)
 		}
 	}
@@ -230,7 +231,7 @@ func newDaemon(c *Config) (*daemon, error) {
 		ctx: ctx, cancel: cancel,
 		makeRunDirectory: createRunDirectory,
 	}
-	d.clientFactory = func(ctx context.Context, target Target) (scaleAPI, error) {
+	d.clientFactory = func(ctx context.Context, target settings.Target) (scaleAPI, error) {
 		return newScaleClient(ctx, target, secret)
 	}
 	d.listen = d.startListener
@@ -356,7 +357,7 @@ func (d *daemon) recover(ctx context.Context) error {
 		case target.Set == nil || target.Fault != "":
 			reason = "registration cannot be verified; resolve target authentication/registration and restart"
 		case state.ScopeURL != target.Config.URL ||
-			state.ScaleSetName != target.Config.ScaleSetName || runnerGroupName(state.GroupName) != runnerGroupName(target.Config.RunnerGroup) ||
+			state.ScaleSetName != target.Config.ScaleSetName || settings.RunnerGroupName(state.GroupName) != settings.RunnerGroupName(target.Config.RunnerGroup) ||
 			state.ScaleSetID != target.Set.ID || state.GroupID != target.Set.RunnerGroupID:
 			reason = "recorded registration differs from the current explicit scope/group/scale set"
 		case state.User != d.user.Name || state.UID != d.user.UID || state.Home != d.user.Home:
@@ -1121,7 +1122,7 @@ func (d *daemon) expireLogsIfDue() {
 	})
 }
 
-func (d *daemon) expireLogs(config *Config) {
+func (d *daemon) expireLogs(config *settings.Config) {
 	d.retentionMu.Lock()
 	defer d.retentionMu.Unlock()
 	results, err := expireLogs(d.ctx, config, false)

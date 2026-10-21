@@ -8,6 +8,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	settings "github.com/Songmu/ghalet/config"
 )
 
 // ApplyResult includes the applied snapshot and individual reconciliation results.
@@ -48,7 +50,7 @@ func (d *daemon) apply(ctx context.Context) controlResponse {
 		d.mu.Unlock()
 	}()
 
-	next, err := LoadConfig(path)
+	next, err := settings.LoadConfig(path)
 	if err != nil {
 		return controlResponse{Error: d.secrets.Redact(err.Error())}
 	}
@@ -233,7 +235,7 @@ func targetError(target *targetRuntime) string {
 	return target.StartError
 }
 
-func (d *daemon) validateApply(next *Config) error {
+func (d *daemon) validateApply(next *settings.Config) error {
 	current := d.config
 	if next.Runner.User != current.Runner.User ||
 		next.Runner.WorkRoot != current.Runner.WorkRoot ||
@@ -241,24 +243,13 @@ func (d *daemon) validateApply(next *Config) error {
 		next.Logs.Root != current.Logs.Root {
 		return errors.New("changing the execution user or managed directories requires a normal stop/restart")
 	}
-	next.secretNames = make(map[string]bool)
-	for name := range current.secretNames {
-		next.secretNames[name] = true
-	}
-	for _, target := range current.Targets {
-		if name := target.Credential.TokenEnv; name != "" {
-			next.secretNames[name] = true
-		}
-	}
-	if current.Defaults.Credential != nil && current.Defaults.Credential.TokenEnv != "" {
-		next.secretNames[current.Defaults.Credential.TokenEnv] = true
-	}
-	if err := next.validateEnvironment(); err != nil {
+	next.RetainSecretEnvironment(current)
+	if err := next.ValidateEnvironment(); err != nil {
 		return err
 	}
 	for _, entry := range os.Environ() {
 		name, value, _ := strings.Cut(entry, "=")
-		if next.secretEnv(name) {
+		if next.SecretEnv(name) {
 			d.secrets.Add(value)
 		}
 	}
@@ -288,12 +279,12 @@ func (d *daemon) waitListeners(ctx context.Context, targets []*targetRuntime) er
 	}
 }
 
-func (d *daemon) scaleSetReference(next *Config, old *targetRuntime) (referenced, adopted bool) {
+func (d *daemon) scaleSetReference(next *settings.Config, old *targetRuntime) (referenced, adopted bool) {
 	for _, config := range next.Targets {
 		if !strings.EqualFold(config.URL, old.Config.URL) {
 			continue
 		}
-		if runnerGroupName(config.RunnerGroup) == runnerGroupName(old.Config.RunnerGroup) &&
+		if settings.RunnerGroupName(config.RunnerGroup) == settings.RunnerGroupName(old.Config.RunnerGroup) &&
 			config.ScaleSetName == old.Config.ScaleSetName {
 			referenced = true
 		}

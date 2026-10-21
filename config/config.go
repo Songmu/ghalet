@@ -1,4 +1,5 @@
-package ghalet
+// Package config loads and validates ghalet settings and storage policy.
+package config
 
 import (
 	"errors"
@@ -11,13 +12,14 @@ import (
 	"time"
 
 	"github.com/Songmu/ghalet/fshelper"
+	"github.com/actions/scaleset"
 	"github.com/goccy/go-yaml"
 	"github.com/goccy/go-yaml/parser"
 )
 
 type Duration time.Duration
 
-const defaultRunnerVersion = "2.338.0"
+const DefaultRunnerVersion = "2.338.0"
 
 var dayDuration = regexp.MustCompile(`^[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)d$`)
 
@@ -133,7 +135,8 @@ type LogsConfig struct {
 	Root      string   `yaml:"root"`
 }
 
-func configPath(path string) (string, error) {
+// ResolvePath returns the lexical absolute configuration path, preserving symlinks.
+func ResolvePath(path string) (string, error) {
 	if path == "" {
 		home, err := os.UserHomeDir()
 		if err != nil {
@@ -183,7 +186,7 @@ func StateDirectory() (string, error) {
 }
 
 func LoadConfig(path string) (*Config, error) {
-	path, err := configPath(path)
+	path, err := ResolvePath(path)
 	if err != nil {
 		return nil, err
 	}
@@ -196,7 +199,7 @@ func LoadConfig(path string) (*Config, error) {
 
 // ParseConfig resolves and validates configuration bytes without writing a file.
 func ParseConfig(path string, content []byte) (*Config, error) {
-	path, err := configPath(path)
+	path, err := ResolvePath(path)
 	if err != nil {
 		return nil, err
 	}
@@ -219,7 +222,7 @@ func ParseConfig(path string, content []byte) (*Config, error) {
 	c := &Config{
 		Path: path, Capacity: CapacityConfig{MaxRunners: 2},
 		Runner: RunnerConfig{
-			Version:        defaultRunnerVersion,
+			Version:        DefaultRunnerVersion,
 			StartupTimeout: Duration(2 * time.Minute), DrainTimeout: Duration(10 * time.Minute),
 			WorkRoot:  filepath.Join(stateDir, "runs"),
 			CacheRoot: filepath.Join(cacheDir, "runners"),
@@ -291,6 +294,19 @@ var safeID = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$`)
 var runnerVersion = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+$`)
 var envName = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
 
+// ValidTargetID reports whether an ID is safe for a target's managed directory.
+func ValidTargetID(id string) bool {
+	return safeID.MatchString(id)
+}
+
+// RunnerGroupName resolves an omitted group to GitHub's default runner group.
+func RunnerGroupName(name string) string {
+	if name == "" {
+		return scaleset.DefaultRunnerGroup
+	}
+	return name
+}
+
 func (c *Config) Validate() error {
 	if c.Defaults.Credential != nil {
 		if err := c.Defaults.Credential.validate(); err != nil {
@@ -312,7 +328,7 @@ func (c *Config) Validate() error {
 	ids, registrations := map[string]bool{}, map[string]bool{}
 	minimum := 0
 	for _, target := range c.Targets {
-		if !safeID.MatchString(target.ID) || ids[target.ID] {
+		if !ValidTargetID(target.ID) || ids[target.ID] {
 			return fmt.Errorf("invalid or duplicate target id %q", target.ID)
 		}
 		ids[target.ID] = true
@@ -320,7 +336,7 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("target %s: %w", target.ID, err)
 		}
 		minimum += target.Scaling.MinRunners
-		key := strings.ToLower(target.URL) + "\x00" + runnerGroupName(target.RunnerGroup) + "\x00" + target.ScaleSetName
+		key := strings.ToLower(target.URL) + "\x00" + RunnerGroupName(target.RunnerGroup) + "\x00" + target.ScaleSetName
 		if registrations[key] {
 			return fmt.Errorf("target %s: duplicate scope/group/scale set registration", target.ID)
 		}
@@ -329,14 +345,14 @@ func (c *Config) Validate() error {
 	if minimum > c.Capacity.MaxRunners {
 		return errors.New("sum of minRunners exceeds capacity.maxRunners")
 	}
-	if err := c.validateEnvironment(); err != nil {
+	if err := c.ValidateEnvironment(); err != nil {
 		return err
 	}
 	return c.validateDirectories()
 }
 
 func (t Target) validate() error {
-	u, err := scopeURL(t.URL)
+	u, err := ScopeURL(t.URL)
 	if err != nil {
 		return err
 	}
@@ -387,9 +403,10 @@ func (c Credential) validate() error {
 	return nil
 }
 
-func (c *Config) validateEnvironment() error {
+// ValidateEnvironment checks runner overrides against identity and secret policy.
+func (c *Config) ValidateEnvironment() error {
 	for name, value := range c.Runner.Env {
-		if !envName.MatchString(name) || strings.ContainsRune(value, 0) || c.secretEnv(name) ||
+		if !envName.MatchString(name) || strings.ContainsRune(value, 0) || c.SecretEnv(name) ||
 			name == "HOME" || name == "USER" || name == "LOGNAME" || strings.HasPrefix(strings.ToUpper(name), "ACTIONS_RUNNER_INPUT_") {
 			return fmt.Errorf("runner.env cannot set invalid, identity or management credential variable %q", name)
 		}
@@ -424,7 +441,8 @@ func (c *Config) validateDirectories() error {
 	return nil
 }
 
-func scopeURL(raw string) (*url.URL, error) {
+// ScopeURL validates and parses a GitHub organization or repository URL.
+func ScopeURL(raw string) (*url.URL, error) {
 	u, err := url.Parse(raw)
 	if err != nil || u.Scheme != "https" || u.Hostname() == "" || u.Port() != "" ||
 		u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.RawPath != "" {
@@ -447,7 +465,24 @@ func within(parent, child string) bool {
 	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
-func (c *Config) secretEnv(name string) bool {
+// RetainSecretEnvironment preserves credential variable history across applies.
+func (c *Config) RetainSecretEnvironment(previous *Config) {
+	c.secretNames = make(map[string]bool)
+	for name := range previous.secretNames {
+		c.secretNames[name] = true
+	}
+	for _, target := range previous.Targets {
+		if name := target.Credential.TokenEnv; name != "" {
+			c.secretNames[name] = true
+		}
+	}
+	if previous.Defaults.Credential != nil && previous.Defaults.Credential.TokenEnv != "" {
+		c.secretNames[previous.Defaults.Credential.TokenEnv] = true
+	}
+}
+
+// SecretEnv reports management secrets, including previously configured names.
+func (c *Config) SecretEnv(name string) bool {
 	if c.secretNames[name] {
 		return true
 	}

@@ -17,6 +17,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	settings "github.com/Songmu/ghalet/config"
 )
 
 type executionUser struct {
@@ -75,7 +77,7 @@ func processAttributes(account executionUser) *syscall.SysProcAttr {
 	return attr
 }
 
-func runnerEnvironment(c *Config, account executionUser, jit string) []string {
+func runnerEnvironment(c *settings.Config, account executionUser, jit string) []string {
 	path := "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 	if runtime.GOOS == "darwin" {
 		path = "/opt/homebrew/bin:/opt/homebrew/sbin:" + path

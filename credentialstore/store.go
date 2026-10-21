@@ -20,7 +20,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/Songmu/ghalet"
+	settings "github.com/Songmu/ghalet/config"
 	"github.com/Songmu/ghalet/fshelper"
 	"github.com/goccy/go-yaml"
 	"github.com/goccy/go-yaml/ast"
@@ -645,7 +645,7 @@ func credentialConfig(data []byte, options Options, path string) ([]byte, error)
 	if !ok {
 		return nil, errors.New("configuration must be a YAML mapping")
 	}
-	var config ghalet.Config
+	var config settings.Config
 	if err := yaml.NodeToValue(root, &config, yaml.Strict()); err != nil {
 		return nil, errors.New("configuration contains invalid or unknown fields; validate it before registering a credential")
 	}

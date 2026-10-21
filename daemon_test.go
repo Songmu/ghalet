@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	settings "github.com/Songmu/ghalet/config"
 	"github.com/Songmu/ghalet/fshelper"
 	"github.com/actions/scaleset"
 )
@@ -432,7 +433,7 @@ func TestShutdownWaitsForUncertainLiveRunnerAfterDrainDeadline(t *testing.T) {
 	})
 	cleanupProcesses(t, d)
 	seedDistribution(t, d.config, "#!/bin/sh\nprintf 'Listening for Jobs\\n'\nsleep 30\n")
-	d.config.Runner.DrainTimeout = Duration(50 * time.Millisecond)
+	d.config.Runner.DrainTimeout = settings.Duration(50 * time.Millisecond)
 	d.targets["build"].Assigned = 1
 	var run *activeRun
 	pumpUntil(t, d, func() bool {
