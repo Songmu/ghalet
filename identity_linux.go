@@ -55,54 +55,82 @@ func linuxProcessFields(path string) ([]string, error) {
 }
 
 func kernelGroupStopped(pgid int, observed map[int]processEntry) (bool, error) {
+	return linuxGroupStopped("/proc", pgid, observed, unix.Getpgid)
+}
+
+func linuxGroupStopped(root string, pgid int, previous map[int]processEntry, groupForPID func(int) (int, error)) (bool, error) {
 	var lastErr error
+	confirming := false
 	for attempt := 0; attempt < 3; attempt++ {
-		stopped, err := linuxGroupStopped("/proc", pgid, observed)
-		if !errors.Is(err, os.ErrNotExist) {
+		stopped, ambiguous, err := linuxGroupSnapshot(root, pgid, previous, groupForPID)
+		if err == nil {
+			if !stopped || !ambiguous || confirming {
+				return stopped, nil
+			}
+			// Re-enumerate after an unclassified PID vanished so its possible
+			// late-forked descendant is included in the next group check.
+			confirming = true
+			continue
+		}
+		if !errors.Is(err, os.ErrNotExist) && !errors.Is(err, unix.ESRCH) {
 			return stopped, err
 		}
+		confirming = false
 		lastErr = err
 	}
 	return false, fmt.Errorf("kernel process snapshot kept changing: %w", lastErr)
 }
 
-func linuxGroupStopped(root string, pgid int, previous map[int]processEntry) (bool, error) {
+func linuxGroupSnapshot(root string, pgid int, previous map[int]processEntry, groupForPID func(int) (int, error)) (bool, bool, error) {
 	entries, err := os.ReadDir(root)
 	if err != nil {
-		return false, err
+		return false, false, err
 	}
 	observed := false
+	ambiguous := false
 	for _, entry := range entries {
 		pid, err := strconv.Atoi(entry.Name())
 		if err != nil {
 			continue
 		}
-		fields, err := linuxProcessFields(filepath.Join(root, entry.Name(), "stat"))
+		group, err := groupForPID(pid)
 		if err != nil {
-			// A vanished PID may have forked a child omitted from this enumeration.
-			return false, err
-		}
-		group, err := strconv.Atoi(fields[2])
-		if err != nil {
-			return false, fmt.Errorf("invalid kernel process group: %w", err)
+			if errors.Is(err, unix.ESRCH) && previous[pid].PGID != pgid {
+				ambiguous = true
+				continue
+			}
+			return false, false, err
 		}
 		if group != pgid {
 			continue
 		}
+		fields, err := linuxProcessFields(filepath.Join(root, entry.Name(), "stat"))
+		if err != nil {
+			// A vanished PID may have forked a child omitted from this enumeration.
+			return false, false, err
+		}
+		group, err = strconv.Atoi(fields[2])
+		if err != nil {
+			return false, false, fmt.Errorf("invalid kernel process group: %w", err)
+		}
+		if group != pgid {
+			// Membership changed after the query; do not lose a possible forker.
+			return false, false, nil
+		}
 		observed = true
 		// A zombie thread-group leader can still have live worker threads.
 		if fields[0] != "Z" || fields[17] != "1" {
-			return false, nil
+			return false, false, nil
 		}
 		old := previous[pid]
 		boot, err := linuxBootID()
 		if err != nil {
-			return false, err
+			return false, false, err
 		}
 		// A newly observed zombie could have forked after this PID enumeration.
 		if !old.Zombie || old.PGID != pgid || old.Started != fmt.Sprintf("linux:%s:%s", boot, fields[19]) {
-			return false, nil
+			return false, false, nil
 		}
 	}
-	return observed, nil
+	return observed, ambiguous, nil
 }
