@@ -1,5 +1,11 @@
 # Changelog
 
+## [v0.1.1](https://github.com/Songmu/ghalet/compare/v0.1.0...v0.1.1) - 2026-10-21
+
+- Wait for daemon readiness when starting systemd services by @Songmu in https://github.com/Songmu/ghalet/pull/73
+- Keep the Hugo documentation builder up to date with Renovate by @Songmu in https://github.com/Songmu/ghalet/pull/72
+- Remove the managed configuration version field by @Songmu in https://github.com/Songmu/ghalet/pull/75
+
 ## [v0.1.0](https://github.com/Songmu/ghalet/compare/v0.0.5...v0.1.0) - 2026-10-21
 
 - Avoid idle process snapshots without delaying job scheduling by @Songmu in https://github.com/Songmu/ghalet/pull/36
