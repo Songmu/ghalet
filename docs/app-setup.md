@@ -42,20 +42,32 @@ the wizard does not broaden an existing App's permissions.
    intended account, review the suggested App name and create the App.
    Organization policies and your account's permissions may require an owner.
 3. GitHub redirects to the local callback. The CLI exchanges the one-time code,
-   saves the key and public App metadata, and opens the App installation page.
-4. Install on the target account. For a repository target, choose **Only select
-   repositories** and select that repository. Wait for any required approval.
+   saves the key and public App metadata, then shows **Install GitHub App**.
+   Click it to continue in the same browser tab; the installation URL is also
+   printed in the terminal.
+4. Install on the target account, then return to the terminal. For a repository
+   target, choose **Only select repositories** and select that repository.
+   Wait for any required approval.
 5. The CLI discovers the installation, verifies its App, account and required
    write permission, then displays the target-specific configuration changes.
    Answer `y` to save, or decline and resume later. `--yes` skips only this
    final configuration confirmation, not GitHub's approvals.
+
+The browser pages below use example data:
+
+![GitHub App creation page](images/app-setup-create.png)
+
+![GitHub App installation link](images/app-setup-install.png)
 
 Other targets and `defaults.credential` are not changed. The selected or added target
 gets `type: github-app`, `clientId`, `privateKeyFile` and `installationId`.
 No user OAuth authorization or webhook events are requested; webhook delivery
 is disabled. The generated App is private to its owning account.
 
-The temporary loopback server closes after the Manifest exchange or on failure.
+The temporary loopback server closes after saving the App credentials and
+sending the callback page, or on failure. The loaded installation link continues
+to work after the server closes. Resuming an existing App prints its installation
+URL and opens it unless `--no-browser` is set.
 It checks the callback's random `state` and Host and does not expose the key in
 browser pages, URLs or command output. Installation discovery uses App JWTs,
 not a user token or an installation ID supplied by the browser.

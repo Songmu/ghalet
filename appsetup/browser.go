@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"html/template"
 	"io"
 	"net"
 	"net/http"
@@ -17,6 +16,7 @@ import (
 	"regexp"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -39,17 +39,6 @@ type hook struct {
 	Active bool   `json:"active"`
 }
 
-var startPage = template.Must(template.New("start").Parse(`<!doctype html>
-<html lang="en"><meta charset="utf-8"><title>ghalet App setup</title>
-<h1>Create a private GitHub App for {{.Scope}}</h1>
-<p>Requested permission: {{.Permission}} (write). No webhooks or user OAuth authorization.</p>
-<p>Review the App name on GitHub, then install it on the target account.
-For a repository target, select only the target repository.</p>
-<form action="{{.Action}}" method="post">
-<input type="hidden" name="manifest" value="{{.Manifest}}">
-<button type="submit">Continue to GitHub</button>
-</form></html>`))
-
 func openBrowser(ctx context.Context, address string) error {
 	command := "xdg-open"
 	if runtime.GOOS == "darwin" {
@@ -58,22 +47,23 @@ func openBrowser(ctx context.Context, address string) error {
 	return exec.CommandContext(ctx, command, address).Run()
 }
 
-func (s service) create(ctx context.Context, options Options, scope, ownerType, permission string, output io.Writer) (app, error) {
+func (s service) create(ctx context.Context, options Options, scope, ownerType, permission string, output io.Writer, save func(app) error) error {
 	host, _, err := net.SplitHostPort(options.Listen)
 	if err != nil || net.ParseIP(host) == nil || !net.ParseIP(host).IsLoopback() {
-		return app{}, errors.New("--listen must use a loopback IP address and port")
+		return errors.New("--listen must use a loopback IP address and port")
 	}
 	listener, err := net.Listen("tcp", options.Listen)
 	if err != nil {
-		return app{}, err
+		return err
 	}
 	defer listener.Close()
 	origin := "http://" + listener.Addr().String()
-	var random [32]byte
+	var random [64]byte
 	if _, err := rand.Read(random[:]); err != nil {
-		return app{}, err
+		return err
 	}
-	state := hex.EncodeToString(random[:])
+	state := hex.EncodeToString(random[:32])
+	nonce := hex.EncodeToString(random[32:])
 	name := options.ID
 	if len(name) > 20 {
 		name = name[:20]
@@ -85,24 +75,31 @@ func (s service) create(ctx context.Context, options Options, scope, ownerType, 
 	}
 	data, err := json.Marshal(value)
 	if err != nil {
-		return app{}, err
+		return err
 	}
 	action := "https://github.com/settings/apps/new"
 	if ownerType == "Organization" {
 		action = "https://github.com/organizations/" + url.PathEscape(strings.Split(scope, "/")[0]) + "/settings/apps/new"
 	}
 	action += "?state=" + state
-	code := make(chan string, 1)
+	done := make(chan error, 1)
+	callbackDone := make(chan struct{})
+	const (
+		waiting = iota
+		processing
+		stopped
+	)
+	var callback atomic.Int32
+	page := setupPageData{Scope: scope, Nonce: nonce, Repository: strings.Contains(scope, "/")}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/start/"+state, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			http.Error(w, "GET required", http.StatusMethodNotAllowed)
 			return
 		}
-		if err := startPage.Execute(w, struct{ Scope, Permission, Action, Manifest string }{scope, permission, action, string(data)}); err != nil {
-			http.Error(w, "Cannot render setup page", http.StatusInternalServerError)
-			return
-		}
+		start := page
+		start.Action, start.Manifest = action, string(data)
+		renderSetupPage(w, http.StatusOK, start)
 	})
 	mux.HandleFunc("/callback", func(w http.ResponseWriter, r *http.Request) {
 		query := r.URL.Query()
@@ -112,18 +109,42 @@ func (s service) create(ctx context.Context, options Options, scope, ownerType, 
 			http.Error(w, "Invalid setup callback", http.StatusBadRequest)
 			return
 		}
-		select {
-		case code <- query.Get("code"):
-			fmt.Fprintln(w, "App creation received. Return to the terminal to continue installation.")
-		default:
+		if !callback.CompareAndSwap(waiting, processing) {
 			http.Error(w, "Setup callback already received", http.StatusConflict)
+			return
 		}
+		defer close(callbackDone)
+		// Persist converted credentials even if the browser disconnects. Saving
+		// can outlast the normal response deadline while the store is locked.
+		controller := http.NewResponseController(w)
+		controller.SetWriteDeadline(time.Time{})
+		var created app
+		err := s.api.request(ctx, http.MethodPost, "/app-manifests/"+query.Get("code")+"/conversions", "", &created)
+		if err != nil {
+			err = fmt.Errorf("exchange Manifest code: %w; if the App was created, inspect its settings before retrying", err)
+		} else {
+			err = save(created)
+		}
+		created.PEM = ""
+		finished := page
+		status := http.StatusOK
+		if err != nil || ctx.Err() != nil {
+			finished.Failed = true
+			status = http.StatusInternalServerError
+		} else {
+			finished.Slug = created.Slug
+			finished.InstallationURL = installationURL(created.Slug)
+		}
+		controller.SetWriteDeadline(time.Now().Add(5 * time.Second))
+		renderSetupPage(w, status, finished)
+		controller.Flush()
+		done <- err
 	})
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("Referrer-Policy", "no-referrer")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
-		w.Header().Set("Content-Security-Policy", "default-src 'none'; form-action https://github.com; frame-ancestors 'none'; base-uri 'none'")
+		w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'nonce-"+nonce+"'; form-action https://github.com; frame-ancestors 'none'; base-uri 'none'")
 		if r.Host != listener.Addr().String() {
 			http.Error(w, "Invalid host", http.StatusForbidden)
 			return
@@ -138,25 +159,31 @@ func (s service) create(ctx context.Context, options Options, scope, ownerType, 
 		close(serveDone)
 	}()
 	defer func() {
+		received := !callback.CompareAndSwap(waiting, stopped)
 		server.Close()
 		<-serveDone
+		if received {
+			// Closing the browser connection must not abandon credentials
+			// returned by the one-time Manifest conversion.
+			<-callbackDone
+		}
 	}()
 	address := origin + "/start/" + state
 	if err := s.browse(ctx, options.NoBrowser, address, output); err != nil {
-		return app{}, err
+		return err
 	}
 	select {
-	case temporary := <-code:
-		var created app
-		if err := s.api.request(ctx, http.MethodPost, "/app-manifests/"+temporary+"/conversions", "", &created); err != nil {
-			return app{}, fmt.Errorf("exchange Manifest code: %w; if the App was created, inspect its settings before retrying", err)
-		}
-		return created, nil
+	case err := <-done:
+		return err
 	case <-ctx.Done():
-		return app{}, fmt.Errorf("waiting for browser callback: %w", ctx.Err())
+		return fmt.Errorf("waiting for browser callback: %w", ctx.Err())
 	case <-serveDone:
-		return app{}, fmt.Errorf("local callback server stopped: %w", serveError)
+		return fmt.Errorf("local callback server stopped: %w", serveError)
 	}
+}
+
+func installationURL(slug string) string {
+	return "https://github.com/apps/" + slug + "/installations/new"
 }
 
 func (s service) browse(ctx context.Context, manual bool, address string, output io.Writer) error {

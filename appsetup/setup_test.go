@@ -31,20 +31,24 @@ import (
 
 type fixture struct {
 	service
-	options     Options
-	key         *rsa.PrivateKey
-	pem         string
-	ownerType   string
-	scope       string
-	appOwner    string
-	permission  string
-	installed   atomic.Bool
-	conversions atomic.Int32
-	ownerCalls  atomic.Int32
-	status      int
-	localURL    string
-	onInstall   func()
-	onLookup    func()
+	options          Options
+	key              *rsa.PrivateKey
+	pem              string
+	ownerType        string
+	scope            string
+	appOwner         string
+	permission       string
+	installed        atomic.Bool
+	conversions      atomic.Int32
+	ownerCalls       atomic.Int32
+	status           int
+	conversionStatus int
+	localURL         string
+	callbackHTML     string
+	callbackStatus   int
+	browserCalls     atomic.Int32
+	onInstall        func()
+	onLookup         func()
 }
 
 func setupFixture(t *testing.T, scope, ownerType string) *fixture {
@@ -92,6 +96,11 @@ func (f *fixture) apiHandler(t *testing.T) http.HandlerFunc {
 			f.conversions.Add(1)
 			if r.Method != http.MethodPost || r.Header.Get("Authorization") != "" {
 				t.Error("conversion required a token or wrong method")
+			}
+			if f.conversionStatus != 0 {
+				w.WriteHeader(f.conversionStatus)
+				fmt.Fprint(w, "sensitive-exchange-error")
+				return
 			}
 			json.NewEncoder(w).Encode(app{ID: 77, ClientID: "Iv1.test", Slug: "ghalet-test", Owner: account{Login: f.appOwner}, PEM: f.pem})
 		case strings.HasSuffix(r.URL.Path, "/installation"):
@@ -234,6 +243,7 @@ func TestSetupFinalCommitHonorsCredentialLock(t *testing.T) {
 func (f *fixture) browser(t *testing.T) func(context.Context, string) error {
 	t.Helper()
 	return func(ctx context.Context, address string) error {
+		f.browserCalls.Add(1)
 		if strings.HasPrefix(address, "https://github.com/apps/") {
 			if f.onInstall != nil {
 				f.onInstall()
@@ -311,7 +321,23 @@ func (f *fixture) browser(t *testing.T) func(context.Context, string) error {
 		if err != nil {
 			return err
 		}
-		finished.Body.Close()
+		defer finished.Body.Close()
+		body, err := io.ReadAll(finished.Body)
+		if err != nil {
+			return err
+		}
+		f.callbackHTML = string(body)
+		f.callbackStatus = finished.StatusCode
+		if finished.StatusCode == http.StatusOK {
+			if !strings.Contains(f.callbackHTML, `href="https://github.com/apps/ghalet-test/installations/new"`) {
+				t.Error("callback did not link to the created App installation")
+			}
+			if f.onInstall != nil {
+				f.onInstall()
+			} else {
+				f.installed.Store(true)
+			}
+		}
 		return nil
 	}
 }
@@ -360,6 +386,13 @@ func TestManifestSetup(t *testing.T) {
 			}
 			if f.conversions.Load() != 1 {
 				t.Fatal("incorrect number of App creations")
+			}
+			if f.browserCalls.Load() != 1 {
+				t.Fatal("new App setup opened another browser instead of using the callback link")
+			}
+			if strings.Contains(f.callbackHTML, "PRIVATE KEY") || strings.Contains(f.callbackHTML, "test-code") ||
+				strings.Contains(f.callbackHTML, result.KeyPath) {
+				t.Fatal("callback exposed credentials or local paths")
 			}
 			client := &http.Client{Timeout: time.Second}
 			if response, err := client.Get(f.localURL); err == nil {
@@ -517,10 +550,10 @@ func TestSetupDoesNotReplaceConcurrentCredential(t *testing.T) {
 	keyPath := filepath.Join(stateDirectory, "credentials", f.options.ID+".pem")
 	existing := []byte("concurrently-registered-credential")
 	f.open = func(ctx context.Context, address string) error {
-		if err := browser(ctx, address); err != nil {
+		if err := os.WriteFile(keyPath, existing, 0600); err != nil {
 			return err
 		}
-		return os.WriteFile(keyPath, existing, 0600)
+		return browser(ctx, address)
 	}
 	before, _ := os.ReadFile(f.options.Config)
 	var output bytes.Buffer
