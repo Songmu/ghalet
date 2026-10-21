@@ -193,15 +193,8 @@ func TestRunnerGuardPreservesRunnerExitAndKillsRemainingChildren(t *testing.T) {
 			script := fmt.Sprintf("#!/bin/sh\nif ( : <&3 ) 2>/dev/null || ( : <&4 ) 2>/dev/null; then exit 89; fi\ntrap '' TERM\nsleep 60 &\nprintf 'Listening for Jobs\\n'\nread -r release < %q\nprintf 'final output'\nexit %d\n", release, code)
 			seedDistribution(t, d.config, script)
 			d.targets["build"].Assigned = 1
-			var run *activeRun
-			pumpUntil(t, d, func() bool {
-				for _, candidate := range d.runs {
-					if candidate.State.Ready && len(candidate.State.Members) >= 3 {
-						run = candidate
-						return true
-					}
-				}
-				return false
+			run := waitForRun(t, d, func(run *activeRun) bool {
+				return run.State.Ready && len(run.State.Members) >= 3
 			})
 			d.mu.Lock()
 			run.State.Busy, run.State.Phase = true, "busy"

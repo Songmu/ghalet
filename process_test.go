@@ -157,15 +157,8 @@ func TestRunnerPathPreservesConsecutiveSpaces(t *testing.T) {
 	cleanupProcesses(t, d)
 	seedDistribution(t, d.config, "#!/bin/sh\nprintf 'Listening for Jobs\\n'\nsleep 60\n")
 	d.targets["build"].Assigned = 1
-	var run *activeRun
-	pumpUntil(t, d, func() bool {
-		for _, candidate := range d.runs {
-			if candidate.State.Ready && !candidate.Preparing {
-				run = candidate
-				return true
-			}
-		}
-		return false
+	run := waitForRun(t, d, func(run *activeRun) bool {
+		return run.State.Ready && !run.Preparing
 	})
 	table, err := procgroup.Snapshot(t.Context(), []procgroup.ProcessIdentity{run.State.Process})
 	if err != nil {
@@ -190,15 +183,8 @@ func startTerminationRunner(t *testing.T, script string) (*daemon, *activeRun) {
 	cleanupProcesses(t, d)
 	seedDistribution(t, d.config, script)
 	d.targets["build"].Assigned = 1
-	var run *activeRun
-	pumpUntil(t, d, func() bool {
-		for _, candidate := range d.runs {
-			if candidate.State.Ready && !candidate.Preparing && len(candidate.State.Members) >= 2 {
-				run = candidate
-				return true
-			}
-		}
-		return false
+	run := waitForRun(t, d, func(run *activeRun) bool {
+		return run.State.Ready && !run.Preparing && len(run.State.Members) >= 2
 	})
 	return d, run
 }

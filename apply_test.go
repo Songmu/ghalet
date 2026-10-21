@@ -51,12 +51,7 @@ func TestApplyRemovesAllTargetsAndDeletesUnusedScaleSet(t *testing.T) {
 	next := nextConfig(d)
 	next.Targets = []settings.Target{}
 	writeApplyConfig(t, next)
-	server, err := listenControl(d.config.Path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { server.close(); os.Remove(server.path + ".lock") })
-	go server.serve(d)
+	serveTestControl(t, d)
 	result, err := Apply(t.Context(), next.Path)
 	if err != nil || result.Status == nil || len(result.Status.Targets) != 0 {
 		t.Fatal("apply did not publish the empty configuration", result, err)
@@ -428,13 +423,10 @@ func TestApplyDrainsLiveRunnerBeforeDeletingScaleSet(t *testing.T) {
 	cleanupProcesses(t, d)
 	seedDistribution(t, d.config, "#!/bin/sh\nprintf 'Listening for Jobs\\n'\nsleep 1\n")
 	d.targets["build"].Assigned = 1
-	pumpUntil(t, d, func() bool {
-		for _, run := range d.runs {
-			if run.State.Ready && !run.Preparing {
-				run.State.Busy = true
-				return true
-			}
-
+	waitForRun(t, d, func(run *activeRun) bool {
+		if run.State.Ready && !run.Preparing {
+			run.State.Busy = true
+			return true
 		}
 		return false
 	})
