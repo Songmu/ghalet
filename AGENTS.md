@@ -1,5 +1,10 @@
 # Repository guidance
 
+## Package organization
+
+Use ordinary subpackages rather than `internal/`. This is a CLI application;
+external consumers of its subpackages are responsible for compatibility.
+
 ## Documentation
 
 Keep English and Japanese user documentation synchronized in the same change.
