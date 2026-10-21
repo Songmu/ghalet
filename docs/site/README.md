@@ -14,6 +14,9 @@ documentation; links to it, examples, and other repository files stay on GitHub.
 
 ## Local build
 
+Renovate tracks Hugo releases and proposes updates to `.hugo-version`;
+the Pages workflow reads that same file.
+
 Install the extended Hugo version in `.hugo-version` and Go as specified in
 `go.mod`, then run from the repository root:
 
