@@ -140,7 +140,7 @@ func TestWriteManagedCoordinatesWriters(t *testing.T) {
 
 func TestSetupRejectsManagedPersistenceCollisionsBeforeAppCreation(t *testing.T) {
 	for _, systemd := range []bool{false, true} {
-		names := []string{"key", "backup", "metadata", "setup-lock", "managed-lock"}
+		names := []string{"key", "key-child", "key-parent", "config-symlink", "backup", "metadata", "setup-lock", "managed-lock"}
 		if systemd {
 			names = append(names, "drop-in")
 		}
@@ -156,6 +156,10 @@ func TestSetupRejectsManagedPersistenceCollisionsBeforeAppCreation(t *testing.T)
 				files := setupPaths(directory, f.options)
 				path := files.diskKey
 				switch name {
+				case "key-child":
+					path = filepath.Join(path, "managed.yaml")
+				case "key-parent":
+					path = filepath.Dir(path)
 				case "backup":
 					path += ".previous"
 				case "metadata":
@@ -168,7 +172,14 @@ func TestSetupRejectsManagedPersistenceCollisionsBeforeAppCreation(t *testing.T)
 					path = filepath.Join(credentialstore.SystemdDropInDirectory, "credential-build.conf")
 				}
 				static := []byte(fmt.Sprintf("managedFile: %s\ntargets:\n  - id: build\n    scope: owner/repo\n", path))
-				if err := os.WriteFile(f.options.Config, static, 0600); err != nil {
+				if name == "config-symlink" {
+					if err := os.Remove(f.options.Config); err != nil {
+						t.Fatal(err)
+					}
+					if err := os.Symlink(files.diskKey, f.options.Config); err != nil {
+						t.Fatal(err)
+					}
+				} else if err := os.WriteFile(f.options.Config, static, 0600); err != nil {
 					t.Fatal(err)
 				}
 				if _, err := f.run(t.Context(), f.options, nil, io.Discard); err == nil {

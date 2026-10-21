@@ -221,3 +221,20 @@ func TestManagedPathRejectsFinalConfigSymlinkCollision(t *testing.T) {
 		t.Fatal("managed path aliases the final configuration symlink target")
 	}
 }
+
+func TestCheckManagedPathsRejectsReservedOverlaps(t *testing.T) {
+	root, static := managedFixture(t)
+	managed := filepath.Join(root, "managed.yaml")
+	for _, reserved := range []string{
+		filepath.Join(managed, "key.pem"),
+		filepath.Dir(managed),
+		filepath.Join(managed+".lock", "key.pem"),
+		filepath.Join(static, "key.pem"),
+	} {
+		t.Run(reserved, func(t *testing.T) {
+			if err := CheckManagedPaths(managed, static, reserved); err == nil {
+				t.Fatal("overlapping persistence paths accepted")
+			}
+		})
+	}
+}

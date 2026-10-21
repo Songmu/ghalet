@@ -93,6 +93,13 @@ func CheckManagedPaths(managedPath, configPath string, reserved ...string) error
 		if !errors.Is(err, os.ErrNotExist) {
 			return "", err
 		}
+		info, err := os.Lstat(path)
+		if err == nil && info.Mode()&os.ModeSymlink != 0 {
+			return "", fmt.Errorf("cannot resolve dangling file symlink: %s", path)
+		}
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return "", err
+		}
 		return fshelper.ResolveParent(path)
 	}
 	managed, err := identity(managedPath)
@@ -112,7 +119,9 @@ func CheckManagedPaths(managedPath, configPath string, reserved ...string) error
 		if err != nil {
 			return err
 		}
-		if managed == protected || lock == protected || (i >= 2 && static == protected) {
+		if within(managed, protected) || within(protected, managed) ||
+			within(lock, protected) || within(protected, lock) ||
+			(i >= 2 && (within(static, protected) || within(protected, static))) {
 			return errors.New("static and managed configuration must not overlap credential, setup or service files")
 		}
 	}
