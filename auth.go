@@ -2,7 +2,6 @@ package ghalet
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -24,7 +23,7 @@ func readProtected(path string) (string, error) {
 		return "", err
 	}
 	if !info.Mode().IsRegular() || info.Mode().Perm()&0077 != 0 {
-		return "", fmt.Errorf("credential file %s must be a regular file accessible only to its owner (0600)", path)
+		return "", fmt.Errorf("%w: credential file %s must be a regular file accessible only to its owner (0600)", errUnsafeTarget, path)
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -79,13 +78,13 @@ func newScaleClient(ctx context.Context, target Target, secret *logreduct.Redact
 			token, err = readProtected(credential.TokenFile)
 		}
 	default:
-		return nil, errors.New("unsupported credential type")
+		return nil, fmt.Errorf("%w: unsupported credential type", errUnsafeTarget)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("target %s: %w", target.ID, err)
 	}
 	if token == "" {
-		return nil, fmt.Errorf("target %s: empty management token", target.ID)
+		return nil, fmt.Errorf("%w: target %s: empty management token", errUnsafeTarget, target.ID)
 	}
 	secret.Add(token)
 	return scaleset.NewClientWithPersonalAccessToken(scaleset.NewClientWithPersonalAccessTokenConfig{
@@ -120,7 +119,7 @@ func registration(ctx context.Context, client scaleAPI, target Target, create bo
 		return nil, fmt.Errorf("reference existing runner group %q (requires runner administration permission): %w", groupName, err)
 	}
 	if group == nil || group.ID <= 0 {
-		return nil, fmt.Errorf("runner group %q does not exist or is inaccessible", groupName)
+		return nil, fmt.Errorf("%w: runner group %q does not exist or is inaccessible", errUnsafeTarget, groupName)
 	}
 	set, err := client.GetRunnerScaleSet(ctx, group.ID, target.ScaleSetName)
 	if err != nil {
