@@ -98,7 +98,7 @@ jobs:
         docker run --rm --init \
           --mount "type=bind,src=$GITHUB_WORKSPACE/examples/system-config.yaml,dst=/etc/ghalet/config.yaml,readonly" \
           ghalet:test config validate --config /etc/ghalet/config.yaml
-        version=$(sed -n 's/^const defaultRunnerVersion = "\([0-9][0-9.]*\)"$/\1/p' config.go)
+        version=$(sed -n 's/^const DefaultRunnerVersion = "\([0-9][0-9.]*\)"$/\1/p' config/config.go)
         test -n "$version"
         runner_arch="$ARCH"
         if [ "$runner_arch" = amd64 ]; then runner_arch=x64; fi
