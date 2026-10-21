@@ -20,6 +20,8 @@ import (
 const maxLogLineBytes = 64 * 1024
 const omittedLogLine = "[ghalet: log line over 64 KiB omitted]\n"
 
+var archiveDirectoryMu sync.Mutex
+
 type runnerOutput struct {
 	mu       sync.Mutex
 	file     *os.File
@@ -98,7 +100,10 @@ func archiveLogs(c *Config, state *RunState, secret *logreduct.Redactor) error {
 		return nil
 	}
 	base := filepath.Join(c.Logs.Root, "runs")
-	if err := fshelper.EnsureDirectory(base, 0700); err != nil {
+	archiveDirectoryMu.Lock()
+	err := fshelper.EnsureDirectory(base, 0700)
+	archiveDirectoryMu.Unlock()
+	if err != nil {
 		return err
 	}
 	final := filepath.Join(base, state.RunID)

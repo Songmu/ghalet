@@ -25,6 +25,7 @@ import (
 
 type targetRuntime struct {
 	scaleMu       *sync.Mutex
+	directoryMu   *sync.Mutex
 	Config        Target
 	Client        scaleAPI
 	Set           *scaleset.RunnerScaleSet
@@ -161,32 +162,33 @@ type runEvent struct {
 }
 
 type daemon struct {
-	mu            sync.Mutex
-	retentionMu   sync.Mutex
-	config        *Config
-	secrets       *logreduct.Redactor
-	store         stateStore
-	user          executionUser
-	distribution  *runnerdist.Manager
-	targets       map[string]*targetRuntime
-	order         []string
-	runs          map[string]*activeRun
-	problems      []Problem
-	events        chan runEvent
-	ctx           context.Context
-	cancel        context.CancelFunc
-	workers       sync.WaitGroup
-	retired       []*targetRuntime
-	applying      bool
-	reloading     bool
-	applyCancel   context.CancelFunc
-	stopping      bool
-	offline       bool
-	retaining     bool
-	inspecting    chan struct{}
-	nextRetention time.Time
-	clientFactory func(context.Context, Target) (scaleAPI, error)
-	listen        func(*targetRuntime)
+	mu               sync.Mutex
+	retentionMu      sync.Mutex
+	config           *Config
+	secrets          *logreduct.Redactor
+	store            stateStore
+	user             executionUser
+	distribution     *runnerdist.Manager
+	targets          map[string]*targetRuntime
+	order            []string
+	runs             map[string]*activeRun
+	problems         []Problem
+	events           chan runEvent
+	ctx              context.Context
+	cancel           context.CancelFunc
+	workers          sync.WaitGroup
+	retired          []*targetRuntime
+	applying         bool
+	reloading        bool
+	applyCancel      context.CancelFunc
+	stopping         bool
+	offline          bool
+	retaining        bool
+	inspecting       chan struct{}
+	nextRetention    time.Time
+	clientFactory    func(context.Context, Target) (scaleAPI, error)
+	listen           func(*targetRuntime)
+	makeRunDirectory func(string) error
 }
 
 func newDaemon(c *Config) (*daemon, error) {
@@ -207,6 +209,7 @@ func newDaemon(c *Config) (*daemon, error) {
 		store: stateStore{c.Runner.WorkRoot}, distribution: runnerdist.New(preparationTimeout),
 		targets: map[string]*targetRuntime{}, runs: map[string]*activeRun{}, events: make(chan runEvent, 1024),
 		ctx: ctx, cancel: cancel,
+		makeRunDirectory: createRunDirectory,
 	}
 	d.clientFactory = func(ctx context.Context, target Target) (scaleAPI, error) {
 		return newScaleClient(ctx, target, secret)
@@ -1085,10 +1088,18 @@ func (d *daemon) reserve(target *targetRuntime) error {
 	d.runs[id] = run
 	ctx, cancel := context.WithTimeout(d.ctx, preparationTimeout)
 	run.Cancel = cancel
+	if target.directoryMu == nil {
+		target.directoryMu = &sync.Mutex{}
+	}
+	directoryMu := target.directoryMu
 	target.RetryAt = time.Now().Add(time.Second)
 	d.runIO(run, func(work *activeRun) error {
 		defer cancel()
-		err := createRunDirectory(dir)
+		// A second reservation must not observe a newly created target
+		// directory before its creator has synced the WorkRoot entry.
+		directoryMu.Lock()
+		err := d.makeRunDirectory(dir)
+		directoryMu.Unlock()
 		if err != nil {
 			work.Preparing, work.removed, work.startError = false, true, err
 			return err
