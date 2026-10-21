@@ -656,7 +656,7 @@ func (d *daemon) active(targetID string) int {
 func (d *daemon) retiring(targetID string) int {
 	count := 0
 	for _, run := range d.runs {
-		if d.runTargetID(run) == targetID && run.Retiring && run.occupiesCapacity() {
+		if (targetID == "" || d.runTargetID(run) == targetID) && run.Retiring && run.occupiesCapacity() {
 			count++
 		}
 	}
@@ -1058,6 +1058,9 @@ func (d *daemon) fill(target *targetRuntime, wanted int) {
 }
 
 func (d *daemon) yieldIdle(forTarget string) {
+	if d.retiring("") != 0 {
+		return
+	}
 	for _, id := range d.order {
 		target := d.targets[id]
 		if id == forTarget || d.active(id)-d.retiring(id) <= target.Assigned+target.Pending {

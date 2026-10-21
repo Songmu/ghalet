@@ -369,37 +369,48 @@ func TestForcedDrainDuringLaunchNeverReleasesRunnerGate(t *testing.T) {
 }
 
 func TestPendingRetirementDoesNotShrinkBelowWarmPool(t *testing.T) {
-	d, api := testDaemon(t)
-	target := d.targets["build"]
-	target.Config.Scaling.MinRunners = 1
-	for id := 101; id <= 102; id++ {
-		state := testState(t, d.config)
-		state.RunnerID, state.Ready, state.Phase = id, true, "registered"
-		d.runs[state.RunID] = &activeRun{State: state}
-		api.runners[id] = &scaleset.RunnerReference{ID: id, Name: state.RunnerName, RunnerScaleSetID: state.ScaleSetID}
-		if err := d.store.save(state); err != nil {
-			t.Fatal(err)
-		}
-	}
-	blocked := &blockedRunnerAPI{scaleAPI: api, removeEntered: make(chan struct{}), removeRelease: make(chan struct{})}
-	releaseOnCleanup(t, blocked.removeRelease)
-	target.Client = blocked
-	d.mu.Lock()
-	d.reconcileIdle(target, false)
-	d.mu.Unlock()
-	<-blocked.removeEntered
-	d.mu.Lock()
-	for range 3 {
-		d.reconcileIdle(target, false)
-	}
-	retiring := d.retiring(target.Config.ID)
-	d.mu.Unlock()
-	if retiring != 1 {
-		t.Fatal("in-flight retirement caused extra warm runners to be retired", retiring)
-	}
-	close(blocked.removeRelease)
-	settleRuns(d)
-	if d.active(target.Config.ID) != 1 || api.removeCalls != 1 {
-		t.Fatal("pending retirement shrank below the configured warm pool")
+	for _, yield := range []bool{false, true} {
+		t.Run(map[bool]string{false: "warm pool", true: "yield capacity"}[yield], func(t *testing.T) {
+			d, api := testDaemon(t)
+			target := d.targets["build"]
+			target.Config.Scaling.MinRunners = 1
+			for id := 101; id <= 102; id++ {
+				state := testState(t, d.config)
+				state.RunnerID, state.Ready, state.Phase = id, true, "registered"
+				d.runs[state.RunID] = &activeRun{State: state}
+				api.runners[id] = &scaleset.RunnerReference{ID: id, Name: state.RunnerName, RunnerScaleSetID: state.ScaleSetID}
+				if err := d.store.save(state); err != nil {
+					t.Fatal(err)
+				}
+			}
+			blocked := &blockedRunnerAPI{scaleAPI: api, removeEntered: make(chan struct{}), removeRelease: make(chan struct{})}
+			releaseOnCleanup(t, blocked.removeRelease)
+			target.Client = blocked
+			retire := func() {
+				if yield {
+					d.yieldIdle("second")
+				} else {
+					d.reconcileIdle(target, false)
+				}
+			}
+			d.mu.Lock()
+			retire()
+			d.mu.Unlock()
+			<-blocked.removeEntered
+			d.mu.Lock()
+			for range 3 {
+				retire()
+			}
+			retiring := d.retiring(target.Config.ID)
+			d.mu.Unlock()
+			if retiring != 1 {
+				t.Fatal("in-flight retirement caused extra warm runners to be retired", retiring)
+			}
+			close(blocked.removeRelease)
+			settleRuns(d)
+			if d.active(target.Config.ID) != 1 || api.removeCalls != 1 {
+				t.Fatal("pending retirement shrank below the configured warm pool")
+			}
+		})
 	}
 }
