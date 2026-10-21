@@ -69,41 +69,77 @@ go install github.com/Songmu/ghalet/cmd/ghalet@latest
 
 ## クイックスタート
 
-設定ファイルを作成し、ghalet を起動するユーザーで GitHub CLI にログインします。
-以下の `OWNER/REPO` を自分のリポジトリに置き換えてください。
-Organization の場合は `ORG` を指定します。
+以下は、1つのリポジトリで runner を動かす手順です。
+ghalet を起動する非 root ユーザーで実行してください。
+
+継続運用では、Linux は systemd、macOS は launchd（Homebrew では `brew services`）で
+サービスとして常駐させる構成を基本とします。
+以下ではまずフォアグラウンドで動作を確認し、その後に常駐化します。
+Linux は[パッケージのサービス設定](docs/distribution.ja.md#debian--rpm-パッケージ)、
+macOS は[Homebrew での常駐化](#homebrew-での常駐化macos-のみ)を参照してください。
+
+### 1. GitHub に認証する
+
+GitHub CLI（`gh`）を用意し、対象リポジトリの runner を管理できるアカウントでログインします。
+必要な権限は[認証のセットアップ](docs/authentication.ja.md)を参照してください。
+
+```sh
+gh auth login
+```
+
+この手順では `gh` のログインを使います。PAT や GitHub App を使う場合も、
+[認証のセットアップ](docs/authentication.ja.md)を参照してください。
+
+### 2. runner の設定を作成する
+
+`~/.config/ghalet/config.yaml` を作成します。
+`OWNER/REPO` は自分のリポジトリに置き換えてください。
+Organization 全体で使う場合は、代わりに `ORG` を指定します。
 
 ```sh
 mkdir -p ~/.config/ghalet
 cat > ~/.config/ghalet/config.yaml <<'YAML'
 targets:
-  - scaleSet: project
-    scope: OWNER/REPO
+  - scope: OWNER/REPO
+    scaleSet: ghalet-runner
 YAML
-gh auth login
 ghalet config validate
-ghalet run
 ```
 
-設定ファイルのデフォルトは `~/.config/ghalet/config.yaml` です。
-別のファイルを使う場合は `--config /path/to/config.yaml` を指定してください。
-デフォルトの認証には `gh` のログインを使います。[PAT と GitHub App による認証](docs/operations.ja.md#設定と認証情報)
-にも対応しています。必要権限、PAT の作成、GitHub App のインストールは
-[認証のセットアップ](docs/authentication.ja.md)を参照してください。
+`scope` は runner を登録するリポジトリまたは Organization、
+`scaleSet` は workflow の `runs-on` に指定する任意の名前です。
+この例では `ghalet-runner` に揃えます。リポジトリ名と同じにする必要はありません。
+別の設定ファイルを使う場合は、各コマンドに `--config /path/to/config.yaml` を指定してください。
 その他の設定は[コメント付きのサンプル](examples/config.yaml)を参照してください。
 
-信頼できる workflow の `runs-on` に、設定した Scale Set 名
-（`scaleSet`、省略時は `id`）を指定します。
+### 3. workflow から runner を指定する
+
+対象リポジトリに `.github/workflows/runner-check.yaml` を作成します。
+`runs-on` を先ほどの `scaleSet` と同じ `ghalet-runner` にします。
+信頼できる workflow のみに使用してください。
 
 ```yaml
+name: Runner check
+on: push
+
 jobs:
-  build:
-    runs-on: project
+  check:
+    runs-on: ghalet-runner
     steps:
       - run: uname -a
 ```
 
-別のターミナルから状態確認を実行できます。
+### 4. ghalet を起動してジョブを実行する
+
+ホストでデーモンを起動します。ジョブが届くと runner が自動で起動します。
+
+```sh
+ghalet run
+```
+
+workflow をコミットして対象リポジトリに push し、GitHub の Actions タブで
+`Runner check` が実行されることを確認してください。
+別のターミナルから、ホスト上の状態確認と診断も実行できます。
 
 ```sh
 ghalet status
@@ -144,8 +180,8 @@ brew services stop ghalet
 | `ghalet run` | 全 target のデーモンをフォアグラウンドで起動します。 |
 | `ghalet apply` | 全 target を drain して設定と登録を反映し、未使用 Scale Set の削除を試みます。 |
 | `ghalet config validate` | GitHub に接続せず、設定とローカルパスを検証します。 |
-| `ghalet app setup --scope OWNER/REPO --scale-set project` | 非公開 GitHub App を作成・インストールし、managed 認証を保存して、必要な静的 target 設定を表示します。Organization、SSH、再開は [App セットアップ](docs/app-setup.ja.md)を参照してください。 |
-| `ghalet systemd app setup --scope OWNER/REPO --scale-set project` | App のセットアップ、サービス用の暗号化認証情報の保存、target の実行時の鍵の参照設定を行います（Linux/root）。[App セットアップ](docs/app-setup.ja.md#パッケージの-systemd-サービス)を参照してください。 |
+| `ghalet app setup --scope OWNER/REPO --scale-set ghalet-runner` | 非公開 GitHub App を作成・インストールし、managed 認証を保存して、必要な静的 target 設定を表示します。Organization、SSH、再開は [App セットアップ](docs/app-setup.ja.md)を参照してください。 |
+| `ghalet systemd app setup --scope OWNER/REPO --scale-set ghalet-runner` | App のセットアップ、サービス用の暗号化認証情報の保存、target の実行時の鍵の参照設定を行います（Linux/root）。[App セットアップ](docs/app-setup.ja.md#パッケージの-systemd-サービス)を参照してください。 |
 | `ghalet credential set NAME --prompt` | 静的設定を書き換えず、所有者限定の認証ファイルを保存して managed の共通認証を更新します。App キーや交換は[通常ファイルの認証情報](docs/file-credentials.ja.md)を参照してください。 |
 | `ghalet systemd credential set NAME --prompt` | サービス用 PAT を暗号化登録し、managed の共通認証を更新します（Linux・root 必須）。App キー、自動構築、ローテーションは[認証情報](docs/credentials.ja.md)を参照してください。 |
 | `ghalet list` | アクセス可能なデーモンの管理 UID、ソケット、稼働状態を一覧表示します。`--config PATH` で絞り込めます。 |

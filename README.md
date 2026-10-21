@@ -68,42 +68,79 @@ for execution users and environment settings.
 
 ## Quick start
 
-Create a configuration and authenticate with GitHub CLI as the user who
-will run ghalet. Replace `OWNER/REPO` below with your repository
-(or `ORG` for an organization):
+These steps run a runner for one repository.
+Run the host commands as the non-root user who will run ghalet.
+
+For ongoing operation, run ghalet as a service under systemd on Linux or
+launchd on macOS (`brew services` for Homebrew installations).
+The steps below first verify foreground operation before switching to a service.
+See [the packaged service setup](docs/distribution.md#debian-and-rpm-packages)
+for Linux or [the Homebrew service](#homebrew-service-macos-only) for macOS.
+
+### 1. Authenticate with GitHub
+
+Install GitHub CLI (`gh`) and log in with an account that can manage runners
+for the repository. See [authentication setup](docs/authentication.md) for
+the required permissions.
+
+```sh
+gh auth login
+```
+
+This guide uses your `gh` login. For PAT or GitHub App authentication,
+see [authentication setup](docs/authentication.md).
+
+### 2. Configure the runner
+
+Create `~/.config/ghalet/config.yaml`.
+Replace `OWNER/REPO` with your repository, or use `ORG` to make runners
+available to the organization.
 
 ```sh
 mkdir -p ~/.config/ghalet
 cat > ~/.config/ghalet/config.yaml <<'YAML'
 targets:
-  - scaleSet: project
-    scope: OWNER/REPO
+  - scope: OWNER/REPO
+    scaleSet: ghalet-runner
 YAML
-gh auth login
 ghalet config validate
-ghalet run
 ```
 
-The default configuration path is `~/.config/ghalet/config.yaml`; use
-`--config /path/to/config.yaml` to select another file. The default
-authentication uses your `gh` login; [PAT and GitHub App
-credentials](docs/operations.md#configuration-and-credentials) are also
-supported. See [authentication setup](docs/authentication.md) for the required
-permissions, PAT creation and GitHub App installation.
+`scope` is the repository or organization where runners are registered.
+`scaleSet` is a name you choose and use in the workflow's `runs-on`.
+This example uses `ghalet-runner` in both places; it does not need to match
+the repository name. To use another configuration file, pass
+`--config /path/to/config.yaml` to each command.
 For more settings, see the [commented example](examples/config.yaml).
 
-Use the configured scale set name (`scaleSet`, or `id` when omitted) in a
-trusted workflow:
+### 3. Use the runner in a workflow
+
+Create `.github/workflows/runner-check.yaml` in the repository.
+Set `runs-on` to `ghalet-runner`, matching the `scaleSet` above.
+Use only trusted workflows.
 
 ```yaml
+name: Runner check
+on: push
+
 jobs:
-  build:
-    runs-on: project
+  check:
+    runs-on: ghalet-runner
     steps:
       - run: uname -a
 ```
 
-In another terminal:
+### 4. Start ghalet and run a job
+
+Start the daemon on the host. It starts runners automatically as jobs arrive.
+
+```sh
+ghalet run
+```
+
+Commit and push the workflow to the repository, then check the Actions tab
+on GitHub for the `Runner check` run.
+In another terminal on the host, check the daemon's status and diagnostics:
 
 ```sh
 ghalet status
@@ -146,8 +183,8 @@ repository or organization registration, identified locally by its `id`.
 | `ghalet run` | Run the daemon in the foreground for all configured targets. |
 | `ghalet apply` | Drain targets, reload configuration, and reconcile registrations, attempting to delete unused scale sets. |
 | `ghalet config validate` | Validate configuration and local paths without contacting GitHub. |
-| `ghalet app setup --scope OWNER/REPO --scale-set project` | Create and install a private GitHub App, save managed authentication, and print any required static target configuration. See [App setup](docs/app-setup.md) for organization scopes, SSH and resumption. |
-| `ghalet systemd app setup --scope OWNER/REPO --scale-set project` | Set up an App with encrypted service credentials and the target's runtime key reference (Linux/root). See [App setup](docs/app-setup.md#packaged-systemd-service). |
+| `ghalet app setup --scope OWNER/REPO --scale-set ghalet-runner` | Create and install a private GitHub App, save managed authentication, and print any required static target configuration. See [App setup](docs/app-setup.md) for organization scopes, SSH and resumption. |
+| `ghalet systemd app setup --scope OWNER/REPO --scale-set ghalet-runner` | Set up an App with encrypted service credentials and the target's runtime key reference (Linux/root). See [App setup](docs/app-setup.md#packaged-systemd-service). |
 | `ghalet credential set NAME --prompt` | Save an owner-only credential file and update managed defaults without rewriting static config. See [ordinary credentials](docs/file-credentials.md) for App keys and replacement. |
 | `ghalet systemd credential set NAME --prompt` | Register an encrypted service PAT and update managed defaults (Linux/root). See [credentials](docs/credentials.md) for App keys, automation and rotation. |
 | `ghalet list` | List accessible daemons, management UIDs, sockets and running snapshots; filter with `--config PATH`. |
