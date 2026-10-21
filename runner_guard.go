@@ -12,7 +12,6 @@ import (
 	"os/exec"
 	"os/signal"
 	"syscall"
-	"time"
 )
 
 const runnerGuardArgument = "__ghalet_runner_guard"
@@ -90,12 +89,6 @@ func runRunnerGuard(runner string) (retErr error) {
 	if err := report.Close(); err != nil {
 		return fmt.Errorf("close runner exit report: %w", err)
 	}
-	// The guard catches TERM, but the runner and its descendants receive it.
-	// KILL must include the guard itself so no fork race can leave survivors.
-	if err := syscall.Kill(-os.Getpid(), syscall.SIGTERM); err != nil {
-		return fmt.Errorf("terminate owned process group: %w", err)
-	}
-	time.Sleep(2 * time.Second)
 	return nil
 }
 

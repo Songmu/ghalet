@@ -268,8 +268,8 @@ The durable launch gate also supplies controller liveness:
 if the controller exits or is killed, the pipe closes and the guard sends
 SIGKILL to its own group, including itself. Its live leadership pins the group
 ID, so this does not depend on guessing an uncertain PID. A normal runner
-exit is reported separately, followed by TERM and a two-second grace before
-the final group-wide KILL. The controller uses the runner's actual process
+exit is reported separately, followed immediately by the final group-wide KILL
+without a fixed grace period. The controller uses the runner's actual process
 result, not the guard's deliberate SIGKILL, for exit diagnostics. The guard
 does not rewrite state or remove logs, and its descriptors are not inherited
 by the runner. This is child supervision, not self-daemonization or isolation:

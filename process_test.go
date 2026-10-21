@@ -246,7 +246,8 @@ func TestStopGroupPersistsNewDescendants(t *testing.T) {
 			child := fmt.Sprintf("(\n  trap '' TERM\n  printf 'ready\\n' > %q\n  exec sleep 30\n) &\nread -r childReady < %q\n", fifo, fifo)
 			var script string
 			if duringTermination {
-				script = fmt.Sprintf("#!/bin/sh\nfinish() {\n%swhile [ ! -f %q ]; do :; done\nprintf 'term\\n' > %q\nexit 0\n}\ntrap finish TERM\nsleep 30 &\nprintf 'Listening for Jobs\\n'\nwait\n", child, release, terminated)
+				// Keep wait's child alive if group TERM reaches it before the shell.
+				script = fmt.Sprintf("#!/bin/sh\nfinish() {\n%swhile [ ! -f %q ]; do :; done\nprintf 'term\\n' > %q\nexit 0\n}\ntrap '' TERM\nsleep 30 &\ntrap finish TERM\nprintf 'Listening for Jobs\\n'\nwait\n", child, release, terminated)
 			} else {
 				script = fmt.Sprintf("#!/bin/sh\nfinish() {\nprintf 'term\\n' > %q\nexit 0\n}\ntrap finish TERM\n%sprintf 'Listening for Jobs\\n'\nwait\n", terminated, child)
 			}
@@ -269,6 +270,9 @@ func TestStopGroupPersistsNewDescendants(t *testing.T) {
 				}
 				saves++
 				if saves == 1 {
+					if len(run.State.Members) < 2 {
+						return errors.New("runner descendants were not recorded before signaling")
+					}
 					if _, err := os.Stat(terminated); !errors.Is(err, os.ErrNotExist) {
 						return fmt.Errorf("leader received SIGTERM before membership was saved: %v", err)
 					}
@@ -289,7 +293,7 @@ func TestStopGroupPersistsNewDescendants(t *testing.T) {
 			if err != nil {
 				t.Fatal("newly verified descendants prevented group termination", err)
 			}
-			if saves < 2 || (duringTermination && !released) {
+			if saves == 0 || (duringTermination && (saves < 2 || !released)) {
 				t.Fatal("verified membership was not refreshed and persisted", saves, released)
 			}
 			if _, err := os.Stat(terminated); err != nil {
