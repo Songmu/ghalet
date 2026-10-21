@@ -113,36 +113,19 @@ func setFileWithWriter(ctx context.Context, directory string, options Options, i
 			return Result{}, err
 		}
 	}
-	original, err := snapshotCredentialFile(path)
+	original, err := snapshotReplacementCredential(path, options.NoReplace)
 	if err != nil {
 		return Result{}, err
 	}
 	defer clear(original.data)
-	if options.NoReplace && original.exists {
-		return Result{}, fmt.Errorf("credential already exists at %s; existing credential unchanged", path)
-	}
-	previous, err := snapshotCredentialFile(previousPath)
+	previous, err := snapshotPreviousCredential(previousPath, "previous credential backup already exists at %s; finish or roll back the previous rotation")
 	if err != nil {
 		return Result{}, err
 	}
 	defer clear(previous.data)
-	if previous.exists {
-		return Result{}, fmt.Errorf("previous credential backup already exists at %s; finish or roll back the previous rotation", previousPath)
-	}
-	var config credentialFile
-	var configData []byte
-	if !options.NoDefault {
-		config, err = snapshotConfigFile(options.Config)
-		if err != nil {
-			return Result{}, err
-		}
-		if !config.exists {
-			return Result{}, errors.New("configuration does not exist; create it first or use --no-default")
-		}
-		configData, err = credentialConfig(config.data, options, path)
-		if err != nil {
-			return Result{}, err
-		}
+	config, err := prepareCredentialConfig(options, path, "configuration does not exist; create it first or use --no-default")
+	if err != nil {
+		return Result{}, err
 	}
 	if options.Prompt {
 		file, ok := input.(*os.File)
@@ -168,13 +151,12 @@ func setFileWithWriter(ctx context.Context, directory string, options Options, i
 	}
 	updates := credentialUpdates{writeAtomic: writeAtomic}
 	if !options.NoDefault {
-		configLock, err := fshelper.LockFile(config.path + ".lock")
+		configLock, err := config.lock()
 		if err != nil {
 			return Result{}, err
 		}
 		defer configLock.Close()
-		current, err := os.ReadFile(config.path)
-		if err != nil || !bytes.Equal(current, config.data) {
+		if !config.unchanged() {
 			return Result{}, errors.New("configuration changed during credential input; existing credentials unchanged")
 		}
 	}
@@ -187,7 +169,7 @@ func setFileWithWriter(ctx context.Context, directory string, options Options, i
 		return Result{}, updates.rollback(err, previousPath, "previous credential")
 	}
 	if !options.NoDefault {
-		if err := updates.write(config, configData, 0600); err != nil {
+		if err := updates.write(config.original, config.data, 0600); err != nil {
 			return Result{}, updates.rollback(err, previousPath, "previous credential")
 		}
 	}
