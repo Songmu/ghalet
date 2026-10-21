@@ -150,7 +150,10 @@ XDG bases or their HOME fallbacks, and an explicit `logs.root`) may use
 symlinks, including macOS `/var`. ghalet resolves existing base links before
 deriving managed paths; new state records and credential paths use these
 canonical locations. Keep the bases and their ancestors trusted and stable
-while ghalet runs. Systemd drop-ins keep their fixed
+while ghalet runs. After stopping the daemon and its executions, a base may
+be moved with its old path left as a symlink; recovery reconciles existing
+state paths to that canonical base, without resolving managed children.
+Moving live executions is not supported. Systemd drop-ins keep their fixed
 `/etc/ghalet/credentials/...` source references, so layout migrations do not
 invalidate existing directives or expose target directory names to systemd
 specifier expansion. Managed children (including execution directories, runner

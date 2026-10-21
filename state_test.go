@@ -402,3 +402,70 @@ func TestStateCleanupRejectsReplacedDeletionRoots(t *testing.T) {
 		})
 	}
 }
+
+func TestStateRecoveryAfterTrustedBaseMigration(t *testing.T) {
+	for _, movedDirectory := range []string{"base", "managed workRoot"} {
+		t.Run(movedDirectory, func(t *testing.T) {
+			c := testConfig(t)
+			base := testDirectory(t)
+			t.Setenv("STATE_DIRECTORY", base)
+			c, err := LoadConfig(c.Path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			state := testState(t, c)
+			state.ProcessDone, state.Phase = true, "cleaning"
+			store := stateStore{c.Runner.WorkRoot}
+			if err := store.save(state); err != nil {
+				t.Fatal(err)
+			}
+			moved := filepath.Join(testDirectory(t), "migrated")
+			source := base
+			if movedDirectory == "managed workRoot" {
+				source = c.Runner.WorkRoot
+				movedBase := testDirectory(t)
+				moved = filepath.Join(movedBase, "runs")
+				t.Setenv("STATE_DIRECTORY", movedBase)
+			}
+			if err := os.Rename(source, moved); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(moved, source); err != nil {
+				t.Fatal(err)
+			}
+			reloaded, err := LoadConfig(c.Path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			newStore := stateStore{reloaded.Runner.WorkRoot}
+			records, err := newStore.load()
+			if err != nil || len(records) != 1 {
+				t.Fatal("migrated record was not discovered", records, err)
+			}
+			if movedDirectory == "managed workRoot" {
+				if records[0].Err == nil {
+					t.Fatal("recovery resolved a managed workRoot instead of its trusted base")
+				}
+				return
+			}
+			recovered := records[0].State
+			if records[0].Err != nil || recovered.RunID != state.RunID || recovered.UID != state.UID ||
+				recovered.RunnerName != state.RunnerName || recovered.ProcessDone != state.ProcessDone {
+				t.Fatal("base migration lost recovery identity", records, err)
+			}
+			dir := filepath.Join(reloaded.Runner.WorkRoot, state.TargetID, state.RunID)
+			if recovered.RunnerDir != filepath.Join(dir, "runner") || recovered.Workspace != filepath.Join(dir, "work") {
+				t.Fatal("recovered paths are not canonical", recovered)
+			}
+			if err := newStore.save(recovered); err != nil {
+				t.Fatal("canonical record could not be persisted", err)
+			}
+			if err := newStore.removeFiles(recovered); err != nil {
+				t.Fatal("migrated stopped execution could not be cleaned", err)
+			}
+			if _, err := os.Stat(dir); !os.IsNotExist(err) {
+				t.Fatal("cleanup retained the migrated execution", err)
+			}
+		})
+	}
+}
