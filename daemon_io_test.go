@@ -58,6 +58,52 @@ func responsiveStatus(t *testing.T, d *daemon) Status {
 	}
 }
 
+func TestRunIOKeepsPublicationMetadataPrivate(t *testing.T) {
+	d, _ := testDaemon(t)
+	target := d.targets["build"]
+	target.StartError, target.Failures = "previous startup failure", 3
+	state := testState(t, d.config)
+	state.Members = []ProcessIdentity{{PID: 123}}
+	run := &activeRun{State: state}
+	d.runs[state.RunID] = run
+	entered, release := make(chan struct{}), make(chan struct{})
+	releaseOnCleanup(t, release)
+	d.mu.Lock()
+	done := d.runIO(run, func(work *activeRun) error {
+		work.State.Ready = true
+		work.State.Members[0].PID = 456
+		err := d.save(work)
+		work.ioResult.readySaved = err == nil
+		close(entered)
+		<-release
+		return err
+	})
+	d.mu.Unlock()
+	<-entered
+	d.mu.Lock()
+	if run.ioResult != nil || state.Ready || state.Members[0].PID != 123 || target.StartError == "" {
+		t.Error("worker state or publication metadata leaked into the live execution")
+	}
+	// A replacement with the same ID must not receive this worker's result.
+	replacement := *target
+	d.targets["build"] = &replacement
+	d.mu.Unlock()
+	close(release)
+	<-done
+	if run.ioResult != nil || run.State != state || !state.Ready || state.Members[0].PID != 456 ||
+		run.Target != target || target.StartError != "" || replacement.StartError == "" {
+		t.Fatal("worker publication lost state identity, target identity or readiness recovery")
+	}
+	target.StartError = "later startup failure"
+	d.mu.Lock()
+	done = d.runIO(run, func(work *activeRun) error { return d.save(work) })
+	d.mu.Unlock()
+	<-done
+	if run.ioResult != nil || target.StartError == "" {
+		t.Fatal("a later operation replayed old readiness publication metadata")
+	}
+}
+
 func TestBlockedAcquisitionReservesBeforeIOAndNeverReplays(t *testing.T) {
 	for _, acquireErr := range []error{nil, errTestAPI} {
 		t.Run(map[bool]string{true: "ambiguous", false: "accepted"}[acquireErr != nil], func(t *testing.T) {
