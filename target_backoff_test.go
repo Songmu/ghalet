@@ -241,15 +241,26 @@ func (f *cancelRegistrationAPI) GetRunnerScaleSet(ctx context.Context, group int
 func TestCanceledRegistrationRetainsSuccessfulIdentity(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		d, api := testDaemon(t)
-		target := &targetRuntime{Config: d.targets["build"].Config}
+		target := d.targets["build"]
+		target.Client, target.Set = nil, nil
+		api.set.Statistics.TotalAssignedJobs = 5
 		d.clientFactory = func(context.Context, Target) (scaleAPI, error) {
-			return &cancelRegistrationAPI{fakeScaleAPI: api, cancel: target.Cancel}, nil
+			return &cancelRegistrationAPI{fakeScaleAPI: api, cancel: func() {
+				d.mu.Lock()
+				d.beginDrain(target)
+				d.mu.Unlock()
+			}}, nil
 		}
 		d.startListener(target)
 		d.workers.Wait()
 		if target.Set == nil || target.Set.ID != api.set.ID || target.Client == nil ||
-			!target.ListenerDone || target.Listener != nil || target.Fault != "" {
+			!target.ListenerDone || target.Listener != nil || target.Fault != "" ||
+			target.Assigned != 0 || !d.drained(target.Config.ID) {
 			t.Fatal("canceled registration lost its identity or started a listener", target)
+		}
+		d.reconcile()
+		if len(d.runs) != 0 || target.Forced {
+			t.Fatal("canceled registration retained stale demand or needed forced drain")
 		}
 	})
 }

@@ -405,7 +405,10 @@ func (d *daemon) startListener(target *targetRuntime) {
 					err = fmt.Errorf("%w: scale set is not registered", errUnsafeTarget)
 				}
 				if err == nil {
-					target.Client, target.Set, target.Assigned = candidate.Client, candidate.Set, candidate.Assigned
+					target.Client, target.Set = candidate.Client, candidate.Set
+					if ctx.Err() == nil && !target.Draining {
+						target.Assigned = candidate.Assigned
+					}
 					target.RetryError = ""
 					d.retired = slices.DeleteFunc(d.retired, func(old *targetRuntime) bool {
 						if old.Set == nil {
