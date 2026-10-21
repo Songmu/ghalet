@@ -36,4 +36,4 @@ ghalet は Linux / macOS 向けの軽量な GitHub Actions Self-hosted runner
 - [設定サンプル](../examples/config.yaml)と[設定スキーマ](../schema.yaml)。
 
 これらの Markdown は、リポジトリ上でも
-[ドキュメントサイト](https://songmu.github.io/ghalet/)でも読めます。
+[ドキュメントサイト](https://songmu.github.io/ghalet/ja/)でも読めます。
