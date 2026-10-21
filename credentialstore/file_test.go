@@ -62,6 +62,47 @@ func TestFileRegistrationAndRotation(t *testing.T) {
 	}
 }
 
+func TestFileCredentialsWithTrustedBaseAlias(t *testing.T) {
+	_, options := fileOptions(t)
+	base := filepath.Dir(options.Config)
+	link := filepath.Join(testDirectory(t), "layout")
+	if err := os.Symlink(base, link); err != nil {
+		t.Fatal(err)
+	}
+	options.Config = filepath.Join(link, "config.yaml")
+	t.Setenv("STATE_DIRECTORY", filepath.Join(link, "state"))
+	result, err := SetFile(t.Context(), options, strings.NewReader("synthetic-secret"))
+	want := filepath.Join(base, "state", "credentials", "default.pat")
+	if err != nil || result.RuntimePath != want {
+		t.Fatal("credential path was not canonical", result, err)
+	}
+	config, err := ghalet.LoadConfig(options.Config)
+	if err != nil || config.Path != options.Config || config.Targets[0].Credential.TokenFile != want {
+		t.Fatal("credential registration changed config identity or stored an alias", config, err)
+	}
+	directory, err := Directory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	outside := testDirectory(t)
+	if err := os.Rename(directory, filepath.Join(outside, "original")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, directory); err != nil {
+		t.Fatal(err)
+	}
+	sentinel := filepath.Join(outside, "default.pat")
+	if err := os.WriteFile(sentinel, []byte("keep"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := SetFile(t.Context(), options, strings.NewReader("replacement")); err == nil {
+		t.Fatal("symlinked managed credential directory accepted")
+	}
+	if data, err := os.ReadFile(sentinel); err != nil || string(data) != "keep" {
+		t.Fatal("credential update escaped its managed directory", err)
+	}
+}
+
 func TestCredentialWritersHonorConfigLock(t *testing.T) {
 	for _, encrypted := range []bool{false, true} {
 		t.Run(map[bool]string{false: "file", true: "systemd"}[encrypted], func(t *testing.T) {
@@ -75,6 +116,11 @@ func TestCredentialWritersHonorConfigLock(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer lock.Close()
+			link := filepath.Join(testDirectory(t), "config-layout")
+			if err := os.Symlink(filepath.Dir(options.Config), link); err != nil {
+				t.Fatal(err)
+			}
+			options.Config = filepath.Join(link, filepath.Base(options.Config))
 			var setErr error
 			if encrypted {
 				_, setErr = store.set(t.Context(), options, strings.NewReader("synthetic-secret"))

@@ -10,6 +10,53 @@ import (
 	"strings"
 )
 
+// ResolveDirectory canonicalizes a trusted directory base without creating it.
+// Existing symlinks are resolved; missing trailing directories are preserved.
+// Use the result as a base for managed children, not to validate those children.
+func ResolveDirectory(path string) (string, error) {
+	if !filepath.IsAbs(path) {
+		return "", fmt.Errorf("directory must be absolute: %s", path)
+	}
+	path = filepath.Clean(path)
+	var missing []string
+	for {
+		_, err := os.Lstat(path)
+		if errors.Is(err, os.ErrNotExist) {
+			missing = append(missing, filepath.Base(path))
+			path = filepath.Dir(path)
+			continue
+		}
+		if err != nil {
+			return "", err
+		}
+		path, err = filepath.EvalSymlinks(path)
+		if err != nil {
+			return "", err
+		}
+		info, err := os.Stat(path)
+		if err != nil {
+			return "", err
+		}
+		if !info.IsDir() {
+			return "", fmt.Errorf("not a directory: %s", path)
+		}
+		for i := len(missing) - 1; i >= 0; i-- {
+			path = filepath.Join(path, missing[i])
+		}
+		return path, nil
+	}
+}
+
+// ResolveParent resolves a trusted parent directory while leaving the final
+// component unchanged so callers can still reject a symlink at that location.
+func ResolveParent(path string) (string, error) {
+	parent, err := ResolveDirectory(filepath.Dir(path))
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(parent, filepath.Base(path)), nil
+}
+
 // EnsureDirectory creates missing directories with mode and verifies that path
 // is absolute, is not the filesystem root, and contains no symlinks or
 // non-directories. Newly created directories are chmodded to mode regardless of
@@ -17,6 +64,7 @@ import (
 // creation syncs remove the new empty directory so retries repeat the sync.
 // Existing directory permissions are unchanged. Validation does not protect
 // subsequent path-based operations against concurrent replacement.
+// Resolve trusted bases before deriving managed paths, never managed children.
 func EnsureDirectory(path string, mode os.FileMode) error {
 	return managedDirectory(path, mode, true)
 }
@@ -28,7 +76,7 @@ func CheckDirectory(path string) error {
 }
 
 func managedDirectory(path string, mode os.FileMode, create bool) error {
-	if !filepath.IsAbs(path) || path == "/" {
+	if !filepath.IsAbs(path) || filepath.Clean(path) == "/" {
 		return fmt.Errorf("unsafe directory %s", path)
 	}
 	current := string(filepath.Separator)

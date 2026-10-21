@@ -109,13 +109,18 @@ func TestWriteConfigCoordinatesWriters(t *testing.T) {
 	if err := os.WriteFile(path, before, 0600); err != nil {
 		t.Fatal(err)
 	}
+	link := filepath.Join(directory, "layout")
+	if err := os.Symlink(directory, link); err != nil {
+		t.Fatal(err)
+	}
+	alias := filepath.Join(link, "config.yaml")
 	after := append(bytes.Clone(before), []byte("# updated\n")...)
 	lock, err := fshelper.LockFile(path + ".lock")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer lock.Close()
-	if err := writeConfig(path, before, after); err == nil {
+	if err := writeConfig(alias, before, after); err == nil {
 		t.Fatal("setup ignored another configuration writer's lock")
 	}
 	actual, err := os.ReadFile(path)
@@ -128,7 +133,7 @@ func TestWriteConfigCoordinatesWriters(t *testing.T) {
 	for range 2 {
 		go func() {
 			<-start
-			results <- writeConfig(path, before, after)
+			results <- writeConfig(alias, before, after)
 		}()
 	}
 	close(start)

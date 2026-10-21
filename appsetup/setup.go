@@ -181,6 +181,16 @@ func (s service) run(ctx context.Context, options Options, input *os.File, outpu
 			return Result{}, fmt.Errorf("save setup metadata: %w; key retained at %s for App %s", err, diskKeyPath, state.Slug)
 		}
 	}
+	if !options.Systemd && state.KeyPath != keyPath {
+		// Reconcile only the storage base, never the managed credential directory or key.
+		recordedBase := filepath.Dir(filepath.Dir(state.KeyPath))
+		if state.KeyPath == filepath.Join(recordedBase, "credentials", options.ID+".pem") {
+			base, err := fshelper.ResolveDirectory(recordedBase)
+			if err == nil && filepath.Join(base, "credentials", options.ID+".pem") == keyPath {
+				state.KeyPath = keyPath
+			}
+		}
+	}
 	result := Result{ClientID: state.ClientID, KeyPath: state.KeyPath, MetadataPath: metadataPath, Target: target.ID}
 	if !strings.EqualFold(state.Scope, scope) || !strings.EqualFold(state.Owner, owner) ||
 		state.KeyPath != keyPath {

@@ -145,8 +145,25 @@ parents are upgraded when used. The Linux package also upgrades
 remain management-owned and are not writable by other users; state and lock
 files remain owner-only. Custom ancestors outside these managed directories
 are not changed: make them listable and traversable by the runner user.
-Managed directory paths may not contain symlinks. On macOS use canonical
-paths such as `/private/var/...` instead of the `/var` symlink.
+Administrator-selected storage bases (`STATE_DIRECTORY`, `CACHE_DIRECTORY`,
+XDG bases or their HOME fallbacks, and an explicit `logs.root`) may use
+symlinks, including macOS `/var`. ghalet resolves existing base links before
+deriving managed paths; new state records and credential paths use these
+canonical locations. Keep the bases and their ancestors trusted and stable
+while ghalet runs. After stopping the daemon and its executions, a base may
+be moved with its old path left as a symlink; recovery and App setup retries
+reconcile persisted paths to that canonical base, without resolving managed
+children.
+Moving live executions is not supported. Systemd drop-ins keep their fixed
+`/etc/ghalet/credentials/...` source references, so layout migrations do not
+invalidate existing directives or expose target directory names to systemd
+specifier expansion. Managed children (including execution directories, runner
+caches, credential directories/files and archive deletion roots) must not be
+redirected through symlinks. Cleanup does not follow links out of an owned
+execution or archive. Config-file parents may also use administrator layout
+links, but the selected config path keeps its lexical identity for the control
+socket; resolving storage bases does not change that address. Path checks are
+not protection against concurrent replacement of trusted directories.
 
 Runner startup and its access check do not inherit the controller's environment.
 HOME, USER and LOGNAME are set from the execution user's account, even when

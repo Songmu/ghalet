@@ -323,9 +323,76 @@ func testCredentialStore(t *testing.T) (credentialStore, Options, *credentialTes
 		t.Fatal(err)
 	}
 	tools := &credentialTestTools{}
-	store := credentialStore{directory: filepath.Join(root, "credentials"), dropIns: filepath.Join(root, "drop-ins"), run: tools.run}
+	store, err := newSystemdStore(filepath.Join(root, "credentials"), filepath.Join(root, "drop-ins"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.run = tools.run
 	options := Options{Name: "default", Type: "pat", Stdin: true, Config: config}
 	return store, options, tools
+}
+
+func TestSystemdCredentialSourcesSurviveLayoutMigration(t *testing.T) {
+	for _, operation := range []string{"registration", "rotation", "provision retry"} {
+		t.Run(operation, func(t *testing.T) {
+			store, options, tools := testCredentialStore(t)
+			options.NoDefault = true
+			secret := []byte("first-secret")
+			if operation == "provision retry" {
+				options.Type = "github-app"
+				key, err := rsa.GenerateKey(rand.Reader, 2048)
+				if err != nil {
+					t.Fatal(err)
+				}
+				secret = pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})
+			}
+			var original []byte
+			if operation != "registration" {
+				result, err := store.set(t.Context(), options, bytes.NewReader(secret))
+				if err != nil {
+					t.Fatal(err)
+				}
+				original, err = os.ReadFile(result.EncryptedPath)
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			root := filepath.Dir(store.directory)
+			moved := filepath.Join(testDirectory(t), "ghalet-%H")
+			if err := os.Rename(root, moved); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(moved, root); err != nil {
+				t.Fatal(err)
+			}
+			migrated, err := newSystemdStore(store.sourceDirectory, store.dropIns)
+			if err != nil {
+				t.Fatal(err)
+			}
+			migrated.run = tools.run
+			if migrated.directory != filepath.Join(moved, "credentials") || migrated.dropIns != filepath.Join(moved, "drop-ins") {
+				t.Fatal("filesystem locations were not canonicalized", migrated)
+			}
+			if operation == "provision retry" {
+				if err := migrated.provisionAppKey(t.Context(), options.Name); err != nil {
+					t.Fatal("existing unit source blocked setup retry", err)
+				}
+			} else if _, err := migrated.set(t.Context(), options, strings.NewReader("next-secret")); err != nil {
+				t.Fatal("credential registration or rotation failed after migration", err)
+			}
+			dropIn, err := os.ReadFile(filepath.Join(migrated.dropIns, "credential-"+options.Name+".conf"))
+			want := "[Service]\nLoadCredentialEncrypted=" + options.Name + ":" + filepath.Join(store.sourceDirectory, options.Name+".cred") + "\n"
+			if err != nil || string(dropIn) != want || bytes.Contains(dropIn, []byte("%H")) {
+				t.Fatal("unit source changed or exposed a target-path specifier", string(dropIn), err)
+			}
+			if operation == "rotation" {
+				previous, err := os.ReadFile(filepath.Join(migrated.directory, options.Name+".cred.previous"))
+				if err != nil || !bytes.Equal(previous, original) {
+					t.Fatal("rotation did not preserve the original credential", err)
+				}
+			}
+		})
+	}
 }
 
 func TestCredentialPromptReceivesCallerInput(t *testing.T) {

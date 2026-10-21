@@ -205,6 +205,9 @@ func (s stateStore) loadRun(path string) (*RunState, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := s.reconcileStoredPaths(&state); err != nil {
+		return nil, err
+	}
 	dir, err := s.directory(&state)
 	if err != nil {
 		return nil, err
@@ -248,5 +251,26 @@ func (s stateStore) removeFiles(state *RunState) error {
 		}
 		return err
 	}
+	return nil
+}
+
+func (s stateStore) reconcileStoredPaths(state *RunState) error {
+	if _, err := s.directory(state); err == nil {
+		return nil
+	}
+	recordedRoot := filepath.Dir(filepath.Dir(filepath.Dir(state.RunnerDir)))
+	if _, err := (stateStore{recordedRoot}).directory(state); err != nil {
+		return err
+	}
+	// Only the storage base may have moved. Never resolve workRoot or its children.
+	base, err := fshelper.ResolveDirectory(filepath.Dir(recordedRoot))
+	if err != nil {
+		return err
+	}
+	if filepath.Join(base, filepath.Base(recordedRoot)) != s.root {
+		return errors.New("recorded storage base does not match the managed execution root")
+	}
+	dir := filepath.Join(s.root, state.TargetID, state.RunID)
+	state.RunnerDir, state.Workspace = filepath.Join(dir, "runner"), filepath.Join(dir, "work")
 	return nil
 }

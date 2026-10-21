@@ -112,6 +112,10 @@ func appendTarget(data []byte, id, scope string) ([]byte, error) {
 }
 
 func configSnapshot(path string) ([]byte, error) {
+	path, err := fshelper.ResolveParent(path)
+	if err != nil {
+		return nil, err
+	}
 	if err := fshelper.CheckDirectory(filepath.Dir(path)); err != nil {
 		return nil, err
 	}
@@ -188,6 +192,10 @@ func setMapping(mapping *yaml.MapSlice, key string, value any) {
 }
 
 func writeConfig(path string, before, after []byte) error {
+	path, err := fshelper.ResolveParent(path)
+	if err != nil {
+		return err
+	}
 	if err := fshelper.EnsureDirectory(filepath.Dir(path), 0700); err != nil {
 		return err
 	}

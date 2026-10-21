@@ -327,3 +327,151 @@ func TestRecoveryRetainsMalformedProcessIDs(t *testing.T) {
 		t.Fatal("malformed recovery state was removed", err)
 	}
 }
+
+func TestStateIdentityThroughTrustedBaseAlias(t *testing.T) {
+	c := testConfig(t)
+	base := testDirectory(t)
+	link := filepath.Join(testDirectory(t), "state-layout")
+	if err := os.Symlink(base, link); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("STATE_DIRECTORY", link)
+	c, err := ParseConfig(c.Path, []byte(readFixture(t, "config/base.yaml")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := testState(t, c)
+	store := stateStore{c.Runner.WorkRoot}
+	if !strings.HasPrefix(state.RunnerDir, base+string(filepath.Separator)) {
+		t.Fatal("new state retained a storage alias", state.RunnerDir)
+	}
+	if err := store.save(state); err != nil {
+		t.Fatal(err)
+	}
+	lock, err := lockWorkRoot(c.Runner.WorkRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lock.close()
+	t.Setenv("STATE_DIRECTORY", base)
+	reloaded, err := LoadConfig(c.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second, err := lockWorkRoot(reloaded.Runner.WorkRoot); err == nil {
+		second.close()
+		t.Fatal("canonical base bypassed the alias's work lock")
+	}
+	records, err := (stateStore{reloaded.Runner.WorkRoot}).load()
+	if err != nil || len(records) != 1 || records[0].Err != nil ||
+		records[0].State.RunnerDir != state.RunnerDir || records[0].State.Workspace != state.Workspace {
+		t.Fatal("canonical base changed recovery identity", records, err)
+	}
+	if err := store.removeFiles(records[0].State); err != nil {
+		t.Fatal("canonical recovered state could not be cleaned", err)
+	}
+}
+
+func TestStateCleanupRejectsReplacedDeletionRoots(t *testing.T) {
+	for _, location := range []string{"workRoot", "target", "run"} {
+		t.Run(location, func(t *testing.T) {
+			c := testConfig(t)
+			state := testState(t, c)
+			store := stateStore{c.Runner.WorkRoot}
+			if err := store.save(state); err != nil {
+				t.Fatal(err)
+			}
+			path := c.Runner.WorkRoot
+			switch location {
+			case "target":
+				path = filepath.Dir(filepath.Dir(state.RunnerDir))
+			case "run":
+				path = filepath.Dir(state.RunnerDir)
+			}
+			outside := filepath.Join(testDirectory(t), "moved")
+			if err := os.Rename(path, outside); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(outside, path); err != nil {
+				t.Fatal(err)
+			}
+			sentinel := filepath.Join(outside, "keep")
+			if err := os.WriteFile(sentinel, []byte("outside"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			if err := store.removeFiles(state); err == nil {
+				t.Fatal("cleanup followed a replaced deletion root")
+			}
+			if data, err := os.ReadFile(sentinel); err != nil || string(data) != "outside" {
+				t.Fatal("cleanup modified an external file", err)
+			}
+		})
+	}
+}
+
+func TestStateRecoveryAfterTrustedBaseMigration(t *testing.T) {
+	for _, movedDirectory := range []string{"base", "managed workRoot"} {
+		t.Run(movedDirectory, func(t *testing.T) {
+			c := testConfig(t)
+			base := testDirectory(t)
+			t.Setenv("STATE_DIRECTORY", base)
+			c, err := LoadConfig(c.Path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			state := testState(t, c)
+			state.ProcessDone, state.Phase = true, "cleaning"
+			store := stateStore{c.Runner.WorkRoot}
+			if err := store.save(state); err != nil {
+				t.Fatal(err)
+			}
+			moved := filepath.Join(testDirectory(t), "migrated")
+			source := base
+			if movedDirectory == "managed workRoot" {
+				source = c.Runner.WorkRoot
+				movedBase := testDirectory(t)
+				moved = filepath.Join(movedBase, "runs")
+				t.Setenv("STATE_DIRECTORY", movedBase)
+			}
+			if err := os.Rename(source, moved); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(moved, source); err != nil {
+				t.Fatal(err)
+			}
+			reloaded, err := LoadConfig(c.Path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			newStore := stateStore{reloaded.Runner.WorkRoot}
+			records, err := newStore.load()
+			if err != nil || len(records) != 1 {
+				t.Fatal("migrated record was not discovered", records, err)
+			}
+			if movedDirectory == "managed workRoot" {
+				if records[0].Err == nil {
+					t.Fatal("recovery resolved a managed workRoot instead of its trusted base")
+				}
+				return
+			}
+			recovered := records[0].State
+			if records[0].Err != nil || recovered.RunID != state.RunID || recovered.UID != state.UID ||
+				recovered.RunnerName != state.RunnerName || recovered.ProcessDone != state.ProcessDone {
+				t.Fatal("base migration lost recovery identity", records, err)
+			}
+			dir := filepath.Join(reloaded.Runner.WorkRoot, state.TargetID, state.RunID)
+			if recovered.RunnerDir != filepath.Join(dir, "runner") || recovered.Workspace != filepath.Join(dir, "work") {
+				t.Fatal("recovered paths are not canonical", recovered)
+			}
+			if err := newStore.save(recovered); err != nil {
+				t.Fatal("canonical record could not be persisted", err)
+			}
+			if err := newStore.removeFiles(recovered); err != nil {
+				t.Fatal("migrated stopped execution could not be cleaned", err)
+			}
+			if _, err := os.Stat(dir); !os.IsNotExist(err) {
+				t.Fatal("cleanup retained the migrated execution", err)
+			}
+		})
+	}
+}
