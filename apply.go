@@ -137,7 +137,7 @@ func (d *daemon) apply(ctx context.Context) controlResponse {
 		d.targets[config.ID] = target
 		d.mu.Unlock()
 		response.Results = append(response.Results, OperationResult{
-			TargetID: config.ID, Action: "apply target", Error: target.Fault,
+			TargetID: config.ID, Action: "apply target", Error: targetError(target),
 		})
 		if ctx.Err() != nil {
 			break
@@ -202,9 +202,9 @@ func (d *daemon) apply(ctx context.Context) controlResponse {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	for _, target := range started {
-		if target.Fault != "" {
+		if targetError(target) != "" {
 			response.Results = append(response.Results, OperationResult{
-				TargetID: target.Config.ID, Action: "start listener", Error: target.Fault,
+				TargetID: target.Config.ID, Action: "start listener", Error: targetError(target),
 			})
 		}
 	}
@@ -221,6 +221,13 @@ func (d *daemon) apply(ctx context.Context) controlResponse {
 		slog.Info("Configuration applied", "event", "config.applied", "targets", len(next.Targets))
 	}
 	return response
+}
+
+func targetError(target *targetRuntime) string {
+	if target.Fault != "" {
+		return target.Fault
+	}
+	return target.RegistrationError
 }
 
 func (d *daemon) validateApply(next *Config) error {

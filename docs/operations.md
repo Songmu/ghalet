@@ -232,11 +232,15 @@ Cross-target fairness and distributed writers are not provided.
 
 Preparation has a 10-minute deadline, API operations 45 seconds, authentication
 commands 15 seconds, and listener polls 60 seconds. Registration/listener
-failures and preparation/start failures have at most four attempts with
-1/2/4-second exponential delays. Permanent invalid-request/authentication
-errors stop immediately where the SDK exposes their type. Preparation
-starts are rate-limited to one per second per target. A target that exhausts
-retries remains faulted until `apply` or a normal stop/restart; other targets continue.
+failures and preparation/start failures recover automatically with exponential
+delays of 1/2/4/8/16/32 seconds, capped at one minute, without an attempt limit.
+Startup registration is bounded to four attempts; remaining transient failures
+recover in the background so other targets and control access remain available.
+Permanent invalid-request/authentication errors exposed by the SDK and unsafe
+registration, state, or credential-copying failures stop immediately and require
+inspection and `apply` or a normal stop/restart. Other targets continue.
+Preparation starts are rate-limited to one per second per target. Drain cancels
+pending registration recovery; apply and shutdown cancel the old listeners.
 Workflow results are not retried by ghalet.
 
 SIGINT/SIGTERM starts drain for all targets during normal shutdown.
