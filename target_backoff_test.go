@@ -117,7 +117,7 @@ func TestListenerTransientRecoveryAndCancellation(t *testing.T) {
 				}
 				time.Sleep(6 * time.Minute)
 				synctest.Wait()
-				if failures != 10 || target.Listener == nil || target.Fault != "" || target.RetryError != "" || target.ListenerDone {
+				if failures != 10 || target.Listener == nil || target.Fault != "" || target.RetryError != "" || listenerCompleted(target) {
 					t.Fatal("listener did not recover after a long transient outage", failures, target.Fault)
 				}
 				for i := 1; i < len(attempts); i++ {
@@ -127,7 +127,7 @@ func TestListenerTransientRecoveryAndCancellation(t *testing.T) {
 				}
 				target.Cancel()
 				d.workers.Wait()
-				if !target.ListenerDone || target.Fault != "" || closed != sessions {
+				if !listenerCompleted(target) || target.Fault != "" || closed != sessions {
 					t.Fatal("cancellation faulted the target or leaked a message session", closed, sessions, target.Fault)
 				}
 			})
@@ -169,7 +169,7 @@ func TestRegistrationBootstrapIsBoundedAndRecoveryCancelable(t *testing.T) {
 				}
 				d.workers.Wait()
 				time.Sleep(2 * time.Minute)
-				if calls != maxAttempts || !target.ListenerDone || target.Fault != "" {
+				if calls != maxAttempts || !listenerCompleted(target) || target.Fault != "" {
 					t.Fatal("canceled registration recovery retried or faulted", calls, target.Fault)
 				}
 			})
@@ -219,7 +219,7 @@ func TestListenerSetupPermanentErrorsAndBackoffCancellation(t *testing.T) {
 				}
 				d.workers.Wait()
 				time.Sleep(2 * time.Minute)
-				if calls != 1 || !target.ListenerDone || (target.Fault != "") != (status != http.StatusServiceUnavailable) {
+				if calls != 1 || !listenerCompleted(target) || (target.Fault != "") != (status != http.StatusServiceUnavailable) {
 					t.Fatal("permanent error retried or cancellation failed", calls, target.Fault)
 				}
 			})
@@ -254,7 +254,7 @@ func TestCanceledRegistrationRetainsSuccessfulIdentity(t *testing.T) {
 		d.startListener(target)
 		d.workers.Wait()
 		if target.Set == nil || target.Set.ID != api.set.ID || target.Client == nil ||
-			!target.ListenerDone || target.Listener != nil || target.Fault != "" ||
+			!listenerCompleted(target) || target.Listener != nil || target.Fault != "" ||
 			target.Assigned != 0 || !d.drained(target.Config.ID) {
 			t.Fatal("canceled registration lost its identity or started a listener", target)
 		}
@@ -341,7 +341,7 @@ func TestCancellationDuringTargetSetupHasNoDiagnostic(t *testing.T) {
 					d.startListener(target)
 				}
 				d.workers.Wait()
-				if !target.ListenerDone || target.Fault != "" || target.RetryError != "" ||
+				if !listenerCompleted(target) || target.Fault != "" || target.RetryError != "" ||
 					len(d.statusLocked().Problems) != 0 {
 					t.Fatal("canceled setup created an unresolved diagnostic", target)
 				}

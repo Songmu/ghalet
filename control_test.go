@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	settings "github.com/Songmu/ghalet/config"
@@ -122,11 +123,13 @@ func useFakeManagement(d *daemon, api *fakeScaleAPI) {
 	d.listen = func(target *targetRuntime) {
 		target.ListenerReady = make(chan struct{})
 		close(target.ListenerReady)
-		target.Cancel = func() { target.ListenerDone = true }
+		target.ListenerDone = make(chan struct{})
+		target.Cancel = sync.OnceFunc(func() { close(target.ListenerDone) })
 	}
 	target := d.targets["build"]
 	target.Cancel = func() {}
-	target.ListenerDone = true
+	target.ListenerDone = make(chan struct{})
+	close(target.ListenerDone)
 }
 
 func TestCleanupDoesNotCountPendingObserversAsAttempt(t *testing.T) {
