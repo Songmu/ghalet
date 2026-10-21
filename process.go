@@ -102,7 +102,7 @@ type processEntry struct {
 	Exiting bool
 }
 
-func processTable(ctx context.Context) (map[int]processEntry, error) {
+func processTable(ctx context.Context, identities []ProcessIdentity) (map[int]processEntry, error) {
 	ctx, cancel := context.WithTimeout(ctx, commandTimeout)
 	defer cancel()
 	command := exec.CommandContext(ctx, "ps", "-axww", "-o", "pid=,pgid=,uid=,stat=,lstart=,command=")
@@ -110,6 +110,19 @@ func processTable(ctx context.Context) (map[int]processEntry, error) {
 	data, err := command.Output()
 	if err != nil {
 		return nil, fmt.Errorf("inspect process table: %w", err)
+	}
+	return parseProcessTable(data, identities, kernelProcessStart)
+}
+
+func parseProcessTable(data []byte, identities []ProcessIdentity, processStart func(int) (string, error)) (map[int]processEntry, error) {
+	pids, groups := map[int]bool{}, map[int]bool{}
+	for _, identity := range identities {
+		if identity.PID > 1 {
+			pids[identity.PID] = true
+		}
+		if identity.PGID > 1 {
+			groups[identity.PGID] = true
+		}
 	}
 	entries := map[int]processEntry{}
 	for _, line := range strings.Split(string(data), "\n") {
@@ -130,7 +143,12 @@ func processTable(ctx context.Context) (map[int]processEntry, error) {
 		if errors.Join(err1, err2, err3) != nil {
 			return nil, errors.New("invalid numeric process identity")
 		}
-		start, startErr := kernelProcessStart(pid)
+		// Match the recorded PID independently of its current group so PID
+		// reuse cannot masquerade as an absent leader.
+		if !pids[pid] && !groups[pgid] {
+			continue
+		}
+		start, startErr := processStart(pid)
 		if errors.Is(startErr, os.ErrNotExist) || errors.Is(startErr, syscall.ESRCH) {
 			continue
 		}
@@ -229,7 +247,7 @@ func inspectGroup(state *RunState, table map[int]processEntry) (bool, []ProcessI
 func stopGroup(ctx context.Context, state *RunState, persist func() error) error {
 	saved := false
 	inspect := func() (bool, error) {
-		table, err := processTable(ctx)
+		table, err := processTable(ctx, []ProcessIdentity{state.Process})
 		if err != nil {
 			return false, err
 		}

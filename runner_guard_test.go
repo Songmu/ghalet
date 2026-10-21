@@ -84,7 +84,7 @@ func TestRunnerGuardKillsGroupWhenControllerIsKilled(t *testing.T) {
 	if len(children) != 2 {
 		t.Fatal("runner fixture did not start its signal-resistant descendant", children)
 	}
-	table, err := processTable(t.Context())
+	table, err := processTable(t.Context(), []ProcessIdentity{state.Process})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +113,7 @@ func TestRunnerGuardKillsGroupWhenControllerIsKilled(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	for {
-		table, err = processTable(ctx)
+		table, err = processTable(ctx, []ProcessIdentity{state.Process})
 		if err != nil {
 			t.Fatal(err)
 		}

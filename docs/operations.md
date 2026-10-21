@@ -374,6 +374,13 @@ Recovery of a surviving process does not recreate `Wait` or
 invent its exit code. Descendants observed in the original process group can
 be recovered; escaped descendants cannot be completely detected or isolated.
 
+Process snapshots still enumerate host processes with `ps`, but kernel start
+identities are queried only for the inspected runs' recorded leader PIDs and
+members of their recorded process groups, including previously unknown descendants.
+A recorded leader PID is checked even if it now belongs to another group, so
+PID reuse still prevents signaling or cleanup. The gated launch checks only its
+new child PID before recording the identity and releasing the runner.
+
 Empty and zombie-only process-group snapshots require kernel revalidation.
 Linux checks kernel group membership before reading each enumerated PID's
 `/proc` state, so a PID identified outside the group need not remain readable.

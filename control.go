@@ -322,7 +322,7 @@ func (d *daemon) gcRun(ctx context.Context, run *activeRun, dryRun bool) Operati
 	}
 	done := d.runIO(run, func(work *activeRun) error {
 		state := work.State
-		table, err := processTable(ctx)
+		table, err := processTable(ctx, []ProcessIdentity{state.Process})
 		if err != nil {
 			result.Error = err.Error()
 			return nil

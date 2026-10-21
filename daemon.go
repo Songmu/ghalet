@@ -281,7 +281,13 @@ func (d *daemon) recover(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	table, err := processTable(ctx)
+	var identities []ProcessIdentity
+	for _, record := range records {
+		if record.Err == nil {
+			identities = append(identities, record.State.Process)
+		}
+	}
+	table, err := processTable(ctx, identities)
 	if err != nil {
 		return err
 	}
@@ -794,7 +800,7 @@ func (d *daemon) reconcile() {
 			var table map[int]processEntry
 			if !work.State.ProcessDone || work.Uncertain {
 				var err error
-				table, err = processTable(d.ctx)
+				table, err = processTable(d.ctx, []ProcessIdentity{work.State.Process})
 				if err != nil {
 					slog.Error("Process inspection failed; execution retained", "event", "process.inspect_failed", "error", d.secrets.Redact(err.Error()))
 					return nil
@@ -1205,7 +1211,7 @@ func (d *daemon) launch(run *activeRun, jit string) (retErr error) {
 	logOutput.Close()
 	// The child waits on fd 3. No runner can execute until its identity has
 	// been durably recorded; controller death closes the gate without exec.
-	table, err := processTable(d.ctx)
+	table, err := processTable(d.ctx, []ProcessIdentity{{PID: command.Process.Pid}})
 	if err == nil {
 		var identity ProcessIdentity
 		identity, err = launchedProcessIdentity(table, command.Process.Pid, d.user.UID)
