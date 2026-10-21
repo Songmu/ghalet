@@ -255,7 +255,13 @@ func (d *daemon) recover(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	table, err := processTable(ctx)
+	var identities []ProcessIdentity
+	for _, record := range records {
+		if record.Err == nil {
+			identities = append(identities, record.State.Process)
+		}
+	}
+	table, err := processTable(ctx, identities)
 	if err != nil {
 		return err
 	}
@@ -612,13 +618,19 @@ func (d *daemon) finishExit(run *activeRun) {
 }
 
 func (d *daemon) reconcile() {
+	var identities []ProcessIdentity
+	for _, run := range d.runs {
+		if !run.Preparing && (!run.State.ProcessDone || run.Uncertain) {
+			identities = append(identities, run.State.Process)
+		}
+	}
 	var table map[int]processEntry
 	for _, run := range d.runs {
 		// Preparation and confirmed completion need no snapshot, but uncertain
 		// runs still require inspection even when marked process-done.
 		if table == nil && !run.Preparing && (!run.State.ProcessDone || run.Uncertain) {
 			var err error
-			table, err = processTable(d.ctx)
+			table, err = processTable(d.ctx, identities)
 			if err != nil {
 				slog.Error("Process inspection failed; scheduling suspended", "event", "process.inspect_failed", "error", d.secrets.Redact(err.Error()))
 				return
@@ -1016,7 +1028,7 @@ func (d *daemon) launch(run *activeRun, jit string) (retErr error) {
 	logOutput.Close()
 	// The child waits on fd 3. No runner can execute until its identity has
 	// been durably recorded; controller death closes the gate without exec.
-	table, err := processTable(d.ctx)
+	table, err := processTable(d.ctx, []ProcessIdentity{{PID: command.Process.Pid}})
 	if err == nil {
 		var identity ProcessIdentity
 		identity, err = launchedProcessIdentity(table, command.Process.Pid, d.user.UID)

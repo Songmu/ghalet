@@ -266,7 +266,13 @@ func (d *daemon) gc(ctx context.Context, dryRun bool) controlResponse {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	response := controlResponse{}
-	table, err := processTable(ctx)
+	var identities []ProcessIdentity
+	for _, run := range d.runs {
+		if !run.Uncertain && !run.Preparing {
+			identities = append(identities, run.State.Process)
+		}
+	}
+	table, err := processTable(ctx, identities)
 	if err != nil {
 		return controlResponse{Error: err.Error()}
 	}

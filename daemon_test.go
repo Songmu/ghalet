@@ -423,7 +423,7 @@ func TestShutdownWaitsForUncertainLiveRunnerAfterDrainDeadline(t *testing.T) {
 		!response.Status.Targets[0].Forced {
 		t.Fatal("shutdown lost diagnostics/control access or did not reach its drain deadline", response)
 	}
-	table, err := processTable(t.Context())
+	table, err := processTable(t.Context(), []ProcessIdentity{run.State.Process})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1037,7 +1037,7 @@ func TestReparentedProcessHelper(t *testing.T) {
 	if err := command.Start(); err != nil {
 		t.Fatal(err)
 	}
-	table, err := processTable(t.Context())
+	table, err := processTable(t.Context(), []ProcessIdentity{{PID: command.Process.Pid, PGID: command.Process.Pid}})
 	if err != nil {
 		t.Fatal(err)
 	}
