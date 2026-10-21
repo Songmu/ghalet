@@ -1,4 +1,4 @@
-package ghalet
+package procgroup
 
 import (
 	"fmt"
@@ -49,7 +49,7 @@ func TestLinuxGroupStoppedRequiresCompleteSnapshot(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			root := t.TempDir()
-			previous := map[int]processEntry{
+			previous := map[int]Entry{
 				1234: {ProcessIdentity: ProcessIdentity{PID: 1234, PGID: 1234, Started: fmt.Sprintf("linux:%s:42", boot)}, Zombie: true},
 				5678: {ProcessIdentity: ProcessIdentity{PID: 5678, PGID: 1234, Started: fmt.Sprintf("linux:%s:42", boot)}, Zombie: true},
 			}

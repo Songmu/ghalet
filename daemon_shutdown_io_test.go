@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Songmu/ghalet/procgroup"
 	"github.com/actions/scaleset"
 )
 
@@ -54,7 +55,7 @@ func TestPreparationFailureStopsAcquisitionBeforeSlowRollback(t *testing.T) {
 
 func TestGCRefreshesSnapshotAfterSameIdentityStop(t *testing.T) {
 	d, run := startTerminationRunner(t, "#!/bin/sh\nsleep 30 &\nprintf 'Listening for Jobs\\n'\nwait\n")
-	table, err := processTable(t.Context(), []ProcessIdentity{run.State.Process})
+	table, err := procgroup.Snapshot(t.Context(), []procgroup.ProcessIdentity{run.State.Process})
 	if err != nil {
 		t.Fatal(err)
 	}

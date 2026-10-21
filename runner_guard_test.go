@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/Songmu/ghalet/fshelper"
+	"github.com/Songmu/ghalet/procgroup"
 )
 
 func waitGuardFile(t *testing.T, path string) []byte {
@@ -84,7 +85,7 @@ func TestRunnerGuardKillsGroupWhenControllerIsKilled(t *testing.T) {
 	if len(children) != 2 {
 		t.Fatal("runner fixture did not start its signal-resistant descendant", children)
 	}
-	table, err := processTable(t.Context(), []ProcessIdentity{state.Process})
+	table, err := procgroup.Snapshot(t.Context(), []procgroup.ProcessIdentity{state.Process})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,11 +114,11 @@ func TestRunnerGuardKillsGroupWhenControllerIsKilled(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	for {
-		table, err = processTable(ctx, []ProcessIdentity{state.Process})
+		table, err = procgroup.Snapshot(ctx, []procgroup.ProcessIdentity{state.Process})
 		if err != nil {
 			t.Fatal(err)
 		}
-		alive, _, err := inspectGroup(state, table)
+		alive, _, err := procgroup.Inspect(state.processGroup(), table)
 		if err != nil {
 			t.Fatal(err)
 		}
