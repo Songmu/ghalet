@@ -215,6 +215,9 @@ for retries, recovery and log policy.
 
 ## Documentation
 
+The [documentation site](https://songmu.github.io/ghalet/) publishes this README
+and the guides below in English and Japanese.
+
 - [Authentication setup](docs/authentication.md): method tradeoffs, minimum
   permissions, creation steps and credential rotation for PATs and GitHub Apps.
 - [Operations](docs/operations.md): authentication, configuration, execution
@@ -224,6 +227,9 @@ for retries, recovery and log policy.
 - [Example configuration](examples/config.yaml) and [configuration schema](schema.yaml).
 
 ## Development
+
+For local documentation builds and GitHub Pages deployment setup, see
+[the site guide](docs/site/README.md).
 
 ```sh
 go test -race ./...

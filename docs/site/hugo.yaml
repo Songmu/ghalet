@@ -1,0 +1,59 @@
+baseURL: https://songmu.github.io/ghalet/
+title: ghalet
+defaultContentLanguage: en
+languages:
+  en:
+    label: English
+    locale: en-US
+    weight: 1
+    params:
+      description: A lightweight, simple supervisor for GitHub Actions self-hosted runners
+  ja:
+    label: 日本語
+    locale: ja-JP
+    weight: 2
+    params:
+      description: 軽量でシンプルな、GitHub Actions Self-hosted runner スーパーバイザー
+enableRobotsTXT: true
+disableKinds:
+- taxonomy
+- term
+
+module:
+  hugoVersion:
+    extended: true
+    min: 0.165.0
+  imports:
+  - path: github.com/imfing/hextra
+
+markup:
+  goldmark:
+    renderer:
+      unsafe: false
+  highlight:
+    noClasses: false
+
+menu:
+  main:
+  - name: Search
+    weight: 1
+    params:
+      type: search
+  - name: Language
+    weight: 2
+    params:
+      type: language-switch
+  - name: GitHub
+    weight: 3
+    url: https://github.com/Songmu/ghalet
+    params:
+      icon: github
+
+params:
+  navbar:
+    displayTitle: true
+    displayLogo: false
+  theme:
+    default: system
+    displayToggle: true
+  repository: https://github.com/Songmu/ghalet

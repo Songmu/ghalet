@@ -1,0 +1,32 @@
+{{- $destination := .Destination -}}
+{{- $parsed := urls.Parse $destination -}}
+{{- $href := $destination -}}
+{{- if and (not $parsed.IsAbs) (not $parsed.Host) (not (strings.HasPrefix $destination "#")) -}}
+  {{- $relative := strings.TrimPrefix "/" (path.Clean (path.Join .Page.File.Dir $parsed.Path)) -}}
+  {{- if or (eq $relative "README.md") (eq $relative "README.ja.md") (and (strings.HasPrefix $relative "docs/") (not (strings.HasPrefix $relative "docs/site/")) (strings.HasSuffix $relative ".md")) -}}
+    {{- $language := "en" -}}
+    {{- $pagePath := strings.TrimSuffix ".md" $relative -}}
+    {{- if strings.HasSuffix $relative ".ja.md" -}}
+      {{- $language = "ja" -}}
+      {{- $pagePath = strings.TrimSuffix ".ja" $pagePath -}}
+    {{- end -}}
+    {{- if strings.HasPrefix $relative "README" -}}
+      {{- $pagePath = "" -}}
+    {{- end -}}
+    {{- $targetSite := index (where hugo.Sites "Language.Lang" $language) 0 -}}
+    {{- with $targetSite.GetPage (printf "/%s" $pagePath) -}}
+      {{- $href = .RelPermalink -}}
+    {{- else -}}
+      {{- errorf "unresolved documentation link %q in %s" $destination .Page.Path -}}
+    {{- end -}}
+  {{- else -}}
+    {{- $href = printf "%s/blob/main/%s" site.Params.repository $relative -}}
+  {{- end -}}
+  {{- with $parsed.RawQuery -}}
+    {{- $href = printf "%s?%s" $href . -}}
+  {{- end -}}
+  {{- with $parsed.Fragment -}}
+    {{- $href = printf "%s#%s" $href . -}}
+  {{- end -}}
+{{- end -}}
+<a href="{{ $href | safeURL }}"{{ with .Title }} title="{{ . }}"{{ end }}>{{ .Text | safeHTML }}</a>

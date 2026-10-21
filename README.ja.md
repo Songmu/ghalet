@@ -212,6 +212,9 @@ runner のアーカイブは固定バージョンを自動ダウンロードし�
 
 ## ドキュメント
 
+[ドキュメントサイト](https://songmu.github.io/ghalet/)では、この README と以下のガイドを
+英語・日本語で公開します。
+
 - [認証のセットアップ](docs/authentication.ja.md): 各方式のメリット・注意点、
   PAT と GitHub App の最小権限・作成手順・ローテーション。
 - [運用ガイド](docs/operations.ja.md): 認証、設定、実行環境、復旧、ログ、
@@ -221,6 +224,9 @@ runner のアーカイブは固定バージョンを自動ダウンロードし�
 - [設定サンプル](examples/config.yaml)と[設定スキーマ](schema.yaml)。
 
 ## 開発
+
+ドキュメントのローカルビルドと GitHub Pages の公開設定は
+[サイトガイド](docs/site/README.ja.md)を参照してください。
 
 ```sh
 go test -race ./...
