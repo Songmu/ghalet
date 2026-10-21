@@ -6,6 +6,8 @@ ghalet は Linux / macOS 向けの軽量な GitHub Actions Self-hosted runner
 スーパーバイザーです。単一の Go デーモンが需要に応じてネイティブの runner プロセスを
 起動し、複数のリポジトリ・Organization の実行容量を管理します。
 
+![ghalet が単一ホスト上で、全体と target ごとの上限に従い runner をオンデマンドに起動する構成図](images/ghalet-overview.png)
+
 専用ビルドマシン、単一用途の VM、自宅サーバーなど、信頼できる専用ホストでの運用を
 想定しています。runner 間の厳密な隔離は行わないため、信頼できる workflow のみに
 使用してください。

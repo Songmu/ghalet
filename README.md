@@ -26,6 +26,8 @@
   - Share one host across multiple projects
   - Fine-grained concurrency control through global and per-target scaling settings
 
+![One ghalet daemon starts native runners on demand within host-wide and per-target limits](docs/images/ghalet-overview.png)
+
 By design, ghalet does not provide strict isolation between runners. It is
 intended for standalone, dedicated hosts, such as:
 

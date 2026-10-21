@@ -6,6 +6,8 @@ ghalet is a lightweight supervisor for GitHub Actions self-hosted runners on
 Linux and macOS. A single Go daemon starts native runner processes on demand
 and manages capacity across repositories and organizations.
 
+![One ghalet daemon starts native runners on demand within host-wide and per-target limits](images/ghalet-overview.png)
+
 It is intended for dedicated, trusted hosts, from build machines and
 single-purpose VMs to home servers. Runners are not strictly isolated from
 one another; use only trusted workflows.
