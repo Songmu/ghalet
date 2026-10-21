@@ -158,7 +158,7 @@ func setFileWithWriter(ctx context.Context, directory string, options Options, i
 		input = bytes.NewReader(data)
 		options.Prompt, options.Stdin = false, true
 	}
-	secret, err := (credentialStore{}).readSecret(ctx, options, input)
+	secret, err := readCredentialInput(options, input)
 	if err != nil {
 		return Result{}, err
 	}
@@ -166,35 +166,7 @@ func setFileWithWriter(ctx context.Context, directory string, options Options, i
 	if err := ctx.Err(); err != nil {
 		return Result{}, err
 	}
-	changes := []credentialFile{}
-	write := func(file credentialFile, data []byte) error {
-		if err := writeAtomic(file.path, data, 0600); err != nil {
-			return err
-		}
-		changes = append(changes, file)
-		return nil
-	}
-	rollback := func(cause error) error {
-		restoreFailed := false
-		for i := len(changes) - 1; i >= 0; i-- {
-			file := changes[i]
-			if file.path == previousPath && restoreFailed {
-				cause = errors.Join(cause, fmt.Errorf("previous credential retained at %s", previousPath))
-				continue
-			}
-			var err error
-			if file.exists {
-				err = writeAtomic(file.path, file.data, file.mode)
-			} else {
-				err = os.Remove(file.path)
-			}
-			if err != nil {
-				restoreFailed = true
-				cause = errors.Join(cause, fmt.Errorf("restore %s: %w", file.path, err))
-			}
-		}
-		return cause
-	}
+	updates := credentialUpdates{writeAtomic: writeAtomic}
 	if !options.NoDefault {
 		configLock, err := fshelper.LockFile(config.path + ".lock")
 		if err != nil {
@@ -207,16 +179,16 @@ func setFileWithWriter(ctx context.Context, directory string, options Options, i
 		}
 	}
 	if original.exists {
-		if err := write(previous, original.data); err != nil {
+		if err := updates.write(previous, original.data, 0600); err != nil {
 			return Result{}, err
 		}
 	}
-	if err := write(original, secret); err != nil {
-		return Result{}, rollback(err)
+	if err := updates.write(original, secret, 0600); err != nil {
+		return Result{}, updates.rollback(err, previousPath, "previous credential")
 	}
 	if !options.NoDefault {
-		if err := write(config, configData); err != nil {
-			return Result{}, rollback(err)
+		if err := updates.write(config, configData, 0600); err != nil {
+			return Result{}, updates.rollback(err, previousPath, "previous credential")
 		}
 	}
 	result := Result{RuntimePath: path}
