@@ -196,7 +196,7 @@ func TestBlockedCleanupKeepsGCResultsSynchronousAndDrainOrdered(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	d.runs[state.RunID] = &activeRun{State: state}
+	d.runs[state.RunID] = &activeRun{State: state, CleanupTried: true}
 	blocked := &blockedRunnerAPI{scaleAPI: api, removeEntered: make(chan struct{}), removeRelease: make(chan struct{})}
 	releaseOnCleanup(t, blocked.removeRelease)
 	d.targets["build"].Client = blocked
@@ -208,6 +208,10 @@ func TestBlockedCleanupKeepsGCResultsSynchronousAndDrainOrdered(t *testing.T) {
 		t.Fatal("cleanup snapshot hid execution or retained stopped capacity", status)
 	}
 	d.mu.Lock()
+	d.beginDrain(d.targets["build"])
+	d.targets["build"].DrainStarted = time.Now().Add(-time.Hour)
+	d.enforceDrainDeadline(d.targets["build"])
+	forced := d.targets["build"].Forced
 	for range 3 {
 		d.reconcile()
 	}
@@ -215,6 +219,9 @@ func TestBlockedCleanupKeepsGCResultsSynchronousAndDrainOrdered(t *testing.T) {
 	d.mu.Unlock()
 	if drained {
 		t.Fatal("drain completed while cleanup was still running")
+	}
+	if forced {
+		t.Fatal("cleanup-only I/O forced a completed execution drain")
 	}
 	select {
 	case <-result:

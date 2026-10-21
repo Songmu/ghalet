@@ -956,6 +956,9 @@ func (d *daemon) enforceDrainDeadline(target *targetRuntime) {
 		time.Since(target.DrainStarted) < time.Duration(d.config.Runner.DrainTimeout) {
 		return
 	}
+	if target.Assigned+target.Pending == 0 && d.active(target.Config.ID) == 0 {
+		return
+	}
 	target.Forced = true
 	slog.Error("Drain deadline exceeded", "event", "drain.forced", "targetId", d.secrets.Redact(target.Config.ID), "unstartedJobs", max(0, target.Assigned-d.active(target.Config.ID)))
 	for _, run := range d.runs {
