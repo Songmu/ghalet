@@ -14,26 +14,32 @@ import (
 	"github.com/goccy/go-yaml"
 )
 
-func setupConfig(options Options) (Options, []byte, []byte, settings.Target, error) {
+type preparedConfig struct {
+	options          Options
+	before, proposed []byte
+	target           settings.Target
+}
+
+func setupConfig(options Options) (preparedConfig, error) {
 	if options.Config == "" {
 		if options.Systemd {
 			options.Config = "/etc/ghalet/config.yaml"
 		} else {
 			home, err := os.UserHomeDir()
 			if err != nil {
-				return options, nil, nil, settings.Target{}, err
+				return preparedConfig{}, err
 			}
 			options.Config = filepath.Join(home, ".config", "ghalet", "config.yaml")
 		}
 	}
 	path, err := filepath.Abs(options.Config)
 	if err != nil {
-		return options, nil, nil, settings.Target{}, err
+		return preparedConfig{}, err
 	}
 	options.Config = path
 	before, err := configSnapshot(path)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return options, nil, nil, settings.Target{}, err
+		return preparedConfig{}, err
 	}
 	data := before
 	if errors.Is(err, os.ErrNotExist) {
@@ -45,15 +51,15 @@ func setupConfig(options Options) (Options, []byte, []byte, settings.Target, err
 	}
 	config, err := settings.ParseConfig(path, data)
 	if err != nil {
-		return options, nil, nil, settings.Target{}, err
+		return preparedConfig{}, err
 	}
 	var matches []settings.Target
 	for _, target := range config.Targets {
 		if options.ID != "" && target.ID == options.ID {
 			if !strings.EqualFold(target.URL, "https://github.com/"+options.Scope) {
-				return options, nil, nil, settings.Target{}, errors.New("--id already belongs to a target with a different scope")
+				return preparedConfig{}, errors.New("--id already belongs to a target with a different scope")
 			}
-			return options, before, data, target, nil
+			return preparedConfig{options: options, before: before, proposed: data, target: target}, nil
 		}
 		if strings.EqualFold(target.URL, "https://github.com/"+options.Scope) {
 			matches = append(matches, target)
@@ -61,31 +67,31 @@ func setupConfig(options Options) (Options, []byte, []byte, settings.Target, err
 	}
 	if options.ID == "" {
 		if len(matches) > 1 {
-			return options, nil, nil, settings.Target{}, errors.New("multiple targets match --scope; select one with --id")
+			return preparedConfig{}, errors.New("multiple targets match --scope; select one with --id")
 		}
 		if len(matches) == 1 {
 			options.ID = matches[0].ID
-			return options, before, data, matches[0], nil
+			return preparedConfig{options: options, before: before, proposed: data, target: matches[0]}, nil
 		}
 		options.ID = strings.NewReplacer("/", "-", ".", "-").Replace(strings.ToLower(options.Scope))
 	}
 	if err := validateID(options.ID); err != nil {
-		return options, nil, nil, settings.Target{}, fmt.Errorf("%w; specify --id explicitly", err)
+		return preparedConfig{}, fmt.Errorf("%w; specify --id explicitly", err)
 	}
 	for _, target := range config.Targets {
 		if target.ID == options.ID {
-			return options, nil, nil, settings.Target{}, errors.New("derived target ID collides with another scope; specify --id explicitly")
+			return preparedConfig{}, errors.New("derived target ID collides with another scope; specify --id explicitly")
 		}
 	}
 	data, err = appendTarget(data, options.ID, options.Scope)
 	if err != nil {
-		return options, nil, nil, settings.Target{}, err
+		return preparedConfig{}, err
 	}
 	config, err = settings.ParseConfig(path, data)
 	if err != nil {
-		return options, nil, nil, settings.Target{}, err
+		return preparedConfig{}, err
 	}
-	return options, before, data, config.Targets[len(config.Targets)-1], nil
+	return preparedConfig{options: options, before: before, proposed: data, target: config.Targets[len(config.Targets)-1]}, nil
 }
 
 func appendTarget(data []byte, id, scope string) ([]byte, error) {

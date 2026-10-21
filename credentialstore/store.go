@@ -4,9 +4,6 @@ package credentialstore
 import (
 	"bytes"
 	"context"
-	"crypto/rsa"
-	"crypto/x509"
-	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
@@ -26,8 +23,6 @@ import (
 	"github.com/goccy/go-yaml/ast"
 	"github.com/goccy/go-yaml/parser"
 )
-
-const maxCredentialSize = 1024 * 1024
 
 var credentialName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$`)
 
@@ -416,33 +411,9 @@ func (s credentialStore) set(ctx context.Context, options Options, input io.Read
 	if err != nil {
 		return result, err
 	}
-	changes := []credentialFile{}
-	write := func(original credentialFile, data []byte, mode os.FileMode) error {
-		if err := fshelper.WriteFileAtomic(original.path, data, mode); err != nil {
-			return err
-		}
-		changes = append(changes, original)
-		return nil
-	}
+	updates := credentialUpdates{writeAtomic: fshelper.WriteFileAtomic}
 	rollback := func(cause error) error {
-		restoreFailed := false
-		for i := len(changes) - 1; i >= 0; i-- {
-			original := changes[i]
-			if original.path == previousPath && restoreFailed {
-				cause = errors.Join(cause, fmt.Errorf("previous encrypted credential retained at %s", previousPath))
-				continue
-			}
-			var err error
-			if original.exists {
-				err = fshelper.WriteFileAtomic(original.path, original.data, original.mode)
-			} else {
-				err = os.Remove(original.path)
-			}
-			if err != nil {
-				restoreFailed = true
-				cause = errors.Join(cause, fmt.Errorf("restore %s: %w", original.path, err))
-			}
-		}
+		cause = updates.rollback(cause, previousPath, "previous encrypted credential")
 		// Reload the restored unit even if the caller canceled the operation.
 		reloadCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), commandTimeoutForCredential)
 		defer cancel()
@@ -459,11 +430,11 @@ func (s credentialStore) set(ctx context.Context, options Options, input io.Read
 		defer configLock.Close()
 	}
 	if cipher.exists {
-		if err := write(previous, cipher.data, 0600); err != nil {
+		if err := updates.write(previous, cipher.data, 0600); err != nil {
 			return result, err
 		}
 	}
-	if err := write(cipher, encrypted, 0600); err != nil {
+	if err := updates.write(cipher, encrypted, 0600); err != nil {
 		return result, rollback(err)
 	}
 	currentDropIn, err := snapshotCredentialFile(dropInPath)
@@ -473,7 +444,7 @@ func (s credentialStore) set(ctx context.Context, options Options, input io.Read
 	if currentDropIn.exists != dropIn.exists || !bytes.Equal(currentDropIn.data, dropIn.data) {
 		return result, rollback(errors.New("systemd drop-in changed during credential input; refusing to overwrite it"))
 	}
-	if err := write(dropIn, dropInData, 0644); err != nil {
+	if err := updates.write(dropIn, dropInData, 0644); err != nil {
 		return result, rollback(err)
 	}
 	if !options.NoDefault {
@@ -481,7 +452,7 @@ func (s credentialStore) set(ctx context.Context, options Options, input io.Read
 		if err != nil || !bytes.Equal(current, config.data) {
 			return result, rollback(errors.New("configuration changed during credential input; refusing to overwrite it"))
 		}
-		if err := write(config, configData, 0600); err != nil {
+		if err := updates.write(config, configData, 0600); err != nil {
 			return result, rollback(err)
 		}
 	}
@@ -515,68 +486,7 @@ func (s credentialStore) readSecret(ctx context.Context, options Options, input 
 		input = bytes.NewReader(data.Bytes())
 		defer clear(data.Bytes())
 	}
-	if options.File != "" {
-		info, err := os.Lstat(options.File)
-		if err != nil {
-			return nil, err
-		}
-		if !info.Mode().IsRegular() {
-			return nil, errors.New("--file requires a regular file, not a symlink or pipe")
-		}
-		file, err := os.OpenFile(options.File, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
-		if err != nil {
-			return nil, err
-		}
-		defer file.Close()
-		info, err = file.Stat()
-		if err != nil {
-			return nil, err
-		}
-		if !info.Mode().IsRegular() || info.Mode().Perm()&0077 != 0 {
-			return nil, errors.New("input file must be accessible only to its owner (normally chmod 600)")
-		}
-		input = file
-	}
-	if input == nil {
-		return nil, errors.New("credential input is required")
-	}
-	data, err := io.ReadAll(io.LimitReader(input, maxCredentialSize+1))
-	if err != nil {
-		clear(data)
-		return nil, errors.New("read credential input failed")
-	}
-	secret := bytes.TrimSpace(data)
-	if len(data) > maxCredentialSize || len(secret) == 0 {
-		clear(data)
-		return nil, errors.New("credential must be nonempty and no larger than 1 MiB")
-	}
-	if options.Type == "pat" {
-		if bytes.IndexFunc(secret, func(r rune) bool { return r <= ' ' || r >= 127 }) >= 0 {
-			clear(data)
-			return nil, errors.New("PAT must be a single nonempty ASCII token without whitespace")
-		}
-	} else {
-		block, rest := pem.Decode(secret)
-		if block == nil || len(bytes.TrimSpace(rest)) != 0 {
-			clear(data)
-			return nil, errors.New("GitHub App input must contain one unencrypted RSA PEM private key")
-		}
-		var key any
-		switch block.Type {
-		case "RSA PRIVATE KEY":
-			key, err = x509.ParsePKCS1PrivateKey(block.Bytes)
-		case "PRIVATE KEY":
-			key, err = x509.ParsePKCS8PrivateKey(block.Bytes)
-		default:
-			err = errors.New("unsupported PEM block")
-		}
-		_, rsaKey := key.(*rsa.PrivateKey)
-		if err != nil || !rsaKey {
-			clear(data)
-			return nil, errors.New("GitHub App input must contain an unencrypted RSA PEM private key")
-		}
-	}
-	return secret, nil
+	return readCredentialInput(options, input)
 }
 
 func checkCredentialPath(path string, directory bool) error {

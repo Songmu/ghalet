@@ -43,7 +43,7 @@ func TestScopeTargetSelection(t *testing.T) {
 			if err := os.WriteFile(path, data, 0600); err != nil {
 				t.Fatal(err)
 			}
-			options, before, proposed, target, err := setupConfig(Options{Config: path, Scope: tc.scope, ID: tc.id})
+			prepared, err := setupConfig(Options{Config: path, Scope: tc.scope, ID: tc.id})
 			if tc.failure != "" {
 				if err == nil || !strings.Contains(err.Error(), tc.failure) {
 					t.Fatalf("got %v; want %q", err, tc.failure)
@@ -53,9 +53,9 @@ func TestScopeTargetSelection(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if options.ID != tc.want || target.ID != tc.want || !bytes.Equal(before, data) ||
-				!bytes.Contains(proposed, []byte("# keep")) {
-				t.Fatal("unexpected target selection", options, target)
+			if prepared.options.ID != tc.want || prepared.target.ID != tc.want || !bytes.Equal(prepared.before, data) ||
+				!bytes.Contains(prepared.proposed, []byte("# keep")) {
+				t.Fatal("unexpected target selection", prepared.options, prepared.target)
 			}
 			current, err := os.ReadFile(path)
 			if err != nil || !bytes.Equal(current, data) {
@@ -72,11 +72,11 @@ func TestAppendTargetDoesNotInheritAppInstallation(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.options.ID = ""
-	_, _, proposed, target, err := setupConfig(f.options)
-	if err != nil || target.ID != "owner-repo" || target.Credential.Type != "gh" {
+	prepared, err := setupConfig(f.options)
+	if err != nil || prepared.target.ID != "owner-repo" || prepared.target.Credential.Type != "gh" {
 		t.Fatal("new target inherited an unrelated App installation", err)
 	}
-	config, err := settings.ParseConfig(f.options.Config, proposed)
+	config, err := settings.ParseConfig(f.options.Config, prepared.proposed)
 	if err != nil || config.Targets[0].InstallationID != 42 || config.Defaults.Credential.ClientID != "existing" {
 		t.Fatal("existing App configuration changed", err)
 	}
