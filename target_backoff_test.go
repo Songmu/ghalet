@@ -32,10 +32,10 @@ func TestTargetRetryWait(t *testing.T) {
 func TestPermanentTargetFailuresAreIsolated(t *testing.T) {
 	for _, err := range []error{scaleset.UnauthorizedError, scaleset.BadRequestError, errUnsafeTarget} {
 		d, _ := testDaemon(t)
-		other := *d.targets["build"]
-		d.startFailure(d.targets["build"], fmt.Errorf("wrapped: %w", err))
-		d.targets["build"].RetryAt = time.Time{}
-		if d.targets["build"].Fault == "" || d.canStart(d.targets["build"]) || !d.canStart(&other) {
+		other := *d.targets[buildTargetID]
+		d.startFailure(d.targets[buildTargetID], fmt.Errorf("wrapped: %w", err))
+		d.targets[buildTargetID].RetryAt = time.Time{}
+		if d.targets[buildTargetID].Fault == "" || d.canStart(d.targets[buildTargetID]) || !d.canStart(&other) {
 			t.Fatal("permanent failure was retried or affected another target")
 		}
 	}
@@ -79,7 +79,7 @@ func TestListenerTransientRecoveryAndCancellation(t *testing.T) {
 		t.Run(fmt.Sprintf("setup=%t", setupFailure), func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
 				d, _ := testDaemon(t)
-				target := d.targets["build"]
+				target := d.targets[buildTargetID]
 				var failures, sessions, closed int
 				var attempts []time.Time
 				target.Client = retryTestClient(t, func(r *http.Request) (*http.Response, error) {
@@ -140,7 +140,7 @@ func TestRegistrationBootstrapIsBoundedAndRecoveryCancelable(t *testing.T) {
 		t.Run(fmt.Sprintf("drain=%t", drain), func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
 				d, api := testDaemon(t)
-				target := &targetRuntime{Config: d.targets["build"].Config}
+				target := &targetRuntime{Config: d.targets[buildTargetID].Config}
 				calls := 0
 				d.clientFactory = func(context.Context, settings.Target) (scaleAPI, error) {
 					calls++
@@ -180,7 +180,7 @@ func TestRegistrationBootstrapIsBoundedAndRecoveryCancelable(t *testing.T) {
 func TestRegistrationTransientEventuallyRecovers(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		d, api := testDaemon(t)
-		target := &targetRuntime{Config: d.targets["build"].Config}
+		target := &targetRuntime{Config: d.targets[buildTargetID].Config}
 		calls := 0
 		d.clientFactory = func(context.Context, settings.Target) (scaleAPI, error) {
 			calls++
@@ -206,7 +206,7 @@ func TestListenerSetupPermanentErrorsAndBackoffCancellation(t *testing.T) {
 		t.Run(fmt.Sprint(status), func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
 				d, _ := testDaemon(t)
-				target := d.targets["build"]
+				target := d.targets[buildTargetID]
 				calls := 0
 				target.Client = retryTestClient(t, func(r *http.Request) (*http.Response, error) {
 					calls++
@@ -241,7 +241,7 @@ func (f *cancelRegistrationAPI) GetRunnerScaleSet(ctx context.Context, group int
 func TestCanceledRegistrationRetainsSuccessfulIdentity(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		d, api := testDaemon(t)
-		target := d.targets["build"]
+		target := d.targets[buildTargetID]
 		target.Client, target.Set = nil, nil
 		api.set.Statistics.TotalAssignedJobs = 5
 		d.clientFactory = func(context.Context, settings.Target) (scaleAPI, error) {
@@ -267,7 +267,7 @@ func TestCanceledRegistrationRetainsSuccessfulIdentity(t *testing.T) {
 
 func TestRetainedFailedPreparationBoundsNewStarts(t *testing.T) {
 	d, _ := testDaemon(t)
-	target := d.targets["build"]
+	target := d.targets[buildTargetID]
 	other := *target
 	state := testState(t, d.config)
 	state.ProcessDone, state.Error = true, "prepare failed; cleanup unavailable"
@@ -286,7 +286,7 @@ func TestReservationDirectoryFailuresRemainClassified(t *testing.T) {
 	for _, unsafe := range []bool{false, true} {
 		t.Run(fmt.Sprint(unsafe), func(t *testing.T) {
 			d, _ := testDaemon(t)
-			target := d.targets["build"]
+			target := d.targets[buildTargetID]
 			if unsafe {
 				if err := os.WriteFile(filepath.Join(d.config.Runner.WorkRoot, target.Config.ID), nil, 0600); err != nil {
 					t.Fatal(err)
@@ -316,7 +316,7 @@ func TestCancellationDuringTargetSetupHasNoDiagnostic(t *testing.T) {
 		t.Run(fmt.Sprint(registration), func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
 				d, _ := testDaemon(t)
-				target := d.targets["build"]
+				target := d.targets[buildTargetID]
 				if registration {
 					target.Client, target.Set = nil, nil
 					d.clientFactory = func(ctx context.Context, _ settings.Target) (scaleAPI, error) {
@@ -352,7 +352,7 @@ func TestCancellationDuringTargetSetupHasNoDiagnostic(t *testing.T) {
 
 func TestPreparationRetryDiagnosticSurvivesUntilStartupRecovers(t *testing.T) {
 	d, _ := testDaemon(t)
-	target := d.targets["build"]
+	target := d.targets[buildTargetID]
 	d.secrets.Add("preparation-secret")
 	for range 10 {
 		d.startFailure(target, fmt.Errorf("reserve: preparation-secret"))
@@ -401,7 +401,7 @@ func TestAssignmentArbitrationClearsOnlyNewStartupRecovery(t *testing.T) {
 	for _, ready := range []bool{false, true} {
 		t.Run(fmt.Sprint(ready), func(t *testing.T) {
 			d, api := testDaemon(t)
-			target := d.targets["build"]
+			target := d.targets[buildTargetID]
 			d.startFailure(target, errTestAPI)
 			state := testState(t, d.config)
 			state.RunnerID, state.Ready = 101, ready
@@ -426,7 +426,7 @@ func TestAssignmentArbitrationClearsOnlyNewStartupRecovery(t *testing.T) {
 func TestRecoveredRegistrationRemovesOnlyAdoptedRetiredIdentity(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		d, api := testDaemon(t)
-		target := d.targets["build"]
+		target := d.targets[buildTargetID]
 		old := *target
 		otherScope := old
 		otherScope.Config.URL = "https://github.com/another/repository"
@@ -461,7 +461,7 @@ func TestReadyRunnerCleanupFailureBoundsAbnormalReplacements(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			d, api := testDaemon(t)
-			target := d.targets["build"]
+			target := d.targets[buildTargetID]
 			other := *target
 			state := testState(t, d.config)
 			state.Ready, state.Busy, state.ProcessDone = true, tc.busy, true

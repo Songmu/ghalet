@@ -80,7 +80,7 @@ will run ghalet. Replace `OWNER/REPO` below with your repository
 mkdir -p ~/.config/ghalet
 cat > ~/.config/ghalet/config.yaml <<'YAML'
 targets:
-  - id: project
+  - scaleSet: project
     scope: OWNER/REPO
 YAML
 gh auth login
@@ -131,8 +131,8 @@ repository or organization registration, identified locally by its `id`.
 | `ghalet run` | Run the daemon in the foreground for all configured targets. |
 | `ghalet apply` | Drain targets, reload configuration, and reconcile registrations, attempting to delete unused scale sets. |
 | `ghalet config validate` | Validate configuration and local paths without contacting GitHub. |
-| `ghalet app setup --scope OWNER/REPO` | Create and install a private GitHub App, save managed authentication, and print any required static target configuration. See [App setup](docs/app-setup.md) for organization scopes, SSH and resumption. |
-| `ghalet systemd app setup --scope OWNER/REPO` | Set up an App with encrypted service credentials and the target's runtime key reference (Linux/root). See [App setup](docs/app-setup.md#packaged-systemd-service). |
+| `ghalet app setup --scope OWNER/REPO --scale-set project` | Create and install a private GitHub App, save managed authentication, and print any required static target configuration. See [App setup](docs/app-setup.md) for organization scopes, SSH and resumption. |
+| `ghalet systemd app setup --scope OWNER/REPO --scale-set project` | Set up an App with encrypted service credentials and the target's runtime key reference (Linux/root). See [App setup](docs/app-setup.md#packaged-systemd-service). |
 | `ghalet credential set NAME --prompt` | Save an owner-only credential file and update managed defaults without rewriting static config. See [ordinary credentials](docs/file-credentials.md) for App keys and replacement. |
 | `ghalet systemd credential set NAME --prompt` | Register an encrypted service PAT and update managed defaults (Linux/root). See [credentials](docs/credentials.md) for App keys, automation and rotation. |
 | `ghalet list` | List accessible daemons, management UIDs, sockets and running snapshots; filter with `--config PATH`. |

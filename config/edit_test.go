@@ -8,18 +8,20 @@ import (
 )
 
 func TestEditorTargetEdits(t *testing.T) {
-	input := "# keep header\ncapacity:\n  maxRunners: 3\ntargets:\n  - id: 123 # keep ID comment\n    scope: owner/old\n    credential: &old\n      type: pat\n      tokenEnv: OLD_TOKEN\n  - id: alias\n    scope: owner/alias\n    credential: *old\n"
+	input := "# keep header\ncapacity:\n  maxRunners: 3\ntargets:\n  - scaleSet: 123 # keep scale set comment\n    scope: owner/old\n    credential: &old\n      type: pat\n      tokenEnv: OLD_TOKEN\n  - scaleSet: alias\n    scope: owner/alias\n    credential: *old\n"
 	editor, err := NewEditor([]byte(input), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := editor.SetTargetApp("123", "client", "app.pem", 42); err != nil {
+	first, _ := TargetKey("owner/old", "", "123")
+	if err := editor.SetTargetApp(first, "client", "app.pem", 42); err != nil {
 		t.Fatal(err)
 	}
-	if err := editor.AppendTarget("new", "owner/new"); err != nil {
+	if err := editor.AppendTarget("owner/new", "", "new"); err != nil {
 		t.Fatal(err)
 	}
-	if err := editor.SetTargetApp("new", "new-client", "new.pem", 43); err != nil {
+	added, _ := TargetKey("owner/new", "", "new")
+	if err := editor.SetTargetApp(added, "new-client", "new.pem", 43); err != nil {
 		t.Fatal("cannot edit an appended target", err)
 	}
 	data, err := editor.Marshal()
@@ -27,7 +29,7 @@ func TestEditorTargetEdits(t *testing.T) {
 		t.Fatal(err)
 	}
 	output := string(data)
-	for _, comment := range []string{"# keep header", "# keep ID comment"} {
+	for _, comment := range []string{"# keep header", "# keep scale set comment"} {
 		if !strings.Contains(output, comment) {
 			t.Fatalf("lost comment %q:\n%s", comment, data)
 		}
@@ -37,7 +39,7 @@ func TestEditorTargetEdits(t *testing.T) {
 	}
 	var decoded struct {
 		Targets []struct {
-			ID             string `yaml:"id"`
+			ScaleSet       string `yaml:"scaleSet"`
 			InstallationID int64  `yaml:"installationId"`
 			Credential     struct {
 				Type     string `yaml:"type"`
@@ -48,7 +50,7 @@ func TestEditorTargetEdits(t *testing.T) {
 	if err := yaml.Unmarshal(data, &decoded); err != nil {
 		t.Fatal(err)
 	}
-	if len(decoded.Targets) != 3 || decoded.Targets[0].ID != "123" ||
+	if len(decoded.Targets) != 3 || decoded.Targets[0].ScaleSet != "123" ||
 		decoded.Targets[0].InstallationID != 42 || decoded.Targets[0].Credential.Type != "github-app" ||
 		decoded.Targets[1].Credential.TokenEnv != "OLD_TOKEN" || decoded.Targets[2].InstallationID != 43 {
 		t.Fatalf("target or alias semantics changed: %+v\n%s", decoded, data)
@@ -63,7 +65,7 @@ func TestEditorAppendTargetOverridesDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := editor.AppendTarget("new", "owner/new"); err != nil {
+	if err := editor.AppendTarget("owner/new", "", "new"); err != nil {
 		t.Fatal(err)
 	}
 	data, err := editor.Marshal()
@@ -90,7 +92,7 @@ func TestEditorRejectsInvalidDocuments(t *testing.T) {
 	for _, input := range []string{"defaults: {}", "targets: {}", "targets: [123]"} {
 		editor, err := NewEditor([]byte(input), nil)
 		if err == nil {
-			err = editor.AppendTarget("new", "owner/new")
+			err = editor.AppendTarget("owner/new", "", "new")
 		}
 		if err == nil {
 			t.Fatalf("accepted invalid targets %q", input)

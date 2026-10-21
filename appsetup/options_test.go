@@ -33,7 +33,7 @@ func TestNormalizeScope(t *testing.T) {
 }
 
 func TestOptionsRequireScope(t *testing.T) {
-	if err := (Options{ID: "build"}).Validate(); err == nil || !strings.Contains(err.Error(), "--scope is required") {
+	if err := (Options{ScaleSet: "build"}).Validate(); err == nil || !strings.Contains(err.Error(), "--scope is required") {
 		t.Fatal(err)
 	}
 }

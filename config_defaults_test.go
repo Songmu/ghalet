@@ -47,8 +47,8 @@ func TestSharedCredentialDefaults(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			input := "defaults:\n  credential:\n    " + tc.defaults +
-				"\ntargets:\n  - id: one\n    scope: owner/one\n" + tc.override + tc.installation +
-				"  - id: two\n    scope: owner/two\n" + tc.override + tc.installation
+				"\ntargets:\n  - scaleSet: one\n    scope: owner/one\n" + tc.override + tc.installation +
+				"  - scaleSet: two\n    scope: owner/two\n" + tc.override + tc.installation
 			config, err := settings.LoadConfig(writeConfig(t, input))
 			if err != nil {
 				t.Fatal(err)
@@ -67,7 +67,7 @@ func TestSharedCredentialDefaults(t *testing.T) {
 }
 
 func TestSharedCredentialPathsAndEnvironment(t *testing.T) {
-	path := writeConfig(t, "defaults:\n  credential:\n    type: pat\n    tokenFile: secrets/token\ntargets:\n  - id: one\n    scope: owner/repository\n")
+	path := writeConfig(t, "defaults:\n  credential:\n    type: pat\n    tokenFile: secrets/token\ntargets:\n  - scaleSet: one\n    scope: owner/repository\n")
 	config, err := settings.LoadConfig(path)
 	if err != nil {
 		t.Fatal(err)
@@ -76,7 +76,7 @@ func TestSharedCredentialPathsAndEnvironment(t *testing.T) {
 	if config.Defaults.Credential.TokenFile != want || config.Targets[0].Credential.TokenFile != want {
 		t.Fatal("shared paths were not resolved against config directory")
 	}
-	input := "defaults:\n  credential:\n    type: pat\n    tokenEnv: SHARED_PAT\ntargets:\n  - id: one\n    scope: owner/repository\n    credential:\n      type: gh\nrunner:\n  env:\n    SHARED_PAT: do-not-copy\n"
+	input := "defaults:\n  credential:\n    type: pat\n    tokenEnv: SHARED_PAT\ntargets:\n  - scaleSet: one\n    scope: owner/repository\n    credential:\n      type: gh\nrunner:\n  env:\n    SHARED_PAT: do-not-copy\n"
 	if _, err := settings.LoadConfig(writeConfig(t, input)); err == nil || !strings.Contains(err.Error(), "management credential") {
 		t.Fatal("default credential environment was not protected", err)
 	}
@@ -90,12 +90,12 @@ func TestInvalidSharedCredentials(t *testing.T) {
 		"defaults:\n  credential:\n    type: \"\"\n",
 		"defaults:\n  credential:\n    type: github-app\n    clientId: app-client\n    privateKeyFile: key.pem\n",
 	} {
-		input += "targets:\n  - id: one\n    scope: owner/repository\n"
+		input += "targets:\n  - scaleSet: one\n    scope: owner/repository\n"
 		if _, err := settings.LoadConfig(writeConfig(t, input)); err == nil {
 			t.Fatal("invalid defaults were accepted", input)
 		}
 	}
-	input := "defaults:\n  credential:\n    type: pat\ntargets:\n  - id: one\n    scope: owner/repository\n    credential:\n      type: gh\n"
+	input := "defaults:\n  credential:\n    type: pat\ntargets:\n  - scaleSet: one\n    scope: owner/repository\n    credential:\n      type: gh\n"
 	if _, err := settings.LoadConfig(writeConfig(t, input)); err == nil || !strings.Contains(err.Error(), "defaults.credential") {
 		t.Fatal("unused invalid defaults were silently ignored", err)
 	}

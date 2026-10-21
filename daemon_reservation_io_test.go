@@ -38,7 +38,7 @@ func TestOverlappingFirstReservationsWaitForTargetDirectoryDurability(t *testing
 	}
 	d.mu.Lock()
 	for range 2 {
-		if err := d.reserve(d.targets["build"]); err != nil {
+		if err := d.reserve(d.targets[buildTargetID]); err != nil {
 			d.mu.Unlock()
 			t.Fatal(err)
 		}

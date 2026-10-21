@@ -28,18 +28,18 @@ func TestAppHelp(t *testing.T) {
 }
 
 func TestAppOptions(t *testing.T) {
-	options, err := parseAppOptions([]string{"--scope", "owner/repo", "--id", "build", "--listen", "127.0.0.1:8765", "--no-browser", "--yes"}, "selected.yaml", &bytes.Buffer{}, false)
-	if err != nil || options.Scope != "owner/repo" || options.ID != "build" || options.Config != "selected.yaml" ||
+	options, err := parseAppOptions([]string{"--scope", "owner", "--scale-set", "build", "--runner-group", "linux", "--listen", "127.0.0.1:8765", "--no-browser", "--yes"}, "selected.yaml", &bytes.Buffer{}, false)
+	if err != nil || options.Scope != "owner" || options.ScaleSet != "build" || options.RunnerGroup != "linux" || options.Config != "selected.yaml" ||
 		options.Listen != "127.0.0.1:8765" || !options.NoBrowser || !options.Yes || options.Systemd {
 		t.Fatal(options, err)
 	}
-	for _, args := range [][]string{{}, {"work", "extra"}, {"--yes"}, {"--scope", "owner/repo", "work"}, {"--scope", "owner/repo", "--id", "../escape"}} {
+	for _, args := range [][]string{{}, {"work", "extra"}, {"--yes"}, {"--scope", "owner/repo"}, {"--scope", "owner/repo", "work"}, {"--scope", "owner/repo", "--scale-set", "build", "--id", "legacy"}} {
 		if _, err := parseAppOptions(args, "", &bytes.Buffer{}, false); err == nil {
 			t.Fatal("invalid arguments accepted", args)
 		}
 	}
 	for _, config := range []string{"", "selected.yaml"} {
-		options, err := parseAppOptions([]string{"--scope", "owner"}, config, &bytes.Buffer{}, true)
+		options, err := parseAppOptions([]string{"--scope", "owner", "--scale-set", "build"}, config, &bytes.Buffer{}, true)
 		want := config
 		if want == "" {
 			want = "/etc/ghalet/config.yaml"
@@ -48,7 +48,7 @@ func TestAppOptions(t *testing.T) {
 			t.Fatal(options, err)
 		}
 	}
-	options, err = parseAppOptions([]string{"--scope", "owner", "--config", "override.yaml"}, "selected.yaml", &bytes.Buffer{}, true)
+	options, err = parseAppOptions([]string{"--scope", "owner", "--scale-set", "build", "--config", "override.yaml"}, "selected.yaml", &bytes.Buffer{}, true)
 	if err != nil || options.Config != "override.yaml" {
 		t.Fatal(options, err)
 	}
@@ -77,10 +77,10 @@ func TestAppConfigFlagRouting(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, args := range [][]string{
-		{"app", "setup", "--scope", "owner/repo", "--config", path},
-		{"--config", path, "app", "setup", "--scope", "owner/repo"},
-		{"systemd", "app", "setup", "--scope", "owner/repo", "--config", path},
-		{"--config", path, "systemd", "app", "setup", "--scope", "owner/repo"},
+		{"app", "setup", "--scope", "owner/repo", "--scale-set", "build", "--config", path},
+		{"--config", path, "app", "setup", "--scope", "owner/repo", "--scale-set", "build"},
+		{"systemd", "app", "setup", "--scope", "owner/repo", "--scale-set", "build", "--config", path},
+		{"--config", path, "systemd", "app", "setup", "--scope", "owner/repo", "--scale-set", "build"},
 	} {
 		var output bytes.Buffer
 		if err := Run(t.Context(), args, &output, &output); err == nil || !strings.Contains(err.Error(), "decode config") {

@@ -213,7 +213,7 @@ func TestStateRejectsEscapingPathsAndSymlinks(t *testing.T) {
 	if err := fshelper.EnsureDirectory(c.Runner.WorkRoot, 0711); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(external, filepath.Join(c.Runner.WorkRoot, "build")); err != nil {
+	if err := os.Symlink(external, filepath.Join(c.Runner.WorkRoot, buildTargetID)); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.save(state); err == nil {

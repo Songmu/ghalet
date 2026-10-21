@@ -79,12 +79,13 @@ For GitHub.com, `scope` accepts
 to HTTPS URLs before validation, authentication, and registration matching.
 Full HTTPS URLs are also accepted and are required for other GitHub hosts.
 Only repository and organization scopes are supported; `runnerGroup` is
-organization-only. Each target accepts exactly one scope. Its required `id`
-identifies it in management commands and local state. The optional `scaleSet` defaults
-to `id`; set it explicitly to use a different GitHub registration name
-and workflow `runs-on` label, including a shared name across scopes.
-IDs must be unique across all targets and contain 1-64 ASCII letters,
-digits, underscores or hyphens, starting with a letter or digit.
+organization-only. Each target requires `scope` and `scaleSet`, the GitHub
+registration name and workflow `runs-on` label. Together with `runnerGroup`
+(the default group when omitted), they uniquely identify the target.
+The same scale set name can be used in different scopes or runner groups.
+No local `id` is configured. A SHA-256 key derived from the normalized
+registration identifies local state, credentials and diagnostic `targetId`
+fields; status output also includes the scope, runner group and scale set name.
 App `installationId` belongs to the target, not its credential, so multiple
 installations can share a single App key.
 
@@ -117,9 +118,9 @@ execution, cache and log directories. Generated files are owner-only; existing
 managed files must be regular, owned by the controller and not writable by others.
 Back up the managed file along with credentials and App resume metadata.
 
-Only static targets become active. Managed target entries are matched by ID and
-normalized scope; a stale scope mismatch is rejected instead of reusing another
-target's authentication. Explicit target `credential` or `installationId` prevents
+Only static targets become active. Managed target entries are matched by normalized
+scope, runner group and scale set; authentication is never reused for a different
+registration. Explicit target `credential` or `installationId` prevents
 managed target authentication from being applied. Otherwise a managed target's
 credential and installation are used together, ahead of shared defaults.
 For shared defaults, static `defaults.credential` wins over the managed default;
@@ -352,8 +353,8 @@ under the old limits/timeouts, closes their listeners, then registers targets
 from the new configuration and waits for their listener initialization.
 Unchanged scale sets are reused. Startup failures are reported by apply;
 later listener failures remain visible through `doctor`.
-The local `targets[].id` identifies additions, changes and removals; a
-scope/group/scale set change replaces that target's registration. Use
+The normalized scope/group/scale set combination identifies each registration;
+changing any part replaces that registration. Use
 `targets: []` to remove all targets. Missing or null `targets` is invalid.
 
 Scale sets from removed or replaced targets are deleted only if no new target

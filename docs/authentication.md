@@ -92,7 +92,7 @@ defaults:
     tokenFile: /absolute/path/to/ghalet.pat
 
 targets:
-  - id: project
+  - scaleSet: project
     scope: OWNER/REPO
 ```
 
@@ -126,7 +126,7 @@ for keychain and service-environment considerations.
 ## Create and install a GitHub App
 
 For guided creation, key storage and installation discovery, use
-[`ghalet app setup --scope OWNER/REPO`](app-setup.md), or
+[`ghalet app setup --scope OWNER/REPO --scale-set project`](app-setup.md), or
 `ghalet systemd app setup` for the packaged service. To register an App manually, follow the
 steps below.
 
@@ -170,7 +170,7 @@ defaults:
     privateKeyFile: /absolute/path/to/ghalet-app.pem
 
 targets:
-  - id: project
+  - scaleSet: project
     scope: OWNER/REPO
     installationId: 12345678
 ```

@@ -92,7 +92,7 @@ defaults:
     tokenFile: /absolute/path/to/ghalet.pat
 
 targets:
-  - id: project
+  - scaleSet: project
     scope: OWNER/REPO
 ```
 
@@ -126,7 +126,7 @@ OAuth の scope 更新で PAT の権限は増えません。
 ## GitHub App の作成とインストール
 
 作成・鍵の保存・インストールの検出を案内する
-[`ghalet app setup --scope OWNER/REPO`](app-setup.ja.md) を利用できます。
+[`ghalet app setup --scope OWNER/REPO --scale-set project`](app-setup.ja.md) を利用できます。
 パッケージのサービスでは `ghalet systemd app setup` を使います。
 手動で登録する場合は以下の手順に従ってください。
 
@@ -168,7 +168,7 @@ defaults:
     privateKeyFile: /absolute/path/to/ghalet-app.pem
 
 targets:
-  - id: project
+  - scaleSet: project
     scope: OWNER/REPO
     installationId: 12345678
 ```

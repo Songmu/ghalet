@@ -17,7 +17,7 @@ func app(ctx context.Context, args []string, config string, out, errOut io.Write
 		command = "systemd app"
 	}
 	if len(args) == 0 || args[0] != "setup" {
-		fmt.Fprintf(errOut, "Usage: ghalet %s setup --scope OWNER/REPO|ORG [options]\n", command)
+		fmt.Fprintf(errOut, "Usage: ghalet %s setup --scope OWNER/REPO|ORG --scale-set NAME [options]\n", command)
 		if len(args) == 1 && (args[0] == "--help" || args[0] == "-h") {
 			return flag.ErrHelp
 		}
@@ -35,7 +35,7 @@ func app(ctx context.Context, args []string, config string, out, errOut io.Write
 	if systemd {
 		message = "The service was not started or restarted. Validate the configuration, then start it explicitly; an existing service needs a normal stop and successful shutdown before starting it with updated systemd credentials."
 	}
-	_, err = fmt.Fprintf(out, "Saved managed authentication for target %s with installation %d.\n%s\n", result.Target, result.InstallationID, message)
+	_, err = fmt.Fprintf(out, "Saved managed authentication for %s (scale set %s) with installation %d.\n%s\n", options.Scope, options.ScaleSet, result.InstallationID, message)
 	return err
 }
 
@@ -52,19 +52,20 @@ func parseAppOptions(args []string, config string, errOut io.Writer, systemd boo
 	fs.SetOutput(errOut)
 	fs.StringVar(&options.Config, "config", config, "static configuration whose managed file to update")
 	fs.StringVar(&options.Scope, "scope", "", "required GitHub.com scope: OWNER/REPO or ORG")
-	fs.StringVar(&options.ID, "id", "", "target and credential ID (derived from scope by default)")
+	fs.StringVar(&options.ScaleSet, "scale-set", "", "required scale set name and runs-on label")
+	fs.StringVar(&options.RunnerGroup, "runner-group", "", "organization runner group (default group when omitted)")
 	fs.StringVar(&options.Listen, "listen", "127.0.0.1:0", "loopback callback address; use a fixed port for SSH forwarding")
 	fs.BoolVar(&options.NoBrowser, "no-browser", systemd, "print browser URLs without opening them (default for systemd)")
 	fs.BoolVar(&options.Yes, "yes", false, "write the displayed managed information without a confirmation prompt")
 	fs.Usage = func() {
-		fmt.Fprintf(errOut, "Usage: ghalet %s setup --scope OWNER/REPO|ORG [options]\n", command)
+		fmt.Fprintf(errOut, "Usage: ghalet %s setup --scope OWNER/REPO|ORG --scale-set NAME [options]\n", command)
 		fs.PrintDefaults()
 	}
 	if err := fs.Parse(args); err != nil {
 		return options, err
 	}
 	if fs.NArg() != 0 {
-		return options, errors.New("app setup does not accept positional arguments; use --scope and optionally --id")
+		return options, errors.New("app setup does not accept positional arguments; use --scope and --scale-set")
 	}
 	return options, options.Validate()
 }

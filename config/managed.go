@@ -8,7 +8,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strings"
 	"syscall"
 
 	"github.com/Songmu/ghalet/fshelper"
@@ -30,8 +29,9 @@ type Managed struct {
 }
 
 type ManagedTarget struct {
-	ID             string     `yaml:"id"`
 	Scope          string     `yaml:"scope"`
+	RunnerGroup    string     `yaml:"runnerGroup,omitempty"`
+	ScaleSetName   string     `yaml:"scaleSet"`
 	Credential     Credential `yaml:"credential"`
 	InstallationID int64      `yaml:"installationId,omitempty"`
 }
@@ -183,15 +183,16 @@ func ParseManaged(data []byte) (*Managed, error) {
 	}
 	ids := make(map[string]bool)
 	for _, target := range managed.Targets {
-		if !ValidTargetID(target.ID) || ids[target.ID] {
-			return nil, errors.New("invalid or duplicate managed target ID")
+		key, err := TargetKey(target.Scope, target.RunnerGroup, target.ScaleSetName)
+		if err != nil {
+			return nil, fmt.Errorf("managed target %s: %w", target.Scope, err)
 		}
-		ids[target.ID] = true
-		if _, err := ScopeURL(target.Scope); err != nil {
-			return nil, fmt.Errorf("managed target %s: %w", target.ID, err)
+		if ids[key] {
+			return nil, errors.New("duplicate managed scope/group/scale set registration")
 		}
+		ids[key] = true
 		if err := target.Credential.validate(); err != nil {
-			return nil, fmt.Errorf("managed target %s: %w", target.ID, err)
+			return nil, fmt.Errorf("managed target %s: %w", target.Scope, err)
 		}
 		if (target.Credential.Type == "github-app" && target.InstallationID <= 0) ||
 			(target.Credential.Type != "github-app" && target.InstallationID != 0) {
@@ -217,8 +218,10 @@ func (managed *Managed) Marshal() ([]byte, error) {
 }
 
 func (managed *Managed) SetTarget(target ManagedTarget) {
+	key, _ := TargetKey(target.Scope, target.RunnerGroup, target.ScaleSetName)
 	for i := range managed.Targets {
-		if managed.Targets[i].ID == target.ID {
+		storedKey, _ := TargetKey(managed.Targets[i].Scope, managed.Targets[i].RunnerGroup, managed.Targets[i].ScaleSetName)
+		if storedKey == key {
 			managed.Targets[i] = target
 			return
 		}
@@ -234,7 +237,7 @@ func resolveCredentialPaths(credential *Credential, base string) {
 	}
 }
 
-func (c *Config) mergeManaged(managed *Managed) error {
+func (c *Config) mergeManaged(managed *Managed) {
 	base := filepath.Dir(c.ManagedFile)
 	if c.Defaults.Credential == nil && managed.Defaults.Credential != nil {
 		credential := *managed.Defaults.Credential
@@ -247,11 +250,9 @@ func (c *Config) mergeManaged(managed *Managed) error {
 			continue
 		}
 		for _, stored := range managed.Targets {
-			if stored.ID != target.ID {
+			key, _ := TargetKey(stored.Scope, stored.RunnerGroup, stored.ScaleSetName)
+			if key != target.ID {
 				continue
-			}
-			if !strings.EqualFold(strings.TrimRight(stored.Scope, "/"), target.URL) {
-				return fmt.Errorf("managed target %s has a different scope; rerun setup or remove its stale managed entry", target.ID)
 			}
 			target.Credential, target.InstallationID = stored.Credential, stored.InstallationID
 			resolveCredentialPaths(&target.Credential, base)
@@ -259,7 +260,6 @@ func (c *Config) mergeManaged(managed *Managed) error {
 			break
 		}
 	}
-	return nil
 }
 
 // WriteManaged commits a prepared snapshot without overwriting another writer.

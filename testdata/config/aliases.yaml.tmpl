@@ -1,6 +1,5 @@
 targets:
-  - id: first
-    scope: &scope first/
+  - scope: &scope first/
     credential: &credential
 CREDENTIAL
 FIRST_INSTALLATION
@@ -8,8 +7,7 @@ FIRST_INSTALLATION
     scaling: &scaling
       minRunners: 0
       maxRunners: 2
-  - id: second
-    scope: *scope
+  - scope: *scope
     credential: *credential
 SECOND_INSTALLATION
     scaleSet: test

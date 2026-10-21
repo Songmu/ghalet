@@ -4,7 +4,7 @@
 # Generated references are stored in /var/lib/ghalet/managed.yaml.
 
 targets:
-  - id: project
+  - scaleSet: project
     scope: OWNER/REPO
 
 runner:

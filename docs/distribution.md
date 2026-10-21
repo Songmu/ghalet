@@ -39,7 +39,7 @@ configuration, enable the service, or start it.
 To create a GitHub App and configure its encrypted service key:
 
 ```sh
-sudo ghalet systemd app setup --scope OWNER/REPO
+sudo ghalet systemd app setup --scope OWNER/REPO --scale-set project
 sudo ghalet config validate --config /etc/ghalet/config.yaml
 sudo systemctl enable --now ghalet
 ```

@@ -5,28 +5,27 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/Songmu/ghalet/credentialstore"
+	settings "github.com/Songmu/ghalet/config"
 )
 
-// Options selects a GitHub.com scope, optional target ID and credential backend.
+// Options selects a GitHub.com scale set registration and credential backend.
 type Options struct {
-	Scope, ID, Config, Listen string
-	Systemd, NoBrowser, Yes   bool
+	Scope, ScaleSet, RunnerGroup, Config, Listen string
+	Systemd, NoBrowser, Yes                      bool
+	credentialName                               string
 }
 
 // Validate checks explicit input before creating an App or saving credentials.
 func (options Options) Validate() error {
-	if _, err := normalizeScope(options.Scope); err != nil {
+	scope, err := normalizeScope(options.Scope)
+	if err != nil {
 		return err
 	}
-	if options.ID != "" {
-		return validateID(options.ID)
+	if options.ScaleSet == "" {
+		return errors.New("--scale-set is required")
 	}
-	return nil
-}
-
-func validateID(id string) error {
-	return (credentialstore.Options{Name: id, Type: "github-app", Stdin: true, NoDefault: true}).Validate()
+	_, err = settings.TargetKey(scope, options.RunnerGroup, options.ScaleSet)
+	return err
 }
 
 func normalizeScope(scope string) (string, error) {

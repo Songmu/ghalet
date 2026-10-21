@@ -122,7 +122,7 @@ func TestCallbackWaitsForPersistence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	state, err := loadApp(filepath.Join(directory, f.options.ID+".app.json"))
+	state, err := loadApp(filepath.Join(directory, f.options.credentialName+".app.json"))
 	if err != nil {
 		t.Fatal("installation link was shown before resume metadata was saved", err)
 	}

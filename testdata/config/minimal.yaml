@@ -1,3 +1,3 @@
 targets:
-  - id: build
+  - scaleSet: build
     scope: owner/repository

@@ -43,7 +43,7 @@ func TestManagedDefaultsPreserveStaticConfiguration(t *testing.T) {
 	for _, encrypted := range []bool{false, true} {
 		t.Run(fmt.Sprint(encrypted), func(t *testing.T) {
 			store, options, _ := testCredentialStore(t)
-			data := []byte("# Keep this comment.\nmanagedFile: state/managed.yaml\ndefaults:\n  credential: &shared\n    type: pat\n    tokenEnv: STATIC_PAT\ntargets:\n  - id: build\n    scope: owner/repository\n    credential: *shared\n")
+			data := []byte("# Keep this comment.\nmanagedFile: state/managed.yaml\ndefaults:\n  credential: &shared\n    type: pat\n    tokenEnv: STATIC_PAT\ntargets:\n  - scaleSet: build\n    scope: owner/repository\n    credential: *shared\n")
 			if err := os.WriteFile(options.Config, data, 0444); err != nil {
 				t.Fatal(err)
 			}
@@ -318,7 +318,7 @@ func testCredentialStore(t *testing.T) (credentialStore, Options, *credentialTes
 	root := testDirectory(t)
 	t.Setenv("STATE_DIRECTORY", filepath.Join(root, "state"))
 	config := filepath.Join(root, "config.yaml")
-	if err := os.WriteFile(config, []byte("# retained\nmanagedFile: managed.yaml\ntargets:\n  - id: build\n    scope: owner/repository\n"), 0600); err != nil {
+	if err := os.WriteFile(config, []byte("# retained\nmanagedFile: managed.yaml\ntargets:\n  - scaleSet: build\n    scope: owner/repository\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	tools := &credentialTestTools{}

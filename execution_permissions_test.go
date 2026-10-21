@@ -80,7 +80,7 @@ func TestReserveExecutionDirectoryPermissions(t *testing.T) {
 	d.cancel()
 	d.mu.Lock()
 	for range 2 {
-		if err := d.reserve(d.targets["build"]); err != nil {
+		if err := d.reserve(d.targets[buildTargetID]); err != nil {
 			t.Fatal(err)
 		}
 	}

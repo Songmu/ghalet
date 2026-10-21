@@ -2,41 +2,42 @@
 
 [English](app-setup.md) | [日本語](app-setup.ja.md)
 
-`ghalet app setup --scope OWNER/REPO` は [GitHub の Manifest フロー][manifest]で、
+`ghalet app setup --scope OWNER/REPO --scale-set project` は [GitHub の Manifest フロー][manifest]で、
 個人または Organization が所有する非公開の GitHub App を作成します。
 事前の PAT、client secret、公開コールバックサービス、PEM のコピー＆ペーストは不要です。
 Linux / macOS で **GitHub.com の target 一つにつき一つの App** を扱います。
 保存先は[暗号化されていない通常ファイル](file-credentials.ja.md)です。
 `ghalet systemd app setup` は代わりにサービス用の暗号化認証情報を保存します。
-どちらもデーモンの起動や設定反映は行いません。従来の
-`ghalet auth setup NAME --target ID` は廃止し、これらのコマンドに置き換えます。
+どちらもデーモンの起動や設定反映は行いません。
 
 ## ローカルでのセットアップ
 
 デーモンと同じユーザー・StateDir の環境で実行してください。
 
 ```sh
-ghalet app setup --scope OWNER/REPO
+ghalet app setup --scope OWNER/REPO --scale-set project
 # Organization の target:
-ghalet app setup --scope ORG
-# 設定先と target ID を指定する場合:
-ghalet app setup --scope OWNER/REPO --config ./config.yaml --id build
+ghalet app setup --scope ORG --scale-set project
+# 設定先を指定する場合:
+ghalet app setup --scope OWNER/REPO --scale-set project --config ./config.yaml
+# Organization の runner group:
+ghalet app setup --scope ORG --scale-set project --runner-group linux
 ```
 
 別の設定ファイルには `--config PATH` を使います。
 デフォルトは `~/.config/ghalet/config.yaml` です。
-`--scope` は常に必須で、GitHub.com の Organization / リポジトリの HTTPS URL も使えます。
+`--scope` と `--scale-set` は必須です。scope には GitHub.com の
+Organization / リポジトリの HTTPS URL も使えます。
 確認後に別の [managed ファイル](operations.ja.md#セットアップで管理する情報)へ認証情報を保存します。
 静的な設定ファイルの作成・書き換えは行いません。新しい target では表示された YAML を
 設定へ追加してください。設定ファイルがなければ、設定全体の案も表示します。
-同じ scope の既存 target があれば再利用します。複数一致する場合の選択や、
-同じ scope に別の target を追加する場合は `--id` を指定します。
-一致する target と明示的な ID がなければ、scope を小文字にし、`/` と `.` を
-`-` に置き換えて ID を導出します。`Songmu/ghalet` なら `songmu-ghalet` で、
-認証情報名も同じです。ID の衝突や 64 文字超過では `--id` を指定してください。
-連番の付与や切り詰めは行いません。ID は `runs-on` に使う Scale Set 名の
-デフォルトにもなります。scope / ID ごとに個別に実行し、
-既存 App の権限を広げる処理は行いません。
+正規化した scope・runner group・Scale Set が同じ既存 target を再利用します。
+`--scale-set` は GitHub 上の登録名と workflow の `runs-on` ラベル、
+`--runner-group` は Organization の runner group を指定します。
+group を省略するとデフォルトグループを使います。`--id` オプションはありません。
+認証情報のファイル名には登録情報から導出した SHA-256 キーを使うため、
+任意の ID を付けずに scope・group・Scale Set ごとに分離できます。
+登録先ごとに個別に実行し、既存 App の権限を広げる処理は行いません。
 
 1. 端末で target、App の所有者、必要な書き込み権限を確認します。
    リポジトリでは `Administration`、Organization では `Self-hosted runners` です。
@@ -59,7 +60,8 @@ ghalet app setup --scope OWNER/REPO --config ./config.yaml --id build
 ![GitHub App のインストールリンク](images/app-setup-install.png)
 
 他の target と `defaults.credential` は変更しません。managed の target エントリーに
-scope、`type: github-app`、`clientId`、`privateKeyFile`、`installationId` を保存します。
+scope、Scale Set、runner group、`type: github-app`、`clientId`、
+`privateKeyFile`、`installationId` を保存します。
 有効になるのは静的設定に記載された target だけで、その target に認証を明示していれば
 managed の情報より優先します。
 ユーザーの OAuth 認可や Webhook イベントは要求せず、Webhook の配信は無効です。
@@ -92,7 +94,7 @@ SSH ホストでは、ブラウザのあるマシンから固定ポートを転�
 ```sh
 ssh -L 8765:127.0.0.1:8765 runner-host
 # In that SSH session:
-ghalet app setup --scope OWNER/REPO \
+ghalet app setup --scope OWNER/REPO --scale-set project \
   --listen 127.0.0.1:8765 --no-browser
 ```
 
@@ -107,7 +109,7 @@ SSH 接続を維持したまま、表示された URL をローカルのブラ�
 Linux、root 権限、systemd 250 以降で実行します。
 
 ```sh
-sudo ghalet systemd app setup --scope OWNER/REPO
+sudo ghalet systemd app setup --scope OWNER/REPO --scale-set project
 sudo ghalet config validate --config /etc/ghalet/config.yaml
 sudo systemctl enable --now ghalet
 ```
@@ -125,10 +127,11 @@ root でブラウザを起動しなくて済むよう、デフォルトでは UR
 SSH では上記のポート転送を使い、systemd コマンドに
 `--listen 127.0.0.1:8765` を追加して、手元のブラウザで URL を開いてください。
 
-鍵は平文の PEM を書かずに、`/etc/ghalet/credentials/ID.cred` へ直接暗号化保存します。
+鍵は平文の PEM を書かずに、`/etc/ghalet/credentials/KEY.cred` へ直接暗号化保存します。
 専用 drop-in が `LoadCredentialEncrypted` で読み込み、target の `privateKeyFile` は
-`/run/credentials/ghalet.service/ID` を参照します。再開用の公開情報は
-`/etc/ghalet/credentials/ID.app.json` に保存し、再開時の復号はメモリ上だけで行います。
+`/run/credentials/ghalet.service/KEY` を参照します。再開用の公開情報は
+`/etc/ghalet/credentials/KEY.app.json` に保存します。`KEY` は登録情報から導出したキーです。
+再開時の復号はメモリ上だけで行います。
 登録時に unit 定義を再読込しますが、サービスの起動・再起動は行いません。
 サービスへの登録前に暗号化した鍵と再開用の情報を保存します。
 drop-in の作成や unit の再読込に失敗しても保持するため、表示された問題を解消して
@@ -140,16 +143,16 @@ drop-in の作成や unit の再読込に失敗しても保持するため、表
 
 ## 再開と認証情報の保存
 
-通常版では鍵を `<StateDir>/credentials/ID.pem` に保存し、`ID.app.json` に公開の App 識別情報・
+通常版では鍵を `<StateDir>/credentials/KEY.pem` に保存し、`KEY.app.json` に公開の App 識別情報・
 scope・鍵のパスを保持して再開できるようにします。
 両方とも `0600` で、認証ディレクトリは `0700` です。
 JSON に PEM、client secret、webhook secret は保存しません。
 PEM とバックアップは[通常ファイルの認証情報](file-credentials.ja.md)の説明どおり保護してください。
 
 一回の待機時間は最大 15 分です。中断、設定保存の辞退、インストールの承認後は、
-同じコマンド・設定・scope・任意指定の ID で再実行します。
+同じコマンド・設定・scope・Scale Set・runner group で再実行します。
 App 情報の保存後は既存の App と鍵を再利用し、App の再作成や鍵の交換は行いません。
-scope・所有者・鍵のパスの不一致、App 情報のない既存の鍵、同じ ID のセットアップの同時実行、
+scope・所有者・鍵のパスの不一致、App 情報のない既存の鍵、同じ登録先のセットアップの同時実行、
 設定ファイルの同時編集は拒否します。GitHub App を自動削除することはありません。
 
 GitHub で App 作成後、認証情報の保存前にコールバックや交換が失敗した場合は、

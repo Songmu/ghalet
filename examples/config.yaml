@@ -12,9 +12,7 @@
 #     hostname: "" # Defaults to the scope's host.
 
 targets:
-  - id: project
-    # Unique local ID for management commands.
-    scope: OWNER/REPO
+  - scope: OWNER/REPO
     # GitHub.com: OWNER/REPO or ORG; other hosts: full HTTPS URL.
     # Enterprise scopes are unsupported.
     # credential:
@@ -32,13 +30,13 @@ targets:
     # installationId: 12345 # Required for github-app; per target.
 
     # runnerGroup: "" # Org only; empty uses default group.
-    # scaleSet: project # Defaults to id; GitHub name and runs-on label.
+    scaleSet: project
+    # GitHub name and runs-on label; scope/group/scaleSet identifies this target.
     # scaling:
     #   minRunners: 0 # Idle warm runners.
     #   maxRunners: 2 # Per-target limit; shared capacity applies.
 
-  # - id: another-project # Optional second target.
-  #   scope: OWNER/ANOTHER-REPO
+  # - scope: OWNER/ANOTHER-REPO # Optional second target.
   #   scaleSet: macmini
 
 # runner:

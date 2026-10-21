@@ -39,7 +39,7 @@ runner は自身の実行ディレクトリに到達するため `/var/lib/ghale
 GitHub App の作成とサービス用の鍵の暗号化保存を行う場合:
 
 ```sh
-sudo ghalet systemd app setup --scope OWNER/REPO
+sudo ghalet systemd app setup --scope OWNER/REPO --scale-set project
 sudo ghalet config validate --config /etc/ghalet/config.yaml
 sudo systemctl enable --now ghalet
 ```

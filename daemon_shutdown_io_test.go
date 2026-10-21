@@ -29,7 +29,7 @@ func TestPreparationFailureStopsAcquisitionBeforeSlowRollback(t *testing.T) {
 	api.jitErr = scaleset.UnauthorizedError
 	blocked := &blockedLookupAPI{scaleAPI: api, entered: make(chan struct{}), release: make(chan struct{})}
 	releaseOnCleanup(t, blocked.release)
-	target := d.targets["build"]
+	target := d.targets[buildTargetID]
 	target.Client, target.Assigned = blocked, 1
 	d.mu.Lock()
 	d.reconcile()
@@ -59,7 +59,7 @@ func TestGCRefreshesSnapshotAfterSameIdentityStop(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	api := d.targets["build"].Client.(*fakeScaleAPI)
+	api := d.targets[buildTargetID].Client.(*fakeScaleAPI)
 	api.mu.Lock()
 	api.removeErr = errTestAPI
 	api.mu.Unlock()

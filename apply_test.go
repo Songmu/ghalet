@@ -65,20 +65,19 @@ func TestApplyRemovesAllTargetsAndDeletesUnusedScaleSet(t *testing.T) {
 	}
 }
 
-func TestApplyReusesScaleSetAcrossTargetRename(t *testing.T) {
+func TestApplyReusesUnchangedRegistration(t *testing.T) {
 	d, api := testDaemon(t)
 	useFakeManagement(d, api)
 	next := nextConfig(d)
-	next.Targets[0].ID = "renamed"
 	next.Capacity.MaxRunners = 3
 	next.Runner.Version = "2.339.0"
 	next.Runner.Env = map[string]string{"BUILD_MODE": "new"}
 	writeApplyConfig(t, next)
 	response := d.apply(t.Context())
 	if response.Error != "" || len(response.Status.Targets) != 1 ||
-		response.Status.Targets[0].ID != "renamed" || response.Status.Targets[0].Draining ||
+		response.Status.Targets[0].ID != buildTargetID || response.Status.Targets[0].Draining ||
 		response.Status.Capacity != 3 {
-		t.Fatal("renamed target was not applied", response)
+		t.Fatal("unchanged registration was not reused", response)
 	}
 	if api.deleteCalls != 0 || api.createCalls != 0 || len(d.retired) != 0 ||
 		d.config.Runner.Version != next.Runner.Version || !reflect.DeepEqual(d.config.Runner.Env, next.Runner.Env) {
@@ -99,7 +98,8 @@ func TestApplyKeepsStoppedRecoveryDiagnosticsWithoutReservingNewCapacity(t *test
 		t.Fatal(err)
 	}
 	next := nextConfig(d)
-	next.Targets[0].ID = "other"
+	next.Targets[0].URL = "https://github.com/owner/other"
+	nextID, _ := settings.TargetKey(next.Targets[0].URL, "", next.Targets[0].ScaleSetName)
 	writeApplyConfig(t, next)
 	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
 	defer cancel()
@@ -108,7 +108,7 @@ func TestApplyKeepsStoppedRecoveryDiagnosticsWithoutReservingNewCapacity(t *test
 		response.Status.Occupied != 0 || len(response.Status.Problems) == 0 {
 		t.Fatal("apply blocked on stopped recovery or lost its diagnostics", response)
 	}
-	if !d.canStart(d.targets["other"]) || d.active("other") != 0 ||
+	if !d.canStart(d.targets[nextID]) || d.active(nextID) != 0 ||
 		d.runs[state.RunID] == nil || api.removeCalls != 0 {
 		t.Fatal("retained recovery state blocked the new target or authorized cleanup")
 	}
@@ -122,7 +122,7 @@ func TestApplyReplacesRegistrationAndUsesOldCredentialsForDeletion(t *testing.T)
 		t.Run(change, func(t *testing.T) {
 			d, oldAPI := testDaemon(t)
 			useFakeManagement(d, oldAPI)
-			oldConfig := d.targets["build"].Config
+			oldConfig := d.targets[buildTargetID].Config
 			newAPI := newFakeAPI()
 			newAPI.set.ID = 20
 			next := nextConfig(d)
@@ -132,13 +132,14 @@ func TestApplyReplacesRegistrationAndUsesOldCredentialsForDeletion(t *testing.T)
 				next.Targets[0].URL = "https://github.com/owner/other"
 			case "group":
 				oldConfig.URL = "https://github.com/owner"
-				d.targets["build"].Config = oldConfig
+				d.targets[buildTargetID].Config = oldConfig
 				next.Targets[0].URL = oldConfig.URL
 				next.Targets[0].RunnerGroup = "new-group"
 			case "scale set":
 				next.Targets[0].ScaleSetName = "other"
 			}
 			var received settings.Target
+			nextID, _ := settings.TargetKey(next.Targets[0].URL, next.Targets[0].RunnerGroup, next.Targets[0].ScaleSetName)
 			d.clientFactory = func(_ context.Context, target settings.Target) (scaleAPI, error) {
 				received = target
 				return newAPI, nil
@@ -146,7 +147,7 @@ func TestApplyReplacesRegistrationAndUsesOldCredentialsForDeletion(t *testing.T)
 			writeApplyConfig(t, next)
 			response := d.apply(t.Context())
 			if response.Error != "" || received.Credential.TokenEnv != "NEW_TOKEN" ||
-				oldAPI.deleteCalls != 1 || newAPI.deleteCalls != 0 || d.targets["build"].Set.ID != 20 {
+				oldAPI.deleteCalls != 1 || newAPI.deleteCalls != 0 || d.targets[nextID].Set.ID != 20 {
 				t.Fatal("apply failed to separate old and new registrations/clients", response)
 			}
 		})
@@ -193,7 +194,7 @@ func TestApplyRejectsInvalidOrRestartOnlyChangesBeforeDrain(t *testing.T) {
 				}
 			}
 			response := d.apply(t.Context())
-			if response.Error == "" || d.config != original || d.targets["build"].Draining ||
+			if response.Error == "" || d.config != original || d.targets[buildTargetID].Draining ||
 				api.deleteCalls != 0 || d.applying {
 				t.Fatal("invalid apply mutated the running configuration", response)
 			}
@@ -225,7 +226,7 @@ func TestApplyRetainsUnsafeScaleSets(t *testing.T) {
 		t.Run(reason, func(t *testing.T) {
 			d, api := testDaemon(t)
 			useFakeManagement(d, api)
-			target := d.targets["build"]
+			target := d.targets[buildTargetID]
 			switch reason {
 			case "forced":
 				target.Forced = true
@@ -269,17 +270,18 @@ func TestApplyPreservesRetainedExecutionContext(t *testing.T) {
 	}
 	run := &activeRun{State: state, CleanupTried: true}
 	d.runs[state.RunID] = run
-	oldConfig, oldTarget := d.config, d.targets["build"]
+	oldConfig, oldTarget := d.config, d.targets[buildTargetID]
 	newAPI := newFakeAPI()
 	newAPI.set.ID = 20
 	d.clientFactory = func(context.Context, settings.Target) (scaleAPI, error) { return newAPI, nil }
 	next := nextConfig(d)
 	next.Targets[0].ScaleSetName = "new"
+	nextID, _ := settings.TargetKey(next.Targets[0].URL, "", "new")
 	next.Logs.Preserve = false
 	writeApplyConfig(t, next)
 	response := d.apply(t.Context())
 	if response.Error == "" || run.Target != oldTarget || run.Config != oldConfig ||
-		oldAPI.deleteCalls != 0 || d.targets["build"].Set.ID != 20 {
+		oldAPI.deleteCalls != 0 || d.targets[nextID].Set.ID != 20 {
 		t.Fatal("retained cleanup lost its old registration/configuration", response)
 	}
 	d.workers.Wait()
@@ -297,7 +299,7 @@ func TestApplyWaitsForDrainAndKeepsStatusResponsive(t *testing.T) {
 	next := nextConfig(d)
 	next.Targets = []settings.Target{}
 	writeApplyConfig(t, next)
-	d.targets["build"].Assigned = 1
+	d.targets[buildTargetID].Assigned = 1
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	done := make(chan controlResponse, 1)
@@ -322,7 +324,7 @@ func TestApplyWaitsForDrainAndKeepsStatusResponsive(t *testing.T) {
 	default:
 	}
 	d.mu.Lock()
-	d.targets["build"].Assigned = 0
+	d.targets[buildTargetID].Assigned = 0
 	d.mu.Unlock()
 	select {
 	case response := <-done:
@@ -342,7 +344,7 @@ func TestApplyDoesNotLeakFormerCredentialEnvironment(t *testing.T) {
 	next.Runner.Env = map[string]string{"GHALET_TEST_TOKEN": "not-a-secret"}
 	writeApplyConfig(t, next)
 	response := d.apply(t.Context())
-	if response.Error == "" || !strings.Contains(response.Error, "management credential") || d.targets["build"].Draining {
+	if response.Error == "" || !strings.Contains(response.Error, "management credential") || d.targets[buildTargetID].Draining {
 		t.Fatal("apply exposed the old credential variable to runners", response)
 	}
 }
@@ -362,12 +364,12 @@ func TestApplyRegistersNewTargetAndReportsPartialFailure(t *testing.T) {
 	useFakeManagement(d, oldAPI)
 	next := nextConfig(d)
 	second := next.Targets[0]
-	second.ID, second.ScaleSetName = "second", "second"
+	second.ScaleSetName = "second"
 	next.Targets = append(next.Targets, second)
 	newAPI := newFakeAPI()
 	newAPI.set = nil
 	d.clientFactory = func(_ context.Context, target settings.Target) (scaleAPI, error) {
-		if target.ID == "build" {
+		if target.ID == buildTargetID {
 			return nil, scaleset.UnauthorizedError
 		}
 		return newAPI, nil
@@ -375,7 +377,7 @@ func TestApplyRegistersNewTargetAndReportsPartialFailure(t *testing.T) {
 	writeApplyConfig(t, next)
 	response := d.apply(t.Context())
 	if response.Error == "" || len(d.targets) != 2 || newAPI.createCalls != 1 ||
-		d.targets["build"].Fault == "" || d.targets["second"].Set == nil || oldAPI.deleteCalls != 0 {
+		d.targets[buildTargetID].Fault == "" || d.targets[secondTargetID].Set == nil || oldAPI.deleteCalls != 0 {
 		t.Fatal("apply failed to report partial registration while applying healthy targets", response)
 	}
 }
@@ -392,7 +394,7 @@ func TestConfigAllowsExplicitEmptyTargets(t *testing.T) {
 func TestRetiredDeletionWaitsForPendingObservers(t *testing.T) {
 	d, api := testDaemon(t)
 	useFakeManagement(d, api)
-	target := d.targets["build"]
+	target := d.targets[buildTargetID]
 	d.beginDrain(target)
 	state := testState(t, d.config)
 	if err := d.store.save(state); err != nil {
@@ -422,7 +424,7 @@ func TestApplyDrainsLiveRunnerBeforeDeletingScaleSet(t *testing.T) {
 	useFakeManagement(d, api)
 	cleanupProcesses(t, d)
 	seedDistribution(t, d.config, "#!/bin/sh\nprintf 'Listening for Jobs\\n'\nsleep 1\n")
-	d.targets["build"].Assigned = 1
+	d.targets[buildTargetID].Assigned = 1
 	waitForRun(t, d, func(run *activeRun) bool {
 		if run.State.Ready && !run.Preparing {
 			run.State.Busy = true
@@ -431,7 +433,7 @@ func TestApplyDrainsLiveRunnerBeforeDeletingScaleSet(t *testing.T) {
 		return false
 	})
 	d.mu.Lock()
-	d.targets["build"].Assigned = 0
+	d.targets[buildTargetID].Assigned = 0
 	d.mu.Unlock()
 	next := nextConfig(d)
 	next.Targets = []settings.Target{}
@@ -461,7 +463,7 @@ func TestShutdownInterruptsApplyWithoutRestartingListeners(t *testing.T) {
 	useFakeManagement(d, api)
 	next := nextConfig(d)
 	second := next.Targets[0]
-	second.ID, second.ScaleSetName = "second", "second"
+	second.ScaleSetName = "second"
 	next.Targets = append(next.Targets, second)
 	writeApplyConfig(t, next)
 	registering := make(chan struct{})
@@ -500,7 +502,7 @@ func TestShutdownInterruptsApplyWithoutRestartingListeners(t *testing.T) {
 		t.Fatal("shutdown raced with listener startup")
 	}
 	if !d.stopping || d.applying || len(d.targets) != 2 || len(d.order) != 2 ||
-		d.targets["second"].Fault == "" || api.deleteCalls != 0 {
+		d.targets[secondTargetID].Fault == "" || api.deleteCalls != 0 {
 		t.Fatal("shutdown lost target diagnostics or deleted the old registration")
 	}
 	for _, target := range d.targets {

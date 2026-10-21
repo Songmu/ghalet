@@ -156,7 +156,7 @@ func TestRunnerPathPreservesConsecutiveSpaces(t *testing.T) {
 	}
 	cleanupProcesses(t, d)
 	seedDistribution(t, d.config, "#!/bin/sh\nprintf 'Listening for Jobs\\n'\nsleep 60\n")
-	d.targets["build"].Assigned = 1
+	d.targets[buildTargetID].Assigned = 1
 	run := waitForRun(t, d, func(run *activeRun) bool {
 		return run.State.Ready && !run.Preparing
 	})
@@ -171,8 +171,8 @@ func TestRunnerPathPreservesConsecutiveSpaces(t *testing.T) {
 		t.Fatal("valid runner in a consecutive-space path was rejected", err)
 	}
 	d.mu.Lock()
-	d.targets["build"].Assigned = 0
-	d.beginDrain(d.targets["build"])
+	d.targets[buildTargetID].Assigned = 0
+	d.beginDrain(d.targets[buildTargetID])
 	d.mu.Unlock()
 	pumpUntil(t, d, func() bool { return len(d.runs) == 0 })
 }
@@ -182,7 +182,7 @@ func startTerminationRunner(t *testing.T, script string) (*daemon, *activeRun) {
 	d, _ := testDaemon(t)
 	cleanupProcesses(t, d)
 	seedDistribution(t, d.config, script)
-	d.targets["build"].Assigned = 1
+	d.targets[buildTargetID].Assigned = 1
 	run := waitForRun(t, d, func(run *activeRun) bool {
 		return run.State.Ready && !run.Preparing && len(run.State.Members) >= 2
 	})
@@ -265,7 +265,7 @@ func TestStopGroupPersistsNewDescendants(t *testing.T) {
 				t.Fatal("verified termination membership was not persisted", records, err)
 			}
 			d.mu.Lock()
-			d.targets["build"].Assigned = 0
+			d.targets[buildTargetID].Assigned = 0
 			err = d.stop(run, true)
 			d.mu.Unlock()
 			if err != nil || d.occupied() != 0 {

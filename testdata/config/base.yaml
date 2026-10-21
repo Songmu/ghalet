@@ -1,6 +1,5 @@
 targets:
-  - id: build
-    scope: https://github.com/owner/repository
+  - scope: https://github.com/owner/repository
     credential:
       type: pat
       tokenEnv: GHALET_TEST_TOKEN
