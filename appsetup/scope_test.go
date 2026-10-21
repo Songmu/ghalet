@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Songmu/ghalet"
+	settings "github.com/Songmu/ghalet/config"
 	"github.com/Songmu/ghalet/credentialstore"
 	"github.com/Songmu/ghalet/fshelper"
 )
@@ -27,7 +27,7 @@ func TestSetupCreatesConfigAndResumes(t *testing.T) {
 				t.Fatal(err)
 			}
 			want := strings.ReplaceAll(scope, "/", "-")
-			config, err := ghalet.LoadConfig(f.options.Config)
+			config, err := settings.LoadConfig(f.options.Config)
 			if err != nil || len(config.Targets) != 1 || config.Targets[0].ID != want ||
 				config.Targets[0].InstallationID != 123 || result.Target != want {
 				t.Fatal("new configuration did not use the derived ID", config, err)
@@ -40,7 +40,7 @@ func TestSetupCreatesConfigAndResumes(t *testing.T) {
 			if err != nil || second.KeyPath != result.KeyPath || f.conversions.Load() != 1 {
 				t.Fatal("repeated scope setup created another App", err)
 			}
-			config, err = ghalet.LoadConfig(f.options.Config)
+			config, err = settings.LoadConfig(f.options.Config)
 			if err != nil || len(config.Targets) != 1 {
 				t.Fatal("repeated scope setup duplicated the target", err)
 			}
@@ -131,7 +131,7 @@ func TestSystemdAppSetupResumesAfterProvisionFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	config, err := ghalet.LoadConfig(f.options.Config)
+	config, err := settings.LoadConfig(f.options.Config)
 	if err != nil || config.Targets[0].Credential.PrivateKeyFile != first.KeyPath ||
 		config.Targets[0].InstallationID != 123 || config.Runner.User != "ghalet-runner" ||
 		config.Logs.Root != logRoot {

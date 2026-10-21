@@ -4,11 +4,11 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/Songmu/ghalet"
+	settings "github.com/Songmu/ghalet/config"
 )
 
 func validate(config string, outStream io.Writer) error {
-	if _, err := ghalet.LoadConfig(config); err != nil {
+	if _, err := settings.LoadConfig(config); err != nil {
 		return err
 	}
 	_, err := fmt.Fprintln(outStream, "Configuration is valid.")

@@ -13,6 +13,7 @@ import (
 	"testing/synctest"
 	"time"
 
+	settings "github.com/Songmu/ghalet/config"
 	"github.com/actions/scaleset"
 	"github.com/hashicorp/go-retryablehttp"
 )
@@ -141,7 +142,7 @@ func TestRegistrationBootstrapIsBoundedAndRecoveryCancelable(t *testing.T) {
 				d, api := testDaemon(t)
 				target := &targetRuntime{Config: d.targets["build"].Config}
 				calls := 0
-				d.clientFactory = func(context.Context, Target) (scaleAPI, error) {
+				d.clientFactory = func(context.Context, settings.Target) (scaleAPI, error) {
 					calls++
 					return nil, errTestAPI
 				}
@@ -149,13 +150,13 @@ func TestRegistrationBootstrapIsBoundedAndRecoveryCancelable(t *testing.T) {
 				if calls != maxAttempts || target.Fault != "" || target.RetryError == "" {
 					t.Fatal("bootstrap did not stop at four transient attempts", calls, target.Fault)
 				}
-				d.clientFactory = func(context.Context, Target) (scaleAPI, error) { return api, nil }
+				d.clientFactory = func(context.Context, settings.Target) (scaleAPI, error) { return api, nil }
 				healthy := &targetRuntime{Config: target.Config}
 				d.registerTarget(t.Context(), healthy, true)
 				if healthy.Set == nil || healthy.Fault != "" {
 					t.Fatal("another target could not register during the outage")
 				}
-				d.clientFactory = func(context.Context, Target) (scaleAPI, error) {
+				d.clientFactory = func(context.Context, settings.Target) (scaleAPI, error) {
 					calls++
 					return nil, errTestAPI
 				}
@@ -181,7 +182,7 @@ func TestRegistrationTransientEventuallyRecovers(t *testing.T) {
 		d, api := testDaemon(t)
 		target := &targetRuntime{Config: d.targets["build"].Config}
 		calls := 0
-		d.clientFactory = func(context.Context, Target) (scaleAPI, error) {
+		d.clientFactory = func(context.Context, settings.Target) (scaleAPI, error) {
 			calls++
 			if calls <= 6 {
 				return nil, errTestAPI
@@ -243,7 +244,7 @@ func TestCanceledRegistrationRetainsSuccessfulIdentity(t *testing.T) {
 		target := d.targets["build"]
 		target.Client, target.Set = nil, nil
 		api.set.Statistics.TotalAssignedJobs = 5
-		d.clientFactory = func(context.Context, Target) (scaleAPI, error) {
+		d.clientFactory = func(context.Context, settings.Target) (scaleAPI, error) {
 			return &cancelRegistrationAPI{fakeScaleAPI: api, cancel: func() {
 				d.mu.Lock()
 				d.beginDrain(target)
@@ -318,7 +319,7 @@ func TestCancellationDuringTargetSetupHasNoDiagnostic(t *testing.T) {
 				target := d.targets["build"]
 				if registration {
 					target.Client, target.Set = nil, nil
-					d.clientFactory = func(ctx context.Context, _ Target) (scaleAPI, error) {
+					d.clientFactory = func(ctx context.Context, _ settings.Target) (scaleAPI, error) {
 						target.Cancel()
 						return nil, ctx.Err()
 					}
@@ -436,7 +437,7 @@ func TestRecoveredRegistrationRemovesOnlyAdoptedRetiredIdentity(t *testing.T) {
 		unregistered := &targetRuntime{Config: target.Config}
 		d.retired = []*targetRuntime{&old, &otherScope, &otherID, unregistered}
 		target.Client, target.Set = nil, nil
-		d.clientFactory = func(context.Context, Target) (scaleAPI, error) {
+		d.clientFactory = func(context.Context, settings.Target) (scaleAPI, error) {
 			return &cancelRegistrationAPI{fakeScaleAPI: api, cancel: target.Cancel}, nil
 		}
 		d.startListener(target)

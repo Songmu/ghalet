@@ -14,7 +14,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Songmu/ghalet"
+	settings "github.com/Songmu/ghalet/config"
 	"github.com/Songmu/ghalet/fshelper"
 )
 
@@ -34,7 +34,7 @@ func TestFileRegistrationAndRotation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	config, err := ghalet.LoadConfig(options.Config)
+	config, err := settings.LoadConfig(options.Config)
 	if err != nil || config.Targets[0].Credential.TokenFile != first.RuntimePath {
 		t.Fatal("credential default not configured", config, err)
 	}
@@ -76,7 +76,7 @@ func TestFileCredentialsWithTrustedBaseAlias(t *testing.T) {
 	if err != nil || result.RuntimePath != want {
 		t.Fatal("credential path was not canonical", result, err)
 	}
-	config, err := ghalet.LoadConfig(options.Config)
+	config, err := settings.LoadConfig(options.Config)
 	if err != nil || config.Path != options.Config || config.Targets[0].Credential.TokenFile != want {
 		t.Fatal("credential registration changed config identity or stored an alias", config, err)
 	}

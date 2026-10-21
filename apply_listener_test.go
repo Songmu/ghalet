@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	settings "github.com/Songmu/ghalet/config"
 )
 
 func TestApplyWaitsForListenerStartup(t *testing.T) {
@@ -70,7 +72,7 @@ func TestApplyWaitsForOldListenerClosure(t *testing.T) {
 	closing := make(chan struct{})
 	target.Cancel = func() { close(closing) }
 	next := nextConfig(d)
-	next.Targets = []Target{}
+	next.Targets = []settings.Target{}
 	writeApplyConfig(t, next)
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()

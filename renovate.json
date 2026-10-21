@@ -8,9 +8,9 @@
     {
       "customType": "regex",
       "description": "Update the bundled GitHub Actions runner and its example",
-      "managerFilePatterns": ["/^config\\.go$/", "/^examples/config\\.yaml$/"],
+      "managerFilePatterns": ["/^config/config\\.go$/", "/^examples/config\\.yaml$/"],
       "matchStrings": [
-        "(?:^|\\n)(?:const defaultRunnerVersion = \"|#   version: \")(?<currentValue>\\d+\\.\\d+\\.\\d+)\""
+        "(?:^|\\n)(?:const DefaultRunnerVersion = \"|#   version: \")(?<currentValue>\\d+\\.\\d+\\.\\d+)\""
       ],
       "depNameTemplate": "actions/runner",
       "datasourceTemplate": "github-releases",

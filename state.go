@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"time"
 
+	settings "github.com/Songmu/ghalet/config"
 	"github.com/Songmu/ghalet/fshelper"
 	"github.com/Songmu/ghalet/procgroup"
 )
@@ -85,7 +86,7 @@ func newID() (string, error) {
 }
 
 func (s stateStore) directory(state *RunState) (string, error) {
-	if !safeID.MatchString(state.TargetID) || len(state.RunID) != 32 {
+	if !settings.ValidTargetID(state.TargetID) || len(state.RunID) != 32 {
 		return "", errors.New("invalid state targetId or runId")
 	}
 	if _, err := hex.DecodeString(state.RunID); err != nil {
@@ -151,7 +152,7 @@ func (s stateStore) load() ([]recoveredState, error) {
 			continue
 		}
 		path := filepath.Join(s.root, target.Name())
-		if !target.IsDir() || target.Type()&os.ModeSymlink != 0 || !safeID.MatchString(target.Name()) {
+		if !target.IsDir() || target.Type()&os.ModeSymlink != 0 || !settings.ValidTargetID(target.Name()) {
 			result = append(result, recoveredState{
 				Path: path, Err: errors.New("unrecognized workRoot entry; inspect manually"),
 				NonExecutionFile: target.Type().IsRegular(),

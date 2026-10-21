@@ -4,50 +4,52 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	settings "github.com/Songmu/ghalet/config"
 )
 
 func TestSharedCredentialDefaults(t *testing.T) {
 	for _, tc := range []struct {
 		name, defaults, override, installation string
-		want                                   Credential
+		want                                   settings.Credential
 	}{
 		{
 			name: "shared PAT", defaults: "type: pat\n    tokenEnv: SHARED_PAT",
-			want: Credential{Type: "pat", TokenEnv: "SHARED_PAT"},
+			want: settings.Credential{Type: "pat", TokenEnv: "SHARED_PAT"},
 		},
 		{
 			name: "explicit gh replaces PAT", defaults: "type: pat\n    tokenEnv: SHARED_PAT",
-			override: "    credential:\n      type: gh\n", want: Credential{Type: "gh"},
+			override: "    credential:\n      type: gh\n", want: settings.Credential{Type: "gh"},
 		},
 		{
 			name: "empty mapping replaces PAT", defaults: "type: pat\n    tokenEnv: SHARED_PAT",
-			override: "    credential: {}\n", want: Credential{Type: "gh"},
+			override: "    credential: {}\n", want: settings.Credential{Type: "gh"},
 		},
 		{
 			name: "other PAT replaces shared PAT", defaults: "type: pat\n    tokenEnv: SHARED_PAT",
 			override: "    credential:\n      type: pat\n      tokenEnv: OTHER_PAT\n",
-			want:     Credential{Type: "pat", TokenEnv: "OTHER_PAT"},
+			want:     settings.Credential{Type: "pat", TokenEnv: "OTHER_PAT"},
 		},
 		{
 			name: "shared App", defaults: "type: github-app\n    clientId: app-client\n    privateKeyFile: /protected/app.pem",
 			installation: "    installationId: 123\n",
-			want:         Credential{Type: "github-app", ClientID: "app-client", PrivateKeyFile: "/protected/app.pem"},
+			want:         settings.Credential{Type: "github-app", ClientID: "app-client", PrivateKeyFile: "/protected/app.pem"},
 		},
 		{
 			name: "PAT replaces App", defaults: "type: github-app\n    clientId: app-client\n    privateKeyFile: /protected/app.pem",
 			override: "    credential:\n      type: pat\n      tokenEnv: OTHER_PAT\n",
-			want:     Credential{Type: "pat", TokenEnv: "OTHER_PAT"},
+			want:     settings.Credential{Type: "pat", TokenEnv: "OTHER_PAT"},
 		},
 		{
 			name: "implicit gh", defaults: "hostname: github.com",
-			want: Credential{Type: "gh", Hostname: "github.com"},
+			want: settings.Credential{Type: "gh", Hostname: "github.com"},
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			input := "defaults:\n  credential:\n    " + tc.defaults +
 				"\ntargets:\n  - id: one\n    scope: owner/one\n" + tc.override + tc.installation +
 				"  - id: two\n    scope: owner/two\n" + tc.override + tc.installation
-			config, err := LoadConfig(writeConfig(t, input))
+			config, err := settings.LoadConfig(writeConfig(t, input))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -66,7 +68,7 @@ func TestSharedCredentialDefaults(t *testing.T) {
 
 func TestSharedCredentialPathsAndEnvironment(t *testing.T) {
 	path := writeConfig(t, "defaults:\n  credential:\n    type: pat\n    tokenFile: secrets/token\ntargets:\n  - id: one\n    scope: owner/repository\n")
-	config, err := LoadConfig(path)
+	config, err := settings.LoadConfig(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,7 +77,7 @@ func TestSharedCredentialPathsAndEnvironment(t *testing.T) {
 		t.Fatal("shared paths were not resolved against config directory")
 	}
 	input := "defaults:\n  credential:\n    type: pat\n    tokenEnv: SHARED_PAT\ntargets:\n  - id: one\n    scope: owner/repository\n    credential:\n      type: gh\nrunner:\n  env:\n    SHARED_PAT: do-not-copy\n"
-	if _, err := LoadConfig(writeConfig(t, input)); err == nil || !strings.Contains(err.Error(), "management credential") {
+	if _, err := settings.LoadConfig(writeConfig(t, input)); err == nil || !strings.Contains(err.Error(), "management credential") {
 		t.Fatal("default credential environment was not protected", err)
 	}
 }
@@ -89,12 +91,12 @@ func TestInvalidSharedCredentials(t *testing.T) {
 		"defaults:\n  credential:\n    type: github-app\n    clientId: app-client\n    privateKeyFile: key.pem\n",
 	} {
 		input += "targets:\n  - id: one\n    scope: owner/repository\n"
-		if _, err := LoadConfig(writeConfig(t, input)); err == nil {
+		if _, err := settings.LoadConfig(writeConfig(t, input)); err == nil {
 			t.Fatal("invalid defaults were accepted", input)
 		}
 	}
 	input := "defaults:\n  credential:\n    type: pat\ntargets:\n  - id: one\n    scope: owner/repository\n    credential:\n      type: gh\n"
-	if _, err := LoadConfig(writeConfig(t, input)); err == nil || !strings.Contains(err.Error(), "defaults.credential") {
+	if _, err := settings.LoadConfig(writeConfig(t, input)); err == nil || !strings.Contains(err.Error(), "defaults.credential") {
 		t.Fatal("unused invalid defaults were silently ignored", err)
 	}
 }
