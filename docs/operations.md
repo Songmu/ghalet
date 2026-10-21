@@ -241,6 +241,9 @@ registration, state, or credential-copying failures stop immediately and require
 inspection and `apply` or a normal stop/restart. Other targets continue.
 Preparation starts are rate-limited to one per second per target. Drain cancels
 pending registration recovery; apply and shutdown cancel the old listeners.
+An unresolved cleanup of a failed preparation suspends new starts for that target
+until cleanup succeeds (or is resolved with `gc`/restart), preventing repeated
+failures from accumulating runner trees. Cleanup retry policy is unchanged.
 Workflow results are not retried by ghalet.
 
 SIGINT/SIGTERM starts drain for all targets during normal shutdown.

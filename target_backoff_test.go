@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"testing/synctest"
@@ -105,9 +107,16 @@ func TestListenerTransientRecoveryAndCancellation(t *testing.T) {
 					}
 				})
 				d.startListener(target)
+				synctest.Wait()
+				d.mu.Lock()
+				diagnosed := targetError(target) != "" && len(d.statusLocked().Problems) > 0
+				d.mu.Unlock()
+				if !diagnosed {
+					t.Fatal("transient listener failure was hidden from apply/status")
+				}
 				time.Sleep(6 * time.Minute)
 				synctest.Wait()
-				if failures != 10 || target.Listener == nil || target.Fault != "" || target.ListenerDone {
+				if failures != 10 || target.Listener == nil || target.Fault != "" || target.RetryError != "" || target.ListenerDone {
 					t.Fatal("listener did not recover after a long transient outage", failures, target.Fault)
 				}
 				for i := 1; i < len(attempts); i++ {
@@ -137,7 +146,7 @@ func TestRegistrationBootstrapIsBoundedAndRecoveryCancelable(t *testing.T) {
 					return nil, errTestAPI
 				}
 				d.registerTarget(t.Context(), target, true)
-				if calls != maxAttempts || target.Fault != "" || target.RegistrationError == "" {
+				if calls != maxAttempts || target.Fault != "" || target.RetryError == "" {
 					t.Fatal("bootstrap did not stop at four transient attempts", calls, target.Fault)
 				}
 				d.clientFactory = func(context.Context, Target) (scaleAPI, error) { return api, nil }
@@ -184,7 +193,7 @@ func TestRegistrationTransientEventuallyRecovers(t *testing.T) {
 		d.workers.Wait()
 		// The fake API cannot listen, but registration must have recovered and
 		// reached the listener instead of permanently faulting after bootstrap.
-		if calls != 7 || target.Set == nil || target.RegistrationError != "" ||
+		if calls != 7 || target.Set == nil || target.RetryError != "" ||
 			!strings.Contains(target.Fault, "official scaleset client") {
 			t.Fatal("transient registration did not recover", calls, target)
 		}
@@ -213,6 +222,77 @@ func TestListenerSetupPermanentErrorsAndBackoffCancellation(t *testing.T) {
 					t.Fatal("permanent error retried or cancellation failed", calls, target.Fault)
 				}
 			})
+		})
+	}
+}
+
+type cancelRegistrationAPI struct {
+	*fakeScaleAPI
+	cancel context.CancelFunc
+}
+
+func (f *cancelRegistrationAPI) GetRunnerScaleSet(ctx context.Context, group int, name string) (*scaleset.RunnerScaleSet, error) {
+	set, err := f.fakeScaleAPI.GetRunnerScaleSet(ctx, group, name)
+	f.cancel()
+	return set, err
+}
+
+func TestCanceledRegistrationRetainsSuccessfulIdentity(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		d, api := testDaemon(t)
+		target := &targetRuntime{Config: d.targets["build"].Config}
+		d.clientFactory = func(context.Context, Target) (scaleAPI, error) {
+			return &cancelRegistrationAPI{fakeScaleAPI: api, cancel: target.Cancel}, nil
+		}
+		d.startListener(target)
+		d.workers.Wait()
+		if target.Set == nil || target.Set.ID != api.set.ID || target.Client == nil ||
+			!target.ListenerDone || target.Listener != nil || target.Fault != "" {
+			t.Fatal("canceled registration lost its identity or started a listener", target)
+		}
+	})
+}
+
+func TestRetainedFailedPreparationBoundsNewStarts(t *testing.T) {
+	d, _ := testDaemon(t)
+	target := d.targets["build"]
+	other := *target
+	state := testState(t, d.config)
+	state.ProcessDone, state.Error = true, "prepare failed; cleanup unavailable"
+	run := &activeRun{State: state, CleanupTried: true}
+	d.runs[state.RunID] = run
+	if d.canStart(target) || !d.canStart(&other) || target.Fault != "" {
+		t.Fatal("retained preparation permitted accumulation or affected another target")
+	}
+	delete(d.runs, state.RunID)
+	if !d.canStart(target) {
+		t.Fatal("completed cleanup did not unblock target recovery")
+	}
+}
+
+func TestReservationDirectoryFailuresRemainClassified(t *testing.T) {
+	for _, unsafe := range []bool{false, true} {
+		t.Run(fmt.Sprint(unsafe), func(t *testing.T) {
+			d, _ := testDaemon(t)
+			target := d.targets["build"]
+			if unsafe {
+				if err := os.WriteFile(filepath.Join(d.config.Runner.WorkRoot, target.Config.ID), nil, 0600); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				if err := os.Chmod(d.config.Runner.WorkRoot, 0); err != nil {
+					t.Fatal(err)
+				}
+				t.Cleanup(func() { os.Chmod(d.config.Runner.WorkRoot, 0711) })
+			}
+			err := d.reserve(target)
+			if err == nil {
+				t.Fatal("invalid or inaccessible directory was accepted")
+			}
+			d.startFailure(target, err)
+			if (target.Fault != "") != unsafe {
+				t.Fatal("operational and unsafe directory failures were confused", err, target.Fault)
+			}
 		})
 	}
 }
