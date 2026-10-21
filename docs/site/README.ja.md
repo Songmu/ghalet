@@ -13,6 +13,9 @@ README や設定例などのリポジトリ内ファイルへのリンクは Git
 
 ## ローカルビルド
 
+Renovate が Hugo のリリースを追跡して `.hugo-version` の更新を提案し、
+Pages workflow も同じファイルを参照します。
+
 `.hugo-version` に指定した extended 版 Hugo と、`go.mod` に指定した Go を用意し、
 リポジトリルートで実行します。
 

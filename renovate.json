@@ -19,6 +19,16 @@
     },
     {
       "customType": "regex",
+      "description": "Update the pinned Hugo documentation builder",
+      "managerFilePatterns": ["/^docs/site/\\.hugo-version$/"],
+      "matchStrings": ["^(?<currentValue>\\d+\\.\\d+\\.\\d+)\\s*$"],
+      "depNameTemplate": "gohugoio/hugo",
+      "datasourceTemplate": "github-releases",
+      "extractVersionTemplate": "^v(?<version>\\d+\\.\\d+\\.\\d+)$",
+      "versioningTemplate": "semver"
+    },
+    {
+      "customType": "regex",
       "description": "Update the pinned nFPM build tool",
       "managerFilePatterns": ["/^packaging/nfpm\\.version$/"],
       "matchStrings": ["^(?<currentValue>v\\d+\\.\\d+\\.\\d+)\\s*$"],
