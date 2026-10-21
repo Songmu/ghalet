@@ -405,7 +405,7 @@ func (d *daemon) startListener(target *targetRuntime) {
 				if err == nil {
 					target.Client, target.Set, target.Assigned = candidate.Client, candidate.Set, candidate.Assigned
 					target.RetryError = ""
-				} else if err != nil {
+				} else if ctx.Err() == nil {
 					target.RetryError = d.secrets.Redact(err.Error())
 				}
 				stopped := ctx.Err() != nil || target.Draining
@@ -429,6 +429,9 @@ func (d *daemon) startListener(target *targetRuntime) {
 			setupCancel()
 			if err != nil {
 				lastErr = err
+				if ctx.Err() != nil {
+					break
+				}
 				d.mu.Lock()
 				target.RetryError = d.secrets.Redact(err.Error())
 				signalReady()

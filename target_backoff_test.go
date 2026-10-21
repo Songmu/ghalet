@@ -296,3 +296,42 @@ func TestReservationDirectoryFailuresRemainClassified(t *testing.T) {
 		})
 	}
 }
+
+func TestCancellationDuringTargetSetupHasNoDiagnostic(t *testing.T) {
+	for _, registration := range []bool{false, true} {
+		t.Run(fmt.Sprint(registration), func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				d, _ := testDaemon(t)
+				target := d.targets["build"]
+				if registration {
+					target.Client, target.Set = nil, nil
+					d.clientFactory = func(ctx context.Context, _ Target) (scaleAPI, error) {
+						target.Cancel()
+						return nil, ctx.Err()
+					}
+				} else {
+					started := make(chan struct{})
+					target.Client = retryTestClient(t, func(r *http.Request) (*http.Response, error) {
+						if strings.HasSuffix(r.URL.Path, "/registration-token") || strings.HasSuffix(r.URL.Path, "/runner-registration") {
+							return retryTestAuthentication(r)
+						}
+						close(started)
+						<-r.Context().Done()
+						return nil, r.Context().Err()
+					})
+					d.startListener(target)
+					<-started
+					target.Cancel()
+				}
+				if registration {
+					d.startListener(target)
+				}
+				d.workers.Wait()
+				if !target.ListenerDone || target.Fault != "" || target.RetryError != "" ||
+					len(d.statusLocked().Problems) != 0 {
+					t.Fatal("canceled setup created an unresolved diagnostic", target)
+				}
+			})
+		})
+	}
+}
