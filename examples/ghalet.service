@@ -5,7 +5,8 @@ Wants=network-online.target
 ConditionPathExists=/etc/ghalet/config.yaml
 
 [Service]
-Type=simple
+Type=notify
+NotifyAccess=main
 User=ghalet
 Group=ghalet
 Environment=PATH=/usr/local/bin:/usr/bin:/bin
