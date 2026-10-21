@@ -267,15 +267,23 @@ func (d *daemon) gc(ctx context.Context, dryRun bool) controlResponse {
 	response := controlResponse{}
 	config := d.config
 	var runs []*activeRun
+	identities := map[*activeRun]ProcessIdentity{}
+	var monitored []ProcessIdentity
 	for _, problem := range d.problems {
 		response.Results = append(response.Results, OperationResult{Path: problem.Path, Error: problem.Reason})
 	}
 	for _, run := range d.runs {
 		runs = append(runs, run)
+		identities[run] = run.State.Process
+		monitored = append(monitored, run.State.Process)
 	}
 	d.mu.Unlock()
+	table, err := processTable(ctx, monitored)
+	if err != nil {
+		return controlResponse{Error: err.Error()}
+	}
 	for _, run := range runs {
-		response.Results = append(response.Results, d.gcRun(ctx, run, dryRun))
+		response.Results = append(response.Results, d.gcRun(ctx, run, dryRun, table, identities[run]))
 	}
 	d.retentionMu.Lock()
 	expired, err := expireLogs(ctx, config, dryRun)
@@ -292,7 +300,7 @@ func (d *daemon) gc(ctx context.Context, dryRun bool) controlResponse {
 	return response
 }
 
-func (d *daemon) gcRun(ctx context.Context, run *activeRun, dryRun bool) OperationResult {
+func (d *daemon) gcRun(ctx context.Context, run *activeRun, dryRun bool, table map[int]processEntry, identity ProcessIdentity) OperationResult {
 	d.mu.Lock()
 	result := OperationResult{RunID: run.State.RunID, Path: filepath.Dir(run.State.RunnerDir), Action: "cleanup stopped execution"}
 	for run.ioDone != nil && !run.Preparing && !run.Uncertain {
@@ -320,13 +328,13 @@ func (d *daemon) gcRun(ctx context.Context, run *activeRun, dryRun bool) Operati
 		d.mu.Unlock()
 		return result
 	}
+	if run.State.Process != identity {
+		result.Error = "execution launch changed during inspection; retry gc"
+		d.mu.Unlock()
+		return result
+	}
 	done := d.runIO(run, func(work *activeRun) error {
 		state := work.State
-		table, err := processTable(ctx, []ProcessIdentity{state.Process})
-		if err != nil {
-			result.Error = err.Error()
-			return nil
-		}
 		alive, _, err := inspectGroup(state, table)
 		if err != nil {
 			result.Error = err.Error()

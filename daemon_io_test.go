@@ -275,6 +275,7 @@ func TestProcessInspectionSnapshotIsSharedAcrossExecutions(t *testing.T) {
 		state := testState(t, d.config)
 		d.runs[state.RunID] = &activeRun{State: state, Uncertain: true}
 	}
+
 	dir := testDirectory(t)
 	marker := filepath.Join(dir, "scans")
 	t.Setenv("GHALET_TEST_PS_SCANS", marker)
@@ -286,6 +287,30 @@ func TestProcessInspectionSnapshotIsSharedAcrossExecutions(t *testing.T) {
 	data, err := os.ReadFile(marker)
 	if err != nil || strings.Count(string(data), "scan\n") != 1 {
 		t.Fatal("monitored executions did not share one process snapshot", string(data), err)
+	}
+}
+
+func TestGCProcessSnapshotIsSharedAcrossExecutions(t *testing.T) {
+	d, _ := testDaemon(t)
+	for range 2 {
+		state := testState(t, d.config)
+		state.ProcessDone, state.Phase = true, "cleaning"
+		if err := d.store.save(state); err != nil {
+			t.Fatal(err)
+		}
+		d.runs[state.RunID] = &activeRun{State: state}
+	}
+	dir := testDirectory(t)
+	marker := filepath.Join(dir, "scans")
+	t.Setenv("GHALET_TEST_PS_SCANS", marker)
+	t.Setenv("PATH", dir+":"+os.Getenv("PATH"))
+	if err := os.WriteFile(filepath.Join(dir, "ps"), []byte("#!/bin/sh\nprintf 'scan\\n' >> \"$GHALET_TEST_PS_SCANS\"\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	response := d.gc(t.Context(), false)
+	data, err := os.ReadFile(marker)
+	if response.Error != "" || len(d.runs) != 0 || err != nil || strings.Count(string(data), "scan\n") != 1 {
+		t.Fatal("GC executions did not share one process snapshot", response, string(data), err)
 	}
 }
 
