@@ -23,7 +23,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Songmu/ghalet"
+	settings "github.com/Songmu/ghalet/config"
 	"github.com/Songmu/ghalet/credentialstore"
 	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/sys/unix"
@@ -353,7 +353,7 @@ func TestManifestSetup(t *testing.T) {
 			if err != nil {
 				t.Fatal(err, output.String())
 			}
-			config, err := ghalet.LoadConfig(f.options.Config)
+			config, err := settings.LoadConfig(f.options.Config)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -373,7 +373,7 @@ func TestManifestSetup(t *testing.T) {
 					t.Fatal("unsafe saved file mode", path, err)
 				}
 			}
-			stateDirectory, err := ghalet.StateDirectory()
+			stateDirectory, err := settings.StateDirectory()
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -419,7 +419,7 @@ func TestSetupWithUnquotedNumericTargetID(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	config, err := ghalet.LoadConfig(f.options.Config)
+	config, err := settings.LoadConfig(f.options.Config)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -543,7 +543,7 @@ func TestSetupResumeAfterDecline(t *testing.T) {
 func TestSetupDoesNotReplaceConcurrentCredential(t *testing.T) {
 	f := setupFixture(t, "owner/repo", "User")
 	browser := f.open
-	stateDirectory, err := ghalet.StateDirectory()
+	stateDirectory, err := settings.StateDirectory()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -637,7 +637,7 @@ func TestSetupRejectsUnsupportedOptions(t *testing.T) {
 			case "host":
 				f.options.Scope = "https://github.example/owner/repo"
 			case "orphan-key":
-				dir, _ := ghalet.StateDirectory()
+				dir, _ := settings.StateDirectory()
 				path := filepath.Join(dir, "credentials")
 				os.MkdirAll(path, 0700)
 				os.WriteFile(filepath.Join(path, "build.pem"), []byte(f.pem), 0600)

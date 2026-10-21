@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	settings "github.com/Songmu/ghalet/config"
 	"github.com/Songmu/ghalet/fshelper"
 )
 
@@ -154,7 +155,7 @@ func TestRunnerGuardControllerHelper(t *testing.T) {
 	if path == "" {
 		return
 	}
-	config, err := LoadConfig(os.Getenv("GHALET_GUARD_TEST_CONFIG"))
+	config, err := settings.LoadConfig(os.Getenv("GHALET_GUARD_TEST_CONFIG"))
 	if err != nil {
 		t.Fatal(err)
 	}

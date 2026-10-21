@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Songmu/ghalet"
+	settings "github.com/Songmu/ghalet/config"
 	"github.com/Songmu/ghalet/credentialstore"
 )
 
@@ -37,7 +37,7 @@ func TestFileCredentialCLI(t *testing.T) {
 		if strings.Contains(stdout.String()+stderr.String(), "file-test-secret") || strings.Contains(stdout.String(), "Encrypted") {
 			t.Fatal("secret leaked or misleading storage description")
 		}
-		loaded, err := ghalet.LoadConfig(config)
+		loaded, err := settings.LoadConfig(config)
 		if err != nil || loaded.Defaults.Credential.TokenFile != filepath.Join(root, "ghalet", "credentials", "default.pat") {
 			t.Fatal("credential was not configured", loaded, err)
 		}

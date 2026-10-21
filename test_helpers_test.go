@@ -15,6 +15,7 @@ import (
 	"sync"
 	"testing"
 
+	settings "github.com/Songmu/ghalet/config"
 	"github.com/Songmu/ghalet/fshelper"
 	"github.com/Songmu/ghalet/logreduct"
 	"github.com/actions/scaleset"
@@ -47,20 +48,20 @@ func writeConfig(t *testing.T, content string) string {
 	return path
 }
 
-func testConfig(t *testing.T) *Config {
+func testConfig(t *testing.T) *settings.Config {
 	t.Helper()
 	t.Setenv("STATE_DIRECTORY", "")
 	t.Setenv("CACHE_DIRECTORY", "")
 	t.Setenv("XDG_STATE_HOME", testDirectory(t))
 	t.Setenv("XDG_CACHE_HOME", testDirectory(t))
-	c, err := LoadConfig(writeConfig(t, readFixture(t, "config/base.yaml")+"logs:\n  root: logs\n"))
+	c, err := settings.LoadConfig(writeConfig(t, readFixture(t, "config/base.yaml")+"logs:\n  root: logs\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	return c
 }
 
-func seedDistribution(t *testing.T, c *Config, script string) {
+func seedDistribution(t *testing.T, c *settings.Config, script string) {
 	t.Helper()
 	if err := fshelper.EnsureDirectory(c.Runner.CacheRoot, 0700); err != nil {
 		t.Fatal(err)
@@ -254,7 +255,7 @@ func testDaemon(t *testing.T) (*daemon, *fakeScaleAPI) {
 	return d, api
 }
 
-func testState(t *testing.T, c *Config) *RunState {
+func testState(t *testing.T, c *settings.Config) *RunState {
 	t.Helper()
 	account, err := resolveUser(c.Runner.User)
 	if err != nil {

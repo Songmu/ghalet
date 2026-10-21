@@ -16,7 +16,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/Songmu/ghalet"
+	settings "github.com/Songmu/ghalet/config"
 	"github.com/Songmu/ghalet/credentialstore"
 	"github.com/Songmu/ghalet/fshelper"
 )
@@ -190,7 +190,7 @@ func (prepared preparedConfig) confirm(ctx context.Context, state savedApp, inst
 	if err != nil {
 		return nil, err
 	}
-	if _, err := ghalet.ParseConfig(options.Config, after); err != nil {
+	if _, err := settings.ParseConfig(options.Config, after); err != nil {
 		return nil, fmt.Errorf("validate proposed configuration: %w", err)
 	}
 	if _, err := fmt.Fprintf(output, "Configure target %s in %s:\n  scope: %s\n  credential.type: github-app\n  credential.clientId: %s\n  credential.privateKeyFile: %s\n  installationId: %d\n", prepared.target.ID, options.Config, options.Scope, state.ClientID, state.KeyPath, installationID); err != nil {

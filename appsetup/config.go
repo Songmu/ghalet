@@ -9,15 +9,14 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/Songmu/ghalet"
-	configeditor "github.com/Songmu/ghalet/config"
+	settings "github.com/Songmu/ghalet/config"
 	"github.com/Songmu/ghalet/fshelper"
 )
 
 type preparedConfig struct {
 	options          Options
 	before, proposed []byte
-	target           ghalet.Target
+	target           settings.Target
 }
 
 func setupConfig(options Options) (preparedConfig, error) {
@@ -49,11 +48,11 @@ func setupConfig(options Options) (preparedConfig, error) {
 			data = append(data, []byte("runner:\n  user: ghalet-runner\nlogs:\n  root: /var/log/ghalet/runners\n")...)
 		}
 	}
-	config, err := ghalet.ParseConfig(path, data)
+	config, err := settings.ParseConfig(path, data)
 	if err != nil {
 		return preparedConfig{}, err
 	}
-	var matches []ghalet.Target
+	var matches []settings.Target
 	for _, target := range config.Targets {
 		if options.ID != "" && target.ID == options.ID {
 			if !strings.EqualFold(target.URL, "https://github.com/"+options.Scope) {
@@ -87,7 +86,7 @@ func setupConfig(options Options) (preparedConfig, error) {
 	if err != nil {
 		return preparedConfig{}, err
 	}
-	config, err = ghalet.ParseConfig(path, data)
+	config, err = settings.ParseConfig(path, data)
 	if err != nil {
 		return preparedConfig{}, err
 	}
@@ -95,7 +94,7 @@ func setupConfig(options Options) (preparedConfig, error) {
 }
 
 func appendTarget(data []byte, id, scope string) ([]byte, error) {
-	editor, err := configeditor.NewEditor(data, nil)
+	editor, err := settings.NewEditor(data, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -125,7 +124,7 @@ func configSnapshot(path string) ([]byte, error) {
 }
 
 func targetConfig(data []byte, target string, state savedApp, installationID int64) ([]byte, error) {
-	editor, err := configeditor.NewEditor(data, nil)
+	editor, err := settings.NewEditor(data, nil)
 	if err != nil {
 		return nil, err
 	}

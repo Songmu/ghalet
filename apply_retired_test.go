@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	settings "github.com/Songmu/ghalet/config"
 	"github.com/actions/scaleset"
 )
 
@@ -17,7 +18,7 @@ func TestApplyPreservesRegistrationAfterFailedReregistration(t *testing.T) {
 			old := d.targets["build"]
 			next := nextConfig(d)
 			writeApplyConfig(t, next)
-			d.clientFactory = func(context.Context, Target) (scaleAPI, error) {
+			d.clientFactory = func(context.Context, settings.Target) (scaleAPI, error) {
 				return nil, scaleset.UnauthorizedError
 			}
 			for range 2 {
@@ -29,10 +30,10 @@ func TestApplyPreservesRegistrationAfterFailedReregistration(t *testing.T) {
 			}
 			wantDeletes := 0
 			if action == "remove" {
-				next.Targets = []Target{}
+				next.Targets = []settings.Target{}
 				wantDeletes = 1
 			} else {
-				d.clientFactory = func(context.Context, Target) (scaleAPI, error) { return api, nil }
+				d.clientFactory = func(context.Context, settings.Target) (scaleAPI, error) { return api, nil }
 			}
 			writeApplyConfig(t, next)
 			response := d.apply(t.Context())
@@ -78,7 +79,7 @@ func TestShutdownInterruptsRetiredScaleSetNetworkCalls(t *testing.T) {
 			writeApplyConfig(t, next)
 			replacement := newFakeAPI()
 			replacement.set.ID = 20
-			d.clientFactory = func(context.Context, Target) (scaleAPI, error) { return replacement, nil }
+			d.clientFactory = func(context.Context, settings.Target) (scaleAPI, error) { return replacement, nil }
 			listening := make(chan struct{}, 1)
 			listen := d.listen
 			d.listen = func(target *targetRuntime) {

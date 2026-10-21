@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	settings "github.com/Songmu/ghalet/config"
 	"github.com/Songmu/ghalet/logreduct"
 	"github.com/Songmu/ghalet/runnerdist"
 )
@@ -42,7 +43,7 @@ func TestOfficialRunnerJITInputSmoke(t *testing.T) {
 		t.Skip("set GHALET_TEST_OFFICIAL_RUNNER=1 to download and exercise the pinned official runner")
 	}
 	c := testConfig(t)
-	c.Runner.Version = defaultRunnerVersion
+	c.Runner.Version = settings.DefaultRunnerVersion
 	if os.Geteuid() == 0 {
 		c.Runner.User = "nobody"
 		c.Runner.WorkRoot = filepath.Join(sharedExecutionTestDirectory(t), "runs")
@@ -139,7 +140,7 @@ func TestGitHubEphemeralLifecycle(t *testing.T) {
 	if path == "" {
 		t.Skip("set GHALET_INTEGRATION_CONFIG to a dedicated live acceptance configuration")
 	}
-	c, err := LoadConfig(path)
+	c, err := settings.LoadConfig(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -147,13 +148,13 @@ func TestGitHubEphemeralLifecycle(t *testing.T) {
 		t.Fatal("live test requires exactly one dedicated repository target with minRunners=0")
 	}
 	target := c.Targets[0]
-	u, err := scopeURL(target.URL)
+	u, err := settings.ScopeURL(target.URL)
 	if err != nil || len(strings.Split(strings.Trim(u.Path, "/"), "/")) != 2 {
 		t.Fatal("live test requires a repository scope")
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Minute)
 	defer cancel()
-	c.Runner.DrainTimeout = Duration(15 * time.Second)
+	c.Runner.DrainTimeout = settings.Duration(15 * time.Second)
 	var logs lockedBuffer
 	original := slog.Default()
 	slog.SetDefault(slog.New(slog.NewJSONHandler(&logs, &slog.HandlerOptions{ReplaceAttr: logreduct.Default.ReplaceAttr})))

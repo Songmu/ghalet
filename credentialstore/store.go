@@ -17,8 +17,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/Songmu/ghalet"
-	configeditor "github.com/Songmu/ghalet/config"
+	settings "github.com/Songmu/ghalet/config"
 	"github.com/Songmu/ghalet/fshelper"
 )
 
@@ -542,8 +541,8 @@ func defaultCredentialConfig(data []byte, options Options) ([]byte, error) {
 }
 
 func credentialConfig(data []byte, options Options, path string) ([]byte, error) {
-	var config ghalet.Config
-	editor, err := configeditor.NewEditor(data, &config)
+	var config settings.Config
+	editor, err := settings.NewEditor(data, &config)
 	if err != nil {
 		return nil, err
 	}

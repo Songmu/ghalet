@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	settings "github.com/Songmu/ghalet/config"
 	"github.com/Songmu/ghalet/fshelper"
 )
 
@@ -117,7 +118,7 @@ func TestDiscoveredSocketReplacementCannotRetargetCommands(t *testing.T) {
 }
 
 func useFakeManagement(d *daemon, api *fakeScaleAPI) {
-	d.clientFactory = func(context.Context, Target) (scaleAPI, error) { return api, nil }
+	d.clientFactory = func(context.Context, settings.Target) (scaleAPI, error) { return api, nil }
 	d.listen = func(target *targetRuntime) {
 		target.ListenerReady = make(chan struct{})
 		close(target.ListenerReady)
@@ -250,7 +251,7 @@ func TestDrainSelectsTarget(t *testing.T) {
 func TestConfigPathDoesNotSearchCurrentDirectory(t *testing.T) {
 	home := testDirectory(t)
 	t.Setenv("HOME", home)
-	path, err := configPath("")
+	path, err := settings.ResolvePath("")
 	if err != nil || path != filepath.Join(home, ".config", "ghalet", "config.yaml") {
 		t.Fatal(path, err)
 	}

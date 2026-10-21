@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Songmu/ghalet"
+	settings "github.com/Songmu/ghalet/config"
 	"github.com/Songmu/ghalet/fshelper"
 )
 
@@ -76,7 +76,7 @@ func TestAppendTargetDoesNotInheritAppInstallation(t *testing.T) {
 	if err != nil || prepared.target.ID != "owner-repo" || prepared.target.Credential.Type != "gh" {
 		t.Fatal("new target inherited an unrelated App installation", err)
 	}
-	config, err := ghalet.ParseConfig(f.options.Config, prepared.proposed)
+	config, err := settings.ParseConfig(f.options.Config, prepared.proposed)
 	if err != nil || config.Targets[0].InstallationID != 42 || config.Defaults.Credential.ClientID != "existing" {
 		t.Fatal("existing App configuration changed", err)
 	}
