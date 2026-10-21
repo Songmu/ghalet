@@ -210,7 +210,7 @@ func TestDisconnectedControlCannotBypassWorkRootLock(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer lock.close()
+	defer lock.Close()
 	_, err = GC(t.Context(), c.Path, false)
 	if err == nil || !strings.Contains(err.Error(), "refusing direct operation") {
 		t.Fatal("disconnected socket bypassed live workRoot lock", err)

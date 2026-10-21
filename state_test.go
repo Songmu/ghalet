@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -226,18 +227,23 @@ func TestWorkRootLockIsOSBacked(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if second, err := lockWorkRoot(root); err == nil {
-		second.close()
-		t.Fatal("second workRoot lock succeeded")
+	if second, err := lockWorkRoot(root); !errors.Is(err, syscall.EWOULDBLOCK) {
+		if second != nil {
+			second.Close()
+		}
+		t.Fatal("second workRoot lock did not report contention:", err)
 	}
-	if err := first.close(); err != nil {
+	if err := first.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(filepath.Join(root, ".lock"), 0644); err != nil {
 		t.Fatal(err)
 	}
 	third, err := lockWorkRoot(root)
 	if err != nil {
 		t.Fatal("stale lock file prevented reacquisition:", err)
 	}
-	third.close()
+	third.Close()
 }
 
 func TestLaunchedProcessRequiresCompleteIdentity(t *testing.T) {
@@ -354,14 +360,14 @@ func TestStateIdentityThroughTrustedBaseAlias(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer lock.close()
+	defer lock.Close()
 	t.Setenv("STATE_DIRECTORY", base)
 	reloaded, err := settings.LoadConfig(c.Path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if second, err := lockWorkRoot(reloaded.Runner.WorkRoot); err == nil {
-		second.close()
+		second.Close()
 		t.Fatal("canonical base bypassed the alias's work lock")
 	}
 	records, err := (stateStore{reloaded.Runner.WorkRoot}).load()

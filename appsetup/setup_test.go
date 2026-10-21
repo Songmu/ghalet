@@ -20,6 +20,7 @@ import (
 	"regexp"
 	"strings"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -212,6 +213,26 @@ func TestSetupRejectsKeyReplacementAfterVerification(t *testing.T) {
 				t.Fatal("setup overwrote the concurrently replaced key", err)
 			}
 		})
+	}
+}
+
+func TestSetupLockReportsContention(t *testing.T) {
+	directory, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	lock, err := lockSetup(directory, "build")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lock.Close()
+	second, err := lockSetup(directory, "build")
+	if second != nil {
+		second.Close()
+		t.Fatal("second setup lock succeeded")
+	}
+	if !errors.Is(err, syscall.EWOULDBLOCK) || !strings.Contains(err.Error(), "another setup for this credential is in progress") {
+		t.Fatal("setup lock lost its contention identity or context:", err)
 	}
 }
 

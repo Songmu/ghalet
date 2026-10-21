@@ -45,7 +45,7 @@ func TestExecutionDirectoryMigration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer lock.close()
+	defer lock.Close()
 	assertPermissions(t, c.Runner.WorkRoot, 0755)
 	store := stateStore{c.Runner.WorkRoot}
 	if err := store.save(state); err != nil {
@@ -129,7 +129,7 @@ func TestExecutionDirectoryRejectsSymlinks(t *testing.T) {
 			}
 			if level == "root" {
 				if lock, err := lockWorkRoot(path); err == nil {
-					lock.close()
+					lock.Close()
 					t.Fatal("lock accepted a symlink")
 				}
 			}
@@ -199,7 +199,7 @@ func TestExecutionDirectoryAccessAsRunner(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer lock.close()
+	defer lock.Close()
 	for _, state := range []*RunState{state, testState(t, c)} {
 		if err := (stateStore{c.Runner.WorkRoot}).save(state); err != nil {
 			t.Fatal(err)

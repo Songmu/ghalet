@@ -46,20 +46,11 @@ func prepareSetup(options Options) (preparedConfig, error) {
 }
 
 func lockSetup(directory, id string) (*os.File, error) {
-	path := filepath.Join(directory, id+".setup.lock")
-	lock, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR|syscall.O_NOFOLLOW, 0600)
-	if err != nil {
-		return nil, err
-	}
-	if err := credentialstore.CheckPrivatePath(path, false); err != nil {
-		lock.Close()
-		return nil, err
-	}
-	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
-		lock.Close()
+	lock, err := fshelper.LockFile(filepath.Join(directory, id+".setup.lock"))
+	if errors.Is(err, syscall.EWOULDBLOCK) {
 		return nil, fmt.Errorf("another setup for this credential is in progress: %w", err)
 	}
-	return lock, nil
+	return lock, err
 }
 
 type setupFiles struct {
