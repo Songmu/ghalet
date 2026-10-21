@@ -3,8 +3,11 @@ package ghalet
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -263,5 +266,115 @@ func TestBlockedProcessInspectionDoesNotHoldSharedLock(t *testing.T) {
 	session := &fakeSession{}
 	if err := (&targetScaler{daemon: d, target: d.targets["build"], session: session}).Scale(t.Context(), availableMessage(1, 1)); err != nil || len(session.acquired) != 1 {
 		t.Fatal("blocked inspection prevented acquisition", err)
+	}
+}
+
+func TestProcessInspectionSnapshotIsSharedAcrossExecutions(t *testing.T) {
+	d, _ := testDaemon(t)
+	for range 2 {
+		state := testState(t, d.config)
+		d.runs[state.RunID] = &activeRun{State: state, Uncertain: true}
+	}
+	dir := testDirectory(t)
+	marker := filepath.Join(dir, "scans")
+	t.Setenv("GHALET_TEST_PS_SCANS", marker)
+	t.Setenv("PATH", dir+":"+os.Getenv("PATH"))
+	if err := os.WriteFile(filepath.Join(dir, "ps"), []byte("#!/bin/sh\nprintf 'scan\\n' >> \"$GHALET_TEST_PS_SCANS\"\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	reconcileAndWait(d)
+	data, err := os.ReadFile(marker)
+	if err != nil || strings.Count(string(data), "scan\n") != 1 {
+		t.Fatal("monitored executions did not share one process snapshot", string(data), err)
+	}
+}
+
+func TestForcedDrainDuringLaunchNeverReleasesRunnerGate(t *testing.T) {
+	d, api := testDaemon(t)
+	cleanupProcesses(t, d)
+	dir := testDirectory(t)
+	entered, release, executed := filepath.Join(dir, "entered"), filepath.Join(dir, "release"), filepath.Join(dir, "executed")
+	realPS, err := exec.LookPath("ps")
+	if err != nil {
+		t.Fatal(err)
+	}
+	seedDistribution(t, d.config, fmt.Sprintf("#!/bin/sh\nprintf executed > %q\nprintf 'Listening for Jobs\\n'\nsleep 30\n", executed))
+	script := fmt.Sprintf("#!/bin/sh\nprintf entered > %q\nwhile [ ! -e %q ]; do sleep 0.02; done\nexec %q \"$@\"\n", entered, release, realPS)
+	if err := os.WriteFile(filepath.Join(dir, "ps"), []byte(script), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+":"+os.Getenv("PATH"))
+	t.Cleanup(func() {
+		if err := os.WriteFile(release, nil, 0600); err != nil {
+			t.Error(err)
+		}
+		settleRuns(d)
+	})
+	target := d.targets["build"]
+	target.Assigned = 1
+	d.mu.Lock()
+	d.reconcile()
+	d.mu.Unlock()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if _, err := os.Stat(entered); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("launch did not reach its gated-child inspection")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	responsiveStatus(t, d)
+	d.mu.Lock()
+	d.beginDrain(target)
+	target.DrainStarted = time.Now().Add(-time.Hour)
+	d.enforceDrainDeadline(target)
+	d.mu.Unlock()
+	if err := os.WriteFile(release, nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	settleRuns(d)
+	if _, err := os.Stat(executed); !os.IsNotExist(err) {
+		t.Fatal("canceled launch released the runner gate", err)
+	}
+	if len(d.runs) != 0 || api.removeCalls != 1 || !target.Forced {
+		t.Fatal("canceled gated child was not reaped and cleaned")
+	}
+}
+
+func TestPendingRetirementDoesNotShrinkBelowWarmPool(t *testing.T) {
+	d, api := testDaemon(t)
+	target := d.targets["build"]
+	target.Config.Scaling.MinRunners = 1
+	for id := 101; id <= 102; id++ {
+		state := testState(t, d.config)
+		state.RunnerID, state.Ready, state.Phase = id, true, "registered"
+		d.runs[state.RunID] = &activeRun{State: state}
+		api.runners[id] = &scaleset.RunnerReference{ID: id, Name: state.RunnerName, RunnerScaleSetID: state.ScaleSetID}
+		if err := d.store.save(state); err != nil {
+			t.Fatal(err)
+		}
+	}
+	blocked := &blockedRunnerAPI{scaleAPI: api, removeEntered: make(chan struct{}), removeRelease: make(chan struct{})}
+	releaseOnCleanup(t, blocked.removeRelease)
+	target.Client = blocked
+	d.mu.Lock()
+	d.reconcileIdle(target, false)
+	d.mu.Unlock()
+	<-blocked.removeEntered
+	d.mu.Lock()
+	for range 3 {
+		d.reconcileIdle(target, false)
+	}
+	retiring := d.retiring(target.Config.ID)
+	d.mu.Unlock()
+	if retiring != 1 {
+		t.Fatal("in-flight retirement caused extra warm runners to be retired", retiring)
+	}
+	close(blocked.removeRelease)
+	settleRuns(d)
+	if d.active(target.Config.ID) != 1 || api.removeCalls != 1 {
+		t.Fatal("pending retirement shrank below the configured warm pool")
 	}
 }

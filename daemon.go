@@ -48,6 +48,7 @@ type targetRuntime struct {
 
 type activeRun struct {
 	ioDone          chan struct{}
+	generation      uint64
 	events          []runEvent
 	detached        bool
 	removed         bool
@@ -69,6 +70,7 @@ type activeRun struct {
 	OutputError     error
 	OutputReady     bool
 	Stopping        bool
+	Retiring        bool
 	Target          *targetRuntime
 	InspectFailures int
 	JITSecrets      []string
@@ -181,6 +183,7 @@ type daemon struct {
 	stopping      bool
 	offline       bool
 	retaining     bool
+	inspecting    chan struct{}
 	nextRetention time.Time
 	clientFactory func(context.Context, Target) (scaleAPI, error)
 	listen        func(*targetRuntime)
@@ -373,6 +376,7 @@ func (d *daemon) runIO(run *activeRun, operation func(*activeRun) error) <-chan 
 		return run.ioDone
 	}
 	done := make(chan struct{})
+	run.generation++
 	work := *run
 	state := *run.State
 	state.Members = append([]ProcessIdentity(nil), state.Members...)
@@ -645,6 +649,24 @@ func (d *daemon) active(targetID string) int {
 	return count
 }
 
+func (d *daemon) retiring(targetID string) int {
+	count := 0
+	for _, run := range d.runs {
+		if d.runTargetID(run) == targetID && run.Retiring && run.occupiesCapacity() {
+			count++
+		}
+	}
+	return count
+}
+
+func (d *daemon) retire(run *activeRun) {
+	run.Retiring = true
+	d.runIO(run, func(work *activeRun) error {
+		defer func() { work.Retiring = false }()
+		return d.retireIdle(work)
+	})
+}
+
 func (d *daemon) beginDrain(target *targetRuntime) {
 	if !target.Draining {
 		target.Draining, target.DrainStarted = true, time.Now()
@@ -716,6 +738,7 @@ func (d *daemon) processEvent(event runEvent) {
 		run.events = append(run.events, event)
 		return
 	}
+	run.generation++
 	switch event.kind {
 	case "ready":
 		if run.State.ProcessDone || run.Stopping || run.Uncertain {
@@ -792,24 +815,59 @@ func (d *daemon) reconcile() {
 	for _, id := range d.order {
 		d.reconcileIdle(d.targets[id], realDemand)
 	}
+	d.inspectRuns()
+}
+
+func (d *daemon) inspectRuns() {
+	if d.inspecting != nil {
+		return
+	}
+	type candidate struct {
+		run        *activeRun
+		generation uint64
+	}
+	var candidates []candidate
+	var identities []ProcessIdentity
 	for _, run := range d.runs {
 		if run.ioDone != nil || run.Preparing || (run.State.ProcessDone && !run.Uncertain && run.CleanupTried) {
 			continue
 		}
-		d.runIO(run, func(work *activeRun) error {
-			var table map[int]processEntry
-			if !work.State.ProcessDone || work.Uncertain {
-				var err error
-				table, err = processTable(d.ctx, []ProcessIdentity{work.State.Process})
-				if err != nil {
-					slog.Error("Process inspection failed; execution retained", "event", "process.inspect_failed", "error", d.secrets.Redact(err.Error()))
-					return nil
-				}
-			}
-			d.reconcileRun(work, table)
-			return nil
-		})
+		if run.State.ProcessDone && !run.Uncertain {
+			d.runIO(run, func(work *activeRun) error {
+				d.reconcileRun(work, nil)
+				return nil
+			})
+		} else {
+			candidates = append(candidates, candidate{run, run.generation})
+			identities = append(identities, run.State.Process)
+		}
 	}
+	if len(candidates) == 0 {
+		return
+	}
+	done := make(chan struct{})
+	d.inspecting = done
+	d.workers.Go(func() {
+		table, err := processTable(d.ctx, identities)
+		d.mu.Lock()
+		defer d.mu.Unlock()
+		defer close(done)
+		d.inspecting = nil
+		if err != nil {
+			slog.Error("Process inspection failed; executions retained", "event", "process.inspect_failed", "error", d.secrets.Redact(err.Error()))
+			return
+		}
+		for _, candidate := range candidates {
+			run := candidate.run
+			if d.ctx.Err() != nil || d.runs[run.State.RunID] != run || run.ioDone != nil || run.generation != candidate.generation {
+				continue
+			}
+			d.runIO(run, func(work *activeRun) error {
+				d.reconcileRun(work, table)
+				return nil
+			})
+		}
+	})
 }
 
 func (d *daemon) reconcileRun(run *activeRun, table map[int]processEntry) {
@@ -956,12 +1014,12 @@ func (d *daemon) reconcileIdle(target *targetRuntime, realDemand bool) {
 	if !realDemand && !target.Draining && d.canStart(target) {
 		d.fill(target, wanted)
 	}
-	if d.active(id) <= wanted && !(target.Draining && target.Assigned == 0 && target.Pending == 0) {
+	if d.active(id)-d.retiring(id) <= wanted && !(target.Draining && target.Assigned == 0 && target.Pending == 0) {
 		return
 	}
 	for _, run := range d.runs {
 		if d.runTargetID(run) == id && run.canRetireIdle() {
-			d.runIO(run, d.retireIdle)
+			d.retire(run)
 			break
 		}
 	}
@@ -998,12 +1056,12 @@ func (d *daemon) fill(target *targetRuntime, wanted int) {
 func (d *daemon) yieldIdle(forTarget string) {
 	for _, id := range d.order {
 		target := d.targets[id]
-		if id == forTarget || d.active(id) <= target.Assigned+target.Pending {
+		if id == forTarget || d.active(id)-d.retiring(id) <= target.Assigned+target.Pending {
 			continue
 		}
 		for _, run := range d.runs {
 			if d.runTargetID(run) == id && run.canRetireIdle() {
-				d.runIO(run, d.retireIdle)
+				d.retire(run)
 				return
 			}
 		}
@@ -1127,14 +1185,17 @@ func (d *daemon) prepare(ctx context.Context, target *targetRuntime, run *active
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if err := d.launch(run, jit.EncodedJITConfig); err != nil {
+	if err := d.launch(ctx, run, jit.EncodedJITConfig); err != nil {
 		return err
 	}
 	slog.Info("Runner started", "event", "runner.started", "scope", d.secrets.Redact(state.ScopeURL), "targetId", d.secrets.Redact(state.TargetID), "runId", d.secrets.Redact(state.RunID), "durationMs", time.Since(start).Milliseconds())
 	return nil
 }
 
-func (d *daemon) launch(run *activeRun, jit string) (retErr error) {
+func (d *daemon) launch(ctx context.Context, run *activeRun, jit string) (retErr error) {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	state := run.State
 	spawned := false
 	defer func() {
@@ -1211,7 +1272,7 @@ func (d *daemon) launch(run *activeRun, jit string) (retErr error) {
 	logOutput.Close()
 	// The child waits on fd 3. No runner can execute until its identity has
 	// been durably recorded; controller death closes the gate without exec.
-	table, err := processTable(d.ctx, []ProcessIdentity{{PID: command.Process.Pid}})
+	table, err := processTable(ctx, []ProcessIdentity{{PID: command.Process.Pid}})
 	if err == nil {
 		var identity ProcessIdentity
 		identity, err = launchedProcessIdentity(table, command.Process.Pid, d.user.UID)
@@ -1226,10 +1287,22 @@ func (d *daemon) launch(run *activeRun, jit string) (retErr error) {
 		output.Close()
 		command.Wait()
 		writer.close()
-		run.Uncertain = true
+		if ctx.Err() != nil {
+			state.Phase = "registered"
+		} else {
+			run.Uncertain = true
+		}
 		return err
 	}
-	if _, err := output.Write([]byte("ready\n")); err != nil {
+	// Drain cancellation and gate release have one ordering point. The empty
+	// pipe has room for this short write; no API, inspection or fsync is locked.
+	d.mu.Lock()
+	err = ctx.Err()
+	if err == nil {
+		_, err = output.Write([]byte("ready\n"))
+	}
+	d.mu.Unlock()
+	if err != nil {
 		output.Close()
 		command.Wait()
 		writer.close()

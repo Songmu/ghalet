@@ -26,6 +26,9 @@ func pumpUntil(t *testing.T, d *daemon, predicate func() bool) {
 			case event := <-d.events:
 				d.processEvent(event)
 			default:
+				if d.inspecting != nil {
+					return false
+				}
 				for _, run := range d.runs {
 					if run.ioDone != nil {
 						return false
@@ -56,6 +59,9 @@ func settleRuns(d *daemon) {
 	for {
 		d.mu.Lock()
 		var pending []<-chan struct{}
+		if d.inspecting != nil {
+			pending = append(pending, d.inspecting)
+		}
 		for _, run := range d.runs {
 			if run.ioDone != nil {
 				pending = append(pending, run.ioDone)
