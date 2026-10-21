@@ -1,5 +1,42 @@
 # Changelog
 
+## [v0.1.0](https://github.com/Songmu/ghalet/compare/v0.0.5...v0.1.0) - 2026-10-21
+
+- Avoid idle process snapshots without delaying job scheduling by @Songmu in https://github.com/Songmu/ghalet/pull/36
+- Release recovery capacity after verified process termination by @Songmu in https://github.com/Songmu/ghalet/pull/38
+- Avoid unrelated PID churn in Linux stop verification by @Songmu in https://github.com/Songmu/ghalet/pull/40
+- Limit filesystem synchronization to changed directories by @Songmu in https://github.com/Songmu/ghalet/pull/37
+- Support administrator symlink layouts with canonical storage bases by @Songmu in https://github.com/Songmu/ghalet/pull/39
+- Guide GitHub App setup from creation to installation by @Songmu in https://github.com/Songmu/ghalet/pull/41
+- Limit kernel identity inspection to monitored process groups by @Songmu in https://github.com/Songmu/ghalet/pull/42
+- Retry recoverable run cleanup with capped backoff by @Songmu in https://github.com/Songmu/ghalet/pull/43
+- Allow independent runner extractions to proceed concurrently by @Songmu in https://github.com/Songmu/ghalet/pull/44
+- Avoid repeated ancestor validation during state operations by @Songmu in https://github.com/Songmu/ghalet/pull/46
+- Prevent unrelated work-root files from consuming runner capacity by @Songmu in https://github.com/Songmu/ghalet/pull/47
+- Recover transient target failures automatically with capped backoff by @Songmu in https://github.com/Songmu/ghalet/pull/45
+- Keep daemon scheduling responsive during slow execution I/O by @Songmu in https://github.com/Songmu/ghalet/pull/49
+- Share credential update rollback and input validation by @Songmu in https://github.com/Songmu/ghalet/pull/50
+- Make App setup lifecycle stages explicit by @Songmu in https://github.com/Songmu/ghalet/pull/52
+- Reduce duplicated atomic state persistence code by @Songmu in https://github.com/Songmu/ghalet/pull/54
+- Simplify daemon discovery with focused directory and socket probes by @Songmu in https://github.com/Songmu/ghalet/pull/55
+- Clarify configuration apply reconciliation stages by @Songmu in https://github.com/Songmu/ghalet/pull/51
+- refactor: separate listener recovery and session lifecycle by @Songmu in https://github.com/Songmu/ghalet/pull/56
+- Share configuration editing across setup and credentials by @Songmu in https://github.com/Songmu/ghalet/pull/57
+- Unify runner output lifecycle state by @Songmu in https://github.com/Songmu/ghalet/pull/58
+- Separate configuration policy from daemon implementation by @Songmu in https://github.com/Songmu/ghalet/pull/53
+- Separate verified process-group operations from daemon state by @Songmu in https://github.com/Songmu/ghalet/pull/59
+- Reuse configuration path resolution in setup and credentials by @Songmu in https://github.com/Songmu/ghalet/pull/61
+- Share credential registration preparation without merging backend pipelines by @Songmu in https://github.com/Songmu/ghalet/pull/62
+- Wait for listener cleanup directly instead of polling during apply by @Songmu in https://github.com/Songmu/ghalet/pull/63
+- Isolate runner log collection and archive lifecycle by @Songmu in https://github.com/Songmu/ghalet/pull/64
+- Refactor setup locking and remove the redundant work lock wrapper by @Songmu in https://github.com/Songmu/ghalet/pull/66
+- Clarify daemon recovery and execution lifecycle boundaries by @Songmu in https://github.com/Songmu/ghalet/pull/65
+- Reduce duplicated setup in daemon tests by @Songmu in https://github.com/Songmu/ghalet/pull/67
+- Keep static configuration immutable with managed setup information by @Songmu in https://github.com/Songmu/ghalet/pull/68
+- Identify targets by scope, runner group, and scale set by @Songmu in https://github.com/Songmu/ghalet/pull/69
+- Allow unknown configuration properties by @Songmu in https://github.com/Songmu/ghalet/pull/70
+- Publish bilingual documentation with Hugo and GitHub Pages by @Songmu in https://github.com/Songmu/ghalet/pull/71
+
 ## [v0.0.5](https://github.com/Songmu/ghalet/compare/v0.0.4...v0.0.5) - 2026-10-20
 
 - Fix non-root runner startup by making execution parents listable by @Songmu in https://github.com/Songmu/ghalet/pull/33
