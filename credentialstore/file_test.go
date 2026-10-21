@@ -23,7 +23,7 @@ func fileOptions(t *testing.T) (string, Options) {
 	root := testDirectory(t)
 	t.Setenv("STATE_DIRECTORY", filepath.Join(root, "state"))
 	path := filepath.Join(root, "config.yaml")
-	if err := os.WriteFile(path, []byte("# retained\nmanagedFile: managed.yaml\ntargets:\n  - id: build\n    scope: owner/repo\n"), 0600); err != nil {
+	if err := os.WriteFile(path, []byte("# retained\nmanagedFile: managed.yaml\ntargets:\n  - scaleSet: build\n    scope: owner/repo\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	return filepath.Join(root, "credentials"), Options{Name: "default", Type: "pat", Stdin: true, Config: path}

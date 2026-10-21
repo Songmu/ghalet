@@ -27,8 +27,12 @@ func testDirectory(t *testing.T) string {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	return path
 }
+
+var buildTargetID, _ = settings.TargetKey("owner/repository", "", "build")
+var secondTargetID, _ = settings.TargetKey("owner/repository", "", "second")
 
 func readFixture(t *testing.T, name string) string {
 	t.Helper()
@@ -250,8 +254,8 @@ func testDaemon(t *testing.T) (*daemon, *fakeScaleAPI) {
 		t.Fatal(err)
 	}
 	api := newFakeAPI()
-	d.targets["build"] = &targetRuntime{Config: c.Targets[0], Client: api, Set: api.set}
-	d.order = []string{"build"}
+	d.targets[buildTargetID] = &targetRuntime{Config: c.Targets[0], Client: api, Set: api.set}
+	d.order = []string{buildTargetID}
 	return d, api
 }
 
@@ -276,8 +280,8 @@ func testState(t *testing.T, c *settings.Config) *RunState {
 	if err != nil {
 		t.Fatal(err)
 	}
-	dir := c.Runner.WorkRoot + "/build/" + id
-	return &RunState{Schema: 1, RunID: id, TargetID: "build",
+	dir := c.Runner.WorkRoot + "/" + buildTargetID + "/" + id
+	return &RunState{Schema: 1, RunID: id, TargetID: buildTargetID,
 		ScopeURL: "https://github.com/owner/repository", ScaleSetName: "build", ScaleSetID: 10,
 		GroupID: 1, RunnerName: "runner-" + id, User: account.Name, UID: account.UID, Home: account.Home,
 		RunnerDir: dir + "/runner", Workspace: dir + "/work", Phase: "preparing"}

@@ -15,7 +15,7 @@ func TestApplyPreservesRegistrationAfterFailedReregistration(t *testing.T) {
 		t.Run(action, func(t *testing.T) {
 			d, api := testDaemon(t)
 			useFakeManagement(d, api)
-			old := d.targets["build"]
+			old := d.targets[buildTargetID]
 			next := nextConfig(d)
 			writeApplyConfig(t, next)
 			d.clientFactory = func(context.Context, settings.Target) (scaleAPI, error) {
@@ -72,7 +72,7 @@ func TestShutdownInterruptsRetiredScaleSetNetworkCalls(t *testing.T) {
 			d, api := testDaemon(t)
 			useFakeManagement(d, api)
 			blocked := &blockedRetiredAPI{scaleAPI: api, lookup: operation == "lookup", started: make(chan struct{})}
-			old := d.targets["build"]
+			old := d.targets[buildTargetID]
 			old.Client = blocked
 			next := nextConfig(d)
 			next.Targets[0].ScaleSetName = "replacement"

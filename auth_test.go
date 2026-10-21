@@ -93,7 +93,7 @@ func TestDirectAPILogRedactionWithOrdinaryHandler(t *testing.T) {
 	for _, command := range []string{"run", "gc"} {
 		t.Run(command, func(t *testing.T) {
 			data := strings.Replace(readFixture(t, "config/base.yaml"), "tokenEnv: GHALET_TEST_TOKEN", "tokenFile: missing-"+credential, 1)
-			data = strings.Replace(data, "id: build", "id: "+credential, 1)
+			data = strings.Replace(data, "scaleSet: build", "scaleSet: "+credential, 1)
 			path := writeConfig(t, data)
 			config, err := settings.LoadConfig(path)
 			if err != nil {
@@ -131,7 +131,7 @@ func TestDirectAPILogRedactionWithOrdinaryHandler(t *testing.T) {
 			if err := json.Unmarshal(output.Bytes(), &record); err != nil {
 				t.Fatal("expected a registration failure log", err, output.String())
 			}
-			if record.Event != "target.failed" || record.TargetID != "***" || !strings.Contains(record.Error, "missing-***") {
+			if record.Event != "target.failed" || record.TargetID != config.Targets[0].ID || !strings.Contains(record.Error, "missing-***") {
 				t.Fatal("redaction lost the failure diagnostics", record)
 			}
 		})

@@ -64,7 +64,7 @@ func listenerCompleted(target *targetRuntime) bool {
 func TestWaitListeners(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		d, _ := testDaemon(t)
-		old := d.targets["build"]
+		old := d.targets[buildTargetID]
 		old.ListenerDone = make(chan struct{})
 		// Applying a new instance with the same ID must not replace the wait.
 		replacement := &targetRuntime{Config: old.Config, ListenerDone: make(chan struct{})}
@@ -131,7 +131,7 @@ func TestApplyReportsListenerStartupFailure(t *testing.T) {
 func TestApplyWaitsForOldListenerClosure(t *testing.T) {
 	d, api := testDaemon(t)
 	useFakeManagement(d, api)
-	target := d.targets["build"]
+	target := d.targets[buildTargetID]
 	target.ListenerDone = make(chan struct{})
 	closing := make(chan struct{})
 	target.Cancel = func() { close(closing) }

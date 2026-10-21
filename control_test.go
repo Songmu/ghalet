@@ -103,7 +103,7 @@ func TestDiscoveredSocketReplacementCannotRetargetCommands(t *testing.T) {
 			t.Fatal("socket replacement retargeted a management command", command, response, err)
 		}
 	}
-	if other.targets["build"].Draining || other.config != otherConfig || api.deleteCalls != 0 {
+	if other.targets[buildTargetID].Draining || other.config != otherConfig || api.deleteCalls != 0 {
 		t.Fatal("socket replacement changed the other daemon")
 	}
 }
@@ -116,7 +116,7 @@ func useFakeManagement(d *daemon, api *fakeScaleAPI) {
 		target.ListenerDone = make(chan struct{})
 		target.Cancel = sync.OnceFunc(func() { close(target.ListenerDone) })
 	}
-	target := d.targets["build"]
+	target := d.targets[buildTargetID]
 	target.Cancel = func() {}
 	target.ListenerDone = make(chan struct{})
 	close(target.ListenerDone)
@@ -128,11 +128,11 @@ func TestCleanupDoesNotCountPendingObserversAsAttempt(t *testing.T) {
 	state.ProcessDone = true
 	run := &activeRun{State: state, output: &runOutputState{done: make(chan struct{})}}
 	d.runs[state.RunID] = run
-	if err := d.cleanup(run); err == nil || run.CleanupTried || !run.CleanupRetryAt.IsZero() || d.drained("build") {
+	if err := d.cleanup(run); err == nil || run.CleanupTried || !run.CleanupRetryAt.IsZero() || d.drained(buildTargetID) {
 		t.Fatal("pending output counted as a cleanup attempt", err)
 	}
 	close(run.output.done)
-	if err := d.cleanup(run); err == nil || run.CleanupTried || !run.CleanupRetryAt.IsZero() || d.drained("build") {
+	if err := d.cleanup(run); err == nil || run.CleanupTried || !run.CleanupRetryAt.IsZero() || d.drained(buildTargetID) {
 		t.Fatal("pending exit observation counted as a cleanup attempt", err)
 	}
 }
@@ -161,7 +161,7 @@ func TestControlAddressAndRunningSnapshotSurviveConfigEdit(t *testing.T) {
 
 func TestStatusAndDoctorExitCodesAndPartialGC(t *testing.T) {
 	d, _ := testDaemon(t)
-	d.targets["build"].Fault = "credentials expired"
+	d.targets[buildTargetID].Fault = "credentials expired"
 	d.problems = append(d.problems, Problem{Path: "/unrecognized", Reason: "corrupt state"})
 	serveTestControl(t, d)
 	for _, command := range []string{"status", "doctor", "gc"} {
@@ -169,7 +169,13 @@ func TestStatusAndDoctorExitCodesAndPartialGC(t *testing.T) {
 		var results []OperationResult
 		switch command {
 		case "status":
-			_, err = GetStatus(t.Context(), d.config.Path)
+			var status *Status
+			status, err = GetStatus(t.Context(), d.config.Path)
+			if err == nil && (len(status.Targets) != 1 || status.Targets[0].ID != buildTargetID ||
+				status.Targets[0].Scope != d.config.Targets[0].URL ||
+				status.Targets[0].ScaleSet != "build" || status.Targets[0].RunnerGroup != settings.RunnerGroupName("")) {
+				t.Fatal("status lost the human-readable registration", status)
+			}
 		case "doctor":
 			_, err = Doctor(t.Context(), d.config.Path)
 		case "gc":
@@ -209,7 +215,7 @@ func TestControlRejectsRemovedCommands(t *testing.T) {
 			t.Fatal("removed command was not rejected", response, err)
 		}
 	}
-	if d.targets["build"].Draining || api.deleteCalls != 0 {
+	if d.targets[buildTargetID].Draining || api.deleteCalls != 0 {
 		t.Fatal("rejected control request changed runtime state")
 	}
 }
@@ -220,7 +226,7 @@ func TestDrainSelectsTarget(t *testing.T) {
 	if response := d.drain(t.Context(), "missing"); response.Error == "" {
 		t.Fatal("unknown target was accepted")
 	}
-	response := d.drain(t.Context(), "build")
+	response := d.drain(t.Context(), buildTargetID)
 	if response.Error != "" || response.Status == nil || len(response.Status.Targets) != 1 || !response.Status.Targets[0].Draining {
 		t.Fatal("selected target was not drained", response)
 	}

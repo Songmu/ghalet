@@ -2,6 +2,7 @@
 package config
 
 import (
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"net/url"
@@ -87,7 +88,7 @@ func (c *Credential) UnmarshalYAML(unmarshal func(any) error) error {
 }
 
 type Target struct {
-	ID              string        `yaml:"id"`
+	ID              string        `yaml:"-"` // Derived from the registration, never configured.
 	URL             string        `yaml:"scope"`
 	Credential      Credential    `yaml:"credential"`
 	InstallationID  int64         `yaml:"installationId"`
@@ -276,21 +277,20 @@ func ParseConfig(path string, content []byte) (*Config, error) {
 			target.URL = "https://github.com/" + target.URL
 		}
 		target.URL = strings.TrimRight(target.URL, "/")
+		target.ID, err = TargetKey(target.URL, target.RunnerGroup, target.ScaleSetName)
+		if err != nil {
+			return nil, fmt.Errorf("target %s: %w", target.URL, err)
+		}
 	}
 	managed, _, err := ReadManaged(c.ManagedFile)
 	if err != nil {
 		return nil, fmt.Errorf("load managed file: %w", err)
 	}
-	if err := c.mergeManaged(managed); err != nil {
-		return nil, err
-	}
+	c.mergeManaged(managed)
 	for i := range c.Targets {
 		target := &c.Targets[i]
 		if !target.credentialSet && c.Defaults.Credential != nil {
 			target.Credential = *c.Defaults.Credential
-		}
-		if target.ScaleSetName == "" {
-			target.ScaleSetName = target.ID
 		}
 	}
 	if err := c.Validate(); err != nil {
@@ -316,6 +316,27 @@ func RunnerGroupName(name string) string {
 	return name
 }
 
+// TargetKey returns a filesystem-safe identity for a scope/group/scale set registration.
+func TargetKey(scope, group, scaleSet string) (string, error) {
+	if !strings.Contains(scope, ":") {
+		scope = "https://github.com/" + scope
+	}
+	scope = strings.TrimRight(scope, "/")
+	u, err := ScopeURL(scope)
+	if err != nil {
+		return "", err
+	}
+	if len(strings.Split(strings.Trim(u.Path, "/"), "/")) == 2 && group != "" {
+		return "", errors.New("repository scope cannot specify runnerGroup")
+	}
+	if scaleSet == "" || strings.TrimSpace(scaleSet) != scaleSet ||
+		strings.ContainsAny(scaleSet, "\x00\r\n") || strings.ContainsAny(group, "\x00\r\n") {
+		return "", errors.New("scaleSet is required and scale set or runner group name must be valid")
+	}
+	sum := sha256.Sum256([]byte(strings.ToLower(scope) + "\x00" + RunnerGroupName(group) + "\x00" + scaleSet))
+	return fmt.Sprintf("%x", sum), nil
+}
+
 func (c *Config) Validate() error {
 	if c.Defaults.Credential != nil {
 		if err := c.Defaults.Credential.validate(); err != nil {
@@ -334,18 +355,17 @@ func (c *Config) Validate() error {
 	if c.Targets == nil {
 		return errors.New("targets must be specified; use targets: [] to remove all targets")
 	}
-	ids, registrations := map[string]bool{}, map[string]bool{}
+	registrations := map[string]bool{}
 	minimum := 0
 	for _, target := range c.Targets {
-		if !ValidTargetID(target.ID) || ids[target.ID] {
-			return fmt.Errorf("invalid or duplicate target id %q", target.ID)
-		}
-		ids[target.ID] = true
 		if err := target.validate(); err != nil {
 			return fmt.Errorf("target %s: %w", target.ID, err)
 		}
 		minimum += target.Scaling.MinRunners
-		key := strings.ToLower(target.URL) + "\x00" + RunnerGroupName(target.RunnerGroup) + "\x00" + target.ScaleSetName
+		key, err := TargetKey(target.URL, target.RunnerGroup, target.ScaleSetName)
+		if err != nil {
+			return fmt.Errorf("target %s: %w", target.URL, err)
+		}
 		if registrations[key] {
 			return fmt.Errorf("target %s: duplicate scope/group/scale set registration", target.ID)
 		}
@@ -375,12 +395,8 @@ func (t Target) validate() error {
 	if cred.Type == "gh" && cred.Hostname != "" && cred.Hostname != u.Host {
 		return errors.New("credential hostname does not match scope hostname")
 	}
-	if len(strings.Split(strings.Trim(u.Path, "/"), "/")) == 2 && t.RunnerGroup != "" {
-		return errors.New("repository scope cannot specify runnerGroup")
-	}
-	if t.ScaleSetName == "" || strings.TrimSpace(t.ScaleSetName) != t.ScaleSetName ||
-		strings.ContainsAny(t.ScaleSetName, "\x00\r\n") || strings.ContainsAny(t.RunnerGroup, "\x00\r\n") {
-		return errors.New("invalid scale set or runner group name")
+	if _, err := TargetKey(t.URL, t.RunnerGroup, t.ScaleSetName); err != nil {
+		return err
 	}
 	if t.Scaling.MaxRunners < 1 || t.Scaling.MaxRunners > 10000 ||
 		t.Scaling.MinRunners < 0 || t.Scaling.MinRunners > t.Scaling.MaxRunners {

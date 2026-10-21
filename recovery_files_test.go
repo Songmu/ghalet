@@ -41,7 +41,7 @@ func TestRecoverRunMatchingAndDiagnosticPrecedence(t *testing.T) {
 				scaleAPI: api,
 				runner:   &scaleset.RunnerReference{ID: state.RunnerID, Name: state.RunnerName, RunnerScaleSetID: state.ScaleSetID},
 			}
-			target := d.targets["build"]
+			target := d.targets[buildTargetID]
 			target.Client = lookup
 			want := "live process cannot be matched to its GitHub runner registration"
 			wantCalls := 1
@@ -61,7 +61,7 @@ func TestRecoverRunMatchingAndDiagnosticPrecedence(t *testing.T) {
 			case "runner scale set":
 				lookup.runner.RunnerScaleSetID++
 			case "missing target":
-				delete(d.targets, "build")
+				delete(d.targets, buildTargetID)
 				want, wantCalls = "state does not correspond to a currently configured target", 0
 			case "target fault":
 				target.Fault = "authentication failed"
@@ -74,7 +74,7 @@ func TestRecoverRunMatchingAndDiagnosticPrecedence(t *testing.T) {
 				state.Home += "-other"
 				want, wantCalls = "recorded execution user differs from the current execution user", 0
 			case "inspection and target":
-				delete(d.targets, "build")
+				delete(d.targets, buildTargetID)
 				entry := table[state.Process.PID]
 				entry.Started += "-reused"
 				table[state.Process.PID] = entry
@@ -106,7 +106,7 @@ func TestRecoverySeparatesUnrelatedFilesFromUnknownExecutions(t *testing.T) {
 		t.Run(kind, func(t *testing.T) {
 			d, _ := testDaemon(t)
 			d.config.Capacity.MaxRunners = 1
-			parent := filepath.Join(d.config.Runner.WorkRoot, "build")
+			parent := filepath.Join(d.config.Runner.WorkRoot, buildTargetID)
 			if err := fshelper.EnsureDirectory(parent, 0755); err != nil {
 				t.Fatal(err)
 			}
@@ -137,7 +137,7 @@ func TestRecoverySeparatesUnrelatedFilesFromUnknownExecutions(t *testing.T) {
 				t.Fatal("recovery confused unrelated files with unknown executions", d.occupied(), d.problems)
 			}
 			session := &fakeSession{}
-			scaler := &targetScaler{daemon: d, target: d.targets["build"], session: session}
+			scaler := &targetScaler{daemon: d, target: d.targets[buildTargetID], session: session}
 			if err := scaler.Scale(t.Context(), availableMessage(1, 1)); err != nil || len(session.acquired) != 1-wantOccupied {
 				t.Fatal("unexpected acquisition capacity", session.acquired, err)
 			}

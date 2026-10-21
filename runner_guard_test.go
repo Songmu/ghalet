@@ -192,13 +192,13 @@ func TestRunnerGuardPreservesRunnerExitAndKillsRemainingChildren(t *testing.T) {
 			}
 			script := fmt.Sprintf("#!/bin/sh\nif ( : <&3 ) 2>/dev/null || ( : <&4 ) 2>/dev/null; then exit 89; fi\ntrap '' TERM\nsleep 60 &\nprintf 'Listening for Jobs\\n'\nread -r release < %q\nprintf 'final output'\nexit %d\n", release, code)
 			seedDistribution(t, d.config, script)
-			d.targets["build"].Assigned = 1
+			d.targets[buildTargetID].Assigned = 1
 			run := waitForRun(t, d, func(run *activeRun) bool {
 				return run.State.Ready && len(run.State.Members) >= 3
 			})
 			d.mu.Lock()
 			run.State.Busy, run.State.Phase = true, "busy"
-			d.targets["build"].Assigned = 0
+			d.targets[buildTargetID].Assigned = 0
 			d.mu.Unlock()
 			gate, err := os.OpenFile(release, os.O_WRONLY|syscall.O_NONBLOCK, 0600)
 			if err != nil {

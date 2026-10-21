@@ -74,11 +74,12 @@ GitHub.com では、`scope` にリポジトリの `OWNER/REPO`、または Organ
 完全な HTTPS URL も指定でき、GitHub.com 以外のホストでは必須です。
 対応する scope はリポジトリと Organization のみです。`runnerGroup` は
 Organization 専用です。target ごとに scope は 1 つだけ指定できます。
-必須の `id` は、管理コマンドとローカルステートで target を識別します。
-省略可能な `scaleSet` のデフォルトは `id` です。GitHub 上の登録名と workflow の
-`runs-on` ラベルを変えたい場合や、異なる scope で同じ名前を使う場合は明示してください。
-ID は全 target 間で一意とし、先頭を英数字とする 1〜64 文字の ASCII 英数字・
-アンダースコア・ハイフンで指定します。
+各 target には `scope` と、GitHub 上の登録名・workflow の `runs-on` ラベルとなる
+`scaleSet` が必須です。`runnerGroup`（省略時はデフォルトグループ）との組で
+target を一意に識別します。scope や runner group が異なれば同じ Scale Set 名を使えます。
+ローカルの `id` は設定しません。正規化した登録情報から導出した SHA-256 キーを、
+ローカルステート・認証情報・診断の `targetId` に使います。
+status 出力には scope・runner group・Scale Set 名も含めます。
 App の `installationId` は credential ではなく target に属するため、
 複数のインストールで 1 つの App キーを共有できます。
 
@@ -109,8 +110,8 @@ managed ファイルは runner の実行・キャッシュ・ログ用ディレ�
 他ユーザーが書き込めない必要があります。
 認証情報と App の再開用情報に加え、managed ファイルもバックアップしてください。
 
-有効になるのは静的設定に記載した target だけです。managed の target は ID と正規化した
-scope で照合し、古い scope と一致しなければ認証を流用せず拒否します。
+有効になるのは静的設定に記載した target だけです。managed の target は正規化した
+`scope`・`runnerGroup`・`scaleSet` の組で照合し、別の登録先へ認証を流用しません。
 target に `credential` または `installationId` を明示した場合、managed の target 認証は
 適用しません。それ以外は managed の credential と installation を一まとまりで使い、
 共通設定より優先します。共通設定では静的な `defaults.credential` が managed 側より優先し、
@@ -330,8 +331,8 @@ target、上限、認証情報、runner バージョン、環境変数、タイ�
 listener を閉じた後、新設定の target を登録して listener の初期化を待ちます。
 変更のない Scale Set は再利用します。起動失敗は apply の結果に含め、
 その後の listener の障害は `doctor` で確認できます。
-ローカルの `targets[].id` で追加・変更・削除を識別し、scope・group・Scale Set の変更時は
-その target の登録を置き換えます。全 target を外すには `targets: []` を指定します。
+正規化した scope・group・Scale Set の組で登録先を識別し、いずれかの変更時は
+その登録を置き換えます。全 target を外すには `targets: []` を指定します。
 `targets` の省略や null は不正です。
 
 削除・置換された target の Scale Set は、新設定の target が同じ scope と登録 ID

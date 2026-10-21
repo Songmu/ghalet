@@ -61,7 +61,7 @@ func responsiveStatus(t *testing.T, d *daemon) Status {
 
 func TestRunIOKeepsPublicationMetadataPrivate(t *testing.T) {
 	d, _ := testDaemon(t)
-	target := d.targets["build"]
+	target := d.targets[buildTargetID]
 	target.StartError, target.Failures = "previous startup failure", 3
 	state := testState(t, d.config)
 	state.Members = []procgroup.ProcessIdentity{{PID: 123}}
@@ -87,7 +87,7 @@ func TestRunIOKeepsPublicationMetadataPrivate(t *testing.T) {
 	}
 	// A replacement with the same ID must not receive this worker's result.
 	replacement := *target
-	d.targets["build"] = &replacement
+	d.targets[buildTargetID] = &replacement
 	d.mu.Unlock()
 	close(release)
 	<-done
@@ -109,7 +109,7 @@ func TestBlockedAcquisitionReservesBeforeIOAndNeverReplays(t *testing.T) {
 	for _, acquireErr := range []error{nil, errTestAPI} {
 		t.Run(map[bool]string{true: "ambiguous", false: "accepted"}[acquireErr != nil], func(t *testing.T) {
 			d, _ := testDaemon(t)
-			first := d.targets["build"]
+			first := d.targets[buildTargetID]
 			second := *first
 			second.Config.ID = "second"
 			d.targets["second"] = &second
@@ -178,7 +178,7 @@ func TestBlockedJITAllowsOtherTargetAndCanceledPreparationCannotLaunch(t *testin
 	seedDistribution(t, d.config, "#!/bin/sh\nprintf 'Listening for Jobs\\n'\nsleep 30\n")
 	blocked := &blockedRunnerAPI{scaleAPI: api, jitEntered: make(chan struct{}), jitRelease: make(chan struct{})}
 	releaseOnCleanup(t, blocked.jitRelease)
-	first := d.targets["build"]
+	first := d.targets[buildTargetID]
 	first.Client, first.Assigned = blocked, 1
 	reconcileAndWaitOther := func() {
 		d.mu.Lock()
@@ -246,7 +246,7 @@ func TestBlockedCleanupKeepsGCResultsSynchronousAndDrainOrdered(t *testing.T) {
 	d.runs[state.RunID] = &activeRun{State: state, CleanupTried: true}
 	blocked := &blockedRunnerAPI{scaleAPI: api, removeEntered: make(chan struct{}), removeRelease: make(chan struct{})}
 	releaseOnCleanup(t, blocked.removeRelease)
-	d.targets["build"].Client = blocked
+	d.targets[buildTargetID].Client = blocked
 	result := make(chan controlResponse, 1)
 	go func() { result <- d.gc(t.Context(), false) }()
 	<-blocked.removeEntered
@@ -255,10 +255,10 @@ func TestBlockedCleanupKeepsGCResultsSynchronousAndDrainOrdered(t *testing.T) {
 		t.Fatal("cleanup snapshot hid execution or retained stopped capacity", status)
 	}
 	d.mu.Lock()
-	d.beginDrain(d.targets["build"])
-	d.targets["build"].DrainStarted = time.Now().Add(-time.Hour)
-	d.enforceDrainDeadline(d.targets["build"])
-	forced := d.targets["build"].Forced
+	d.beginDrain(d.targets[buildTargetID])
+	d.targets[buildTargetID].DrainStarted = time.Now().Add(-time.Hour)
+	d.enforceDrainDeadline(d.targets[buildTargetID])
+	forced := d.targets[buildTargetID].Forced
 	for range 3 {
 		d.reconcile()
 	}
@@ -318,7 +318,7 @@ func TestBlockedProcessInspectionDoesNotHoldSharedLock(t *testing.T) {
 		t.Fatal("blocked inspection lost its capacity reservation", status)
 	}
 	session := &fakeSession{}
-	if err := (&targetScaler{daemon: d, target: d.targets["build"], session: session}).Scale(t.Context(), availableMessage(1, 1)); err != nil || len(session.acquired) != 1 {
+	if err := (&targetScaler{daemon: d, target: d.targets[buildTargetID], session: session}).Scale(t.Context(), availableMessage(1, 1)); err != nil || len(session.acquired) != 1 {
 		t.Fatal("blocked inspection prevented acquisition", err)
 	}
 }
@@ -380,7 +380,7 @@ func TestForcedDrainDuringLaunchNeverReleasesRunnerGate(t *testing.T) {
 		}
 		settleRuns(d)
 	})
-	target := d.targets["build"]
+	target := d.targets[buildTargetID]
 	target.Assigned = 1
 	d.mu.Lock()
 	d.reconcile()
@@ -417,7 +417,7 @@ func TestPendingRetirementDoesNotShrinkBelowWarmPool(t *testing.T) {
 	for _, yield := range []bool{false, true} {
 		t.Run(map[bool]string{false: "warm pool", true: "yield capacity"}[yield], func(t *testing.T) {
 			d, api := testDaemon(t)
-			target := d.targets["build"]
+			target := d.targets[buildTargetID]
 			target.Config.Scaling.MinRunners = 1
 			for id := 101; id <= 102; id++ {
 				state := testState(t, d.config)

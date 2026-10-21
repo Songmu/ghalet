@@ -21,7 +21,9 @@ type Editor struct {
 }
 
 type targetIdentity struct {
-	ID string `yaml:"id"`
+	Scope       string `yaml:"scope"`
+	RunnerGroup string `yaml:"runnerGroup"`
+	ScaleSet    string `yaml:"scaleSet"`
 }
 
 // NewEditor reads one configuration mapping. When schema is non-nil, it also
@@ -44,10 +46,8 @@ func NewEditor(data []byte, schema any) (*Editor, error) {
 		}
 	}
 	editor := &Editor{comments: yaml.CommentMap{}}
-	// Use the same string coercion as configuration loading, including unquoted
-	// numeric IDs, instead of comparing the untyped ordered-map values.
 	if err := yaml.NodeToValue(root, &editor.identities); err != nil {
-		return nil, errors.New("cannot decode target IDs for configuration update")
+		return nil, errors.New("cannot decode target registrations for configuration update")
 	}
 	if err := yaml.UnmarshalWithOptions(data, &editor.document, yaml.UseOrderedMap(), yaml.CommentToMap(editor.comments)); err != nil {
 		return nil, errors.New("cannot read configuration mappings")
@@ -70,16 +70,20 @@ func (editor *Editor) targets() ([]any, error) {
 
 // AppendTarget adds a target with an explicit empty credential, avoiding
 // inheritance of an unrelated default GitHub App installation.
-func (editor *Editor) AppendTarget(id, scope string) error {
+func (editor *Editor) AppendTarget(scope, group, scaleSet string) error {
 	targets, err := editor.targets()
 	if err != nil {
 		return err
 	}
-	setMapping(&editor.document, "targets", append(targets, yaml.MapSlice{
-		{Key: "id", Value: id}, {Key: "scope", Value: scope},
+	mapping := yaml.MapSlice{
+		{Key: "scope", Value: scope}, {Key: "scaleSet", Value: scaleSet},
 		{Key: "credential", Value: yaml.MapSlice{}},
-	}))
-	editor.identities.Targets = append(editor.identities.Targets, targetIdentity{ID: id})
+	}
+	if group != "" {
+		mapping = append(mapping, yaml.MapItem{Key: "runnerGroup", Value: group})
+	}
+	setMapping(&editor.document, "targets", append(targets, mapping))
+	editor.identities.Targets = append(editor.identities.Targets, targetIdentity{Scope: scope, RunnerGroup: group, ScaleSet: scaleSet})
 	return nil
 }
 
@@ -90,7 +94,7 @@ func (editor *Editor) SetTargetApp(id, clientID, keyPath string, installationID 
 		return err
 	}
 	if len(targets) != len(editor.identities.Targets) {
-		return errors.New("configuration target mappings do not match decoded target IDs")
+		return errors.New("configuration target mappings do not match decoded registrations")
 	}
 	found := false
 	for i, value := range targets {
@@ -98,7 +102,12 @@ func (editor *Editor) SetTargetApp(id, clientID, keyPath string, installationID 
 		if !ok {
 			return errors.New("configuration target must be a mapping")
 		}
-		if editor.identities.Targets[i].ID != id {
+		target := editor.identities.Targets[i]
+		key, err := TargetKey(target.Scope, target.RunnerGroup, target.ScaleSet)
+		if err != nil {
+			return err
+		}
+		if key != id {
 			continue
 		}
 		setMapping(&mapping, "credential", appCredential(clientID, keyPath))

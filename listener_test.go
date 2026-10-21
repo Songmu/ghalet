@@ -73,7 +73,7 @@ func availableMessage(id, count int) *scaleset.RunnerScaleSetMessage {
 
 func TestAcquisitionReservesSharedCapacityAndReplayIsIdempotent(t *testing.T) {
 	d, _ := testDaemon(t)
-	first := d.targets["build"]
+	first := d.targets[buildTargetID]
 	second := *first
 	second.Config.ID = "second"
 	d.targets["second"] = &second
@@ -103,7 +103,7 @@ func TestAcquisitionAccumulatesReservationsWithoutStatistics(t *testing.T) {
 	for _, failure := range []int{0, 1, 2} {
 		t.Run(map[int]string{0: "success", 1: "first ambiguous", 2: "second ambiguous"}[failure], func(t *testing.T) {
 			d, _ := testDaemon(t)
-			target := d.targets["build"]
+			target := d.targets[buildTargetID]
 			session := &fakeSession{}
 			scaler := &targetScaler{daemon: d, target: target, session: session}
 			for id := 1; id <= 3; id++ {
@@ -132,7 +132,7 @@ func TestAcquisitionAccumulatesReservationsWithoutStatistics(t *testing.T) {
 
 func TestDrainRejectsNewAcquisitionsButKeepsAuthoritativeAssignedWork(t *testing.T) {
 	d, _ := testDaemon(t)
-	target := d.targets["build"]
+	target := d.targets[buildTargetID]
 	d.beginDrain(target)
 	session := &fakeSession{}
 	scaler := &targetScaler{daemon: d, target: target, session: session}
@@ -151,7 +151,7 @@ func TestOfficialListenerAcknowledgesOnlySuccessfulCallbacks(t *testing.T) {
 		if fail {
 			session.acquireErr = errTestAPI
 		}
-		target := d.targets["build"]
+		target := d.targets[buildTargetID]
 		l, err := listener.New(session, listener.Config{ScaleSetID: 10, MaxRunners: 2})
 		if err != nil {
 			t.Fatal(err)
@@ -177,7 +177,7 @@ func TestBusyAndCompletedEventsMatchExactRunner(t *testing.T) {
 	state.RunnerID = 123
 	d.runs[state.RunID] = &activeRun{State: state}
 	d.store.save(state)
-	target := d.targets["build"]
+	target := d.targets[buildTargetID]
 	scaler := &targetScaler{daemon: d, target: target, session: &fakeSession{}}
 	message := &scaleset.RunnerScaleSetMessage{MessageID: 1, Statistics: &scaleset.RunnerScaleSetStatistic{TotalAssignedJobs: 1},
 		JobStartedMessages: []*scaleset.JobStarted{{RunnerID: 123, RunnerName: state.RunnerName}}}

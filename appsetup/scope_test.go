@@ -17,22 +17,25 @@ import (
 )
 
 func TestSetupLeavesNewConfigToUserAndResumes(t *testing.T) {
-	for _, scope := range []string{"owner/repo", "owner"} {
-		t.Run(scope, func(t *testing.T) {
-			f := setupFixture(t, scope, "Organization")
-			f.options.ID = ""
+	for _, registration := range []struct{ scope, group string }{
+		{scope: "owner/repo"}, {scope: "owner"}, {scope: "owner", group: "linux"},
+	} {
+		t.Run(registration.scope+"/"+registration.group, func(t *testing.T) {
+			f := setupFixture(t, registration.scope, "Organization")
+			f.options.RunnerGroup = registration.group
+			f.options.credentialName, _ = settings.TargetKey(registration.scope, registration.group, f.options.ScaleSet)
 			f.options.Config = filepath.Join(filepath.Dir(f.options.Config), "new", "config.yaml")
 			var output bytes.Buffer
 			result, err := f.run(t.Context(), f.options, nil, &output)
 			if err != nil {
 				t.Fatal(err)
 			}
-			want := strings.ReplaceAll(scope, "/", "-")
+			want := f.options.credentialName
 			if _, err := os.Stat(f.options.Config); !errors.Is(err, os.ErrNotExist) {
 				t.Fatal("setup created static configuration", err)
 			}
 			if !strings.Contains(output.String(), "Suggested static configuration:") ||
-				!strings.Contains(output.String(), "id: \""+want+"\"") {
+				!strings.Contains(output.String(), "scaleSet: \"build\"") {
 				t.Fatal("setup did not print the required static configuration", output.String())
 			}
 			if err := os.MkdirAll(filepath.Dir(f.options.Config), 0700); err != nil {
@@ -46,7 +49,7 @@ func TestSetupLeavesNewConfigToUserAndResumes(t *testing.T) {
 				t.Fatal(err)
 			}
 			config, err := settings.LoadConfig(f.options.Config)
-			if err != nil || len(config.Targets) != 1 || config.Targets[0].ID != want ||
+			if err != nil || len(config.Targets) != 1 || config.Targets[0].ID != want || config.Targets[0].RunnerGroup != registration.group ||
 				config.Targets[0].InstallationID != 123 || result.Target != want {
 				t.Fatal("new configuration did not use the derived ID", config, err)
 			}
@@ -68,7 +71,7 @@ func TestSetupLeavesNewConfigToUserAndResumes(t *testing.T) {
 
 func TestSetupPrintsQuotedTargetForExistingConfig(t *testing.T) {
 	f := setupFixture(t, "owner/repo", "User")
-	f.options.ID = "null"
+	f.options.ScaleSet = "null"
 	before, err := os.ReadFile(f.options.Config)
 	if err != nil {
 		t.Fatal(err)
@@ -86,7 +89,7 @@ func TestSetupPrintsQuotedTargetForExistingConfig(t *testing.T) {
 		t.Fatal("suggested target is not valid configuration", err)
 	}
 	target := config.Targets[len(config.Targets)-1]
-	if len(config.Targets) != 3 || target.ID != "null" ||
+	if len(config.Targets) != 3 || target.ScaleSetName != "null" ||
 		target.Credential.Type != "github-app" || target.InstallationID != 123 {
 		t.Fatal("suggested target did not activate its managed authentication", config.Targets)
 	}
@@ -95,7 +98,7 @@ func TestSetupPrintsQuotedTargetForExistingConfig(t *testing.T) {
 func TestSetupDeclineDoesNotCreateConfig(t *testing.T) {
 	f := setupFixture(t, "owner/repo", "User")
 	f.options.Config = filepath.Join(filepath.Dir(f.options.Config), "new", "config.yaml")
-	f.options.ID, f.options.Yes = "", false
+	f.options.Yes = false
 	first, err := f.run(t.Context(), f.options, confirmationInput(t, "n\n"), io.Discard)
 	if err == nil {
 		t.Fatal("declined setup succeeded")
@@ -122,7 +125,7 @@ func TestSystemdAppSetupResumesAfterProvisionFailure(t *testing.T) {
 	saves, reads := 0, 0
 	f.saveKey = func(ctx context.Context, options credentialstore.Options, input io.Reader) (credentialstore.Result, error) {
 		saves++
-		if !options.NoDefault || !options.NoReplace || options.Name != "build" {
+		if !options.NoDefault || !options.NoReplace || options.Name != f.options.credentialName {
 			t.Fatal("systemd setup did not use isolated, exclusive key registration", options)
 		}
 		data, err := io.ReadAll(input)
@@ -137,10 +140,10 @@ func TestSystemdAppSetupResumesAfterProvisionFailure(t *testing.T) {
 	}
 	f.readKey = func(ctx context.Context, path string) ([]byte, error) {
 		reads++
-		if path != "/run/credentials/ghalet.service/build" {
+		if path != "/run/credentials/ghalet.service/"+f.options.credentialName {
 			t.Fatal("setup tried to read a non-systemd key path", path)
 		}
-		data, err := os.ReadFile(filepath.Join(directory, "build.cred"))
+		data, err := os.ReadFile(filepath.Join(directory, f.options.credentialName+".cred"))
 		if err != nil {
 			return nil, err
 		}
@@ -150,7 +153,7 @@ func TestSystemdAppSetupResumesAfterProvisionFailure(t *testing.T) {
 	f.provision = func(ctx context.Context, name string) error {
 		provisions++
 		state, err := loadApp(filepath.Join(directory, name+".app.json"))
-		if err != nil || state.KeyPath != "/run/credentials/ghalet.service/build" {
+		if err != nil || state.KeyPath != "/run/credentials/ghalet.service/"+f.options.credentialName {
 			t.Fatal("provisioning happened before saving resume metadata", err)
 		}
 		if provisions == 1 {
@@ -178,7 +181,7 @@ func TestSystemdAppSetupResumesAfterProvisionFailure(t *testing.T) {
 		!strings.Contains(output.String(), "root: /var/log/ghalet/runners") {
 		t.Fatal("missing suggested package service settings", output.String())
 	}
-	if err := os.WriteFile(f.options.Config, []byte("runner:\n  user: ghalet-runner\nlogs:\n  root: /var/log/ghalet/runners\ntargets:\n  - id: build\n    scope: owner/repo\n"), 0444); err != nil {
+	if err := os.WriteFile(f.options.Config, []byte("runner:\n  user: ghalet-runner\nlogs:\n  root: /var/log/ghalet/runners\ntargets:\n  - scaleSet: build\n    scope: owner/repo\n"), 0444); err != nil {
 		t.Fatal(err)
 	}
 	logRoot, err := fshelper.ResolveDirectory("/var/log/ghalet/runners")
@@ -191,7 +194,7 @@ func TestSystemdAppSetupResumesAfterProvisionFailure(t *testing.T) {
 		config.Logs.Root != logRoot {
 		t.Fatal("new systemd config does not use package service settings", config, err)
 	}
-	if _, err := os.Stat(filepath.Join(directory, "build.pem")); !errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Stat(filepath.Join(directory, f.options.credentialName+".pem")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatal("systemd setup wrote a plaintext PEM", err)
 	}
 	if strings.Contains(output.String(), "PRIVATE KEY") || !strings.Contains(output.String(), "Encrypted key:") {

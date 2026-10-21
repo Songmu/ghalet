@@ -68,9 +68,13 @@ func setupFixture(t *testing.T, scope, ownerType string) *fixture {
 	f := &fixture{
 		key: key, ownerType: ownerType, scope: scope, appOwner: "owner", permission: "write",
 		pem:     string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})),
-		options: Options{ID: "build", Scope: scope, Config: filepath.Join(root, "config.yaml"), Yes: true},
+		options: Options{ScaleSet: "build", Scope: scope, Config: filepath.Join(root, "config.yaml"), Yes: true},
 	}
-	data := "# keep this comment\ndefaults:\n  credential: &shared\n    type: gh\ntargets:\n  - id: build\n    scope: " + scope + "\n  - id: other\n    scope: owner/other\n    credential: *shared\n"
+	f.options.credentialName, err = settings.TargetKey(scope, "", "build")
+	if err != nil {
+		t.Fatal(err)
+	}
+	data := "# keep this comment\ndefaults:\n  credential: &shared\n    type: gh\ntargets:\n  - scaleSet: build\n    scope: " + scope + "\n  - scaleSet: other\n    scope: owner/other\n    credential: *shared\n"
 	if err := os.WriteFile(f.options.Config, []byte(data), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -181,10 +185,10 @@ func TestSetupRejectsKeyReplacementAfterVerification(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			keyPath := filepath.Join(directory, f.options.ID+".pem")
+			keyPath := filepath.Join(directory, f.options.credentialName+".pem")
 			rotate := func() {
 				_, err := credentialstore.SetFile(t.Context(), credentialstore.Options{
-					Name: f.options.ID, Type: "github-app", Stdin: true, NoDefault: true,
+					Name: f.options.credentialName, Type: "github-app", Stdin: true, NoDefault: true,
 				}, bytes.NewReader(replacement))
 				if err != nil {
 					t.Error("could not perform concurrent key replacement", err)
@@ -424,17 +428,17 @@ func TestManifestSetup(t *testing.T) {
 	}
 }
 
-func TestSetupWithUnquotedNumericTargetID(t *testing.T) {
+func TestSetupWithUnquotedNumericScaleSet(t *testing.T) {
 	f := setupFixture(t, "owner/repo", "User")
 	data, err := os.ReadFile(f.options.Config)
 	if err != nil {
 		t.Fatal(err)
 	}
-	data = bytes.Replace(data, []byte("id: build"), []byte("id: 123"), 1)
+	data = bytes.Replace(data, []byte("scaleSet: build"), []byte("scaleSet: 123"), 1)
 	if err := os.WriteFile(f.options.Config, data, 0600); err != nil {
 		t.Fatal(err)
 	}
-	f.options.ID = "123"
+	f.options.ScaleSet = "123"
 	var output bytes.Buffer
 	result, err := f.run(t.Context(), f.options, nil, &output)
 	if err != nil {
@@ -444,10 +448,11 @@ func TestSetupWithUnquotedNumericTargetID(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Target != "123" || config.Targets[0].ID != "123" ||
+	want, _ := settings.TargetKey(f.options.Scope, "", "123")
+	if result.Target != want || config.Targets[0].ID != want ||
 		config.Targets[0].InstallationID != 123 || config.Targets[0].Credential.ClientID != "Iv1.test" ||
 		config.Targets[1].Credential.Type != "gh" || config.Defaults.Credential.Type != "gh" {
-		t.Fatal("numeric target ID did not select the correct configuration mapping")
+		t.Fatal("numeric scale set did not select the correct configuration mapping")
 	}
 }
 
@@ -568,7 +573,7 @@ func TestSetupDoesNotReplaceConcurrentCredential(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	keyPath := filepath.Join(stateDirectory, "credentials", f.options.ID+".pem")
+	keyPath := filepath.Join(stateDirectory, "credentials", f.options.credentialName+".pem")
 	existing := []byte("concurrently-registered-credential")
 	f.open = func(ctx context.Context, address string) error {
 		if err := os.WriteFile(keyPath, existing, 0600); err != nil {
@@ -645,12 +650,12 @@ func TestSetupFailureRetainsAppAndConfiguration(t *testing.T) {
 }
 
 func TestSetupRejectsUnsupportedOptions(t *testing.T) {
-	for _, kind := range []string{"id", "listener", "scope", "host", "orphan-key"} {
+	for _, kind := range []string{"scale-set", "listener", "scope", "host", "orphan-key"} {
 		t.Run(kind, func(t *testing.T) {
 			f := setupFixture(t, "owner/repo", "User")
 			switch kind {
-			case "id":
-				f.options.ID = "../escape"
+			case "scale-set":
+				f.options.ScaleSet = ""
 			case "listener":
 				f.options.Listen = "0.0.0.0:8765"
 			case "scope":
@@ -661,7 +666,7 @@ func TestSetupRejectsUnsupportedOptions(t *testing.T) {
 				dir, _ := settings.StateDirectory()
 				path := filepath.Join(dir, "credentials")
 				os.MkdirAll(path, 0700)
-				os.WriteFile(filepath.Join(path, "build.pem"), []byte(f.pem), 0600)
+				os.WriteFile(filepath.Join(path, f.options.credentialName+".pem"), []byte(f.pem), 0600)
 			}
 			if _, err := f.run(t.Context(), f.options, nil, io.Discard); err == nil {
 				t.Fatal("unsupported setup accepted")

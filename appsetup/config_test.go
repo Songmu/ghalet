@@ -16,22 +16,21 @@ import (
 
 func TestScopeTargetSelection(t *testing.T) {
 	for _, tc := range []struct {
-		name, scope, id, targets, want, failure string
+		name, scope, scaleSet, group, targets, failure string
+		exists                                         bool
 	}{
-		{name: "repository", scope: "Owner/Repo", targets: "[]", want: "owner-repo"},
-		{name: "organization", scope: "Owner", targets: "[]", want: "owner"},
-		{name: "repository dots", scope: "Owner/Repo.Name", targets: "[]", want: "owner-repo-name"},
-		{name: "custom ID", scope: "owner/repo", id: "build", targets: "[]", want: "build"},
-		{name: "reuse scope", scope: "OWNER/REPO", targets: "\n  - id: existing\n    scope: https://github.com/owner/repo/", want: "existing"},
-		{name: "explicit existing", scope: "owner/repo", id: "existing", targets: "\n  - id: existing\n    scope: owner/repo", want: "existing"},
-		{name: "append", scope: "owner/repo", targets: "\n  - id: other\n    scope: owner/other", want: "owner-repo"},
-		{name: "ambiguous scope", scope: "owner/repo", targets: "\n  - id: first\n    scope: owner/repo\n  - id: second\n    scope: owner/repo", failure: "multiple targets"},
-		{name: "explicit disambiguation", scope: "owner/repo", id: "second", targets: "\n  - id: first\n    scope: owner/repo\n  - id: second\n    scope: owner/repo", want: "second"},
-		{name: "explicit additional target", scope: "owner/repo", id: "second", targets: "\n  - id: first\n    scope: owner/repo", want: "second"},
-		{name: "ID collision", scope: "owner/repo", targets: "\n  - id: owner-repo\n    scope: owner/other", failure: "collides"},
-		{name: "explicit ID collision", scope: "owner/repo", id: "existing", targets: "\n  - id: existing\n    scope: owner/other", failure: "different scope"},
-		{name: "long derived ID", scope: "owner/" + strings.Repeat("r", 70), targets: "[]", failure: "specify --id"},
-		{name: "long scope explicit ID", scope: "owner/" + strings.Repeat("r", 70), id: "short", targets: "[]", want: "short"},
+		{name: "repository", scope: "Owner/Repo", scaleSet: "build", targets: "[]"},
+		{name: "organization group", scope: "Owner", scaleSet: "build", group: "linux", targets: "[]"},
+		{name: "reuse registration", scope: "OWNER/REPO", scaleSet: "existing", targets: "\n  - scaleSet: existing\n    scope: https://github.com/owner/repo/", exists: true},
+		{name: "select scale set", scope: "owner/repo", scaleSet: "second", targets: "\n  - scaleSet: first\n    scope: owner/repo\n  - scaleSet: second\n    scope: owner/repo", exists: true},
+		{name: "additional scale set", scope: "owner/repo", scaleSet: "second", targets: "\n  - scaleSet: first\n    scope: owner/repo"},
+		{name: "different scope", scope: "owner/repo", scaleSet: "build", targets: "\n  - scaleSet: build\n    scope: owner/other"},
+		{name: "select group", scope: "owner", scaleSet: "build", group: "linux", targets: "\n  - scaleSet: build\n    scope: owner\n  - scaleSet: build\n    scope: owner\n    runnerGroup: linux", exists: true},
+		{name: "explicit default group", scope: "owner", scaleSet: "build", group: settings.RunnerGroupName(""), targets: "\n  - scaleSet: build\n    scope: owner", exists: true},
+		{name: "additional group", scope: "owner", scaleSet: "build", group: "linux", targets: "\n  - scaleSet: build\n    scope: owner"},
+		{name: "long names", scope: "owner/" + strings.Repeat("r", 70), scaleSet: strings.Repeat("b", 100), targets: "[]"},
+		{name: "missing scale set", scope: "owner/repo", targets: "[]", failure: "scaleSet is required"},
+		{name: "repository group", scope: "owner/repo", scaleSet: "build", group: "linux", targets: "[]", failure: "repository scope"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			root, err := filepath.EvalSymlinks(t.TempDir())
@@ -46,7 +45,7 @@ func TestScopeTargetSelection(t *testing.T) {
 			if err := os.WriteFile(path, data, 0600); err != nil {
 				t.Fatal(err)
 			}
-			prepared, err := setupConfig(Options{Config: path, Scope: tc.scope, ID: tc.id})
+			prepared, err := setupConfig(Options{Config: path, Scope: tc.scope, ScaleSet: tc.scaleSet, RunnerGroup: tc.group})
 			if tc.failure != "" {
 				if err == nil || !strings.Contains(err.Error(), tc.failure) {
 					t.Fatalf("got %v; want %q", err, tc.failure)
@@ -56,7 +55,8 @@ func TestScopeTargetSelection(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if prepared.options.ID != tc.want || prepared.target.ID != tc.want || !bytes.Equal(prepared.before, data) ||
+			want, _ := settings.TargetKey(tc.scope, tc.group, tc.scaleSet)
+			if prepared.options.credentialName != want || prepared.target.ID != want || prepared.targetExists != tc.exists || !bytes.Equal(prepared.before, data) ||
 				!bytes.Contains(prepared.proposed, []byte("# keep")) {
 				t.Fatal("unexpected target selection", prepared.options, prepared.target)
 			}
@@ -70,13 +70,12 @@ func TestScopeTargetSelection(t *testing.T) {
 
 func TestAppendTargetDoesNotInheritAppInstallation(t *testing.T) {
 	f := setupFixture(t, "owner/repo", "User")
-	data := []byte("defaults:\n  credential:\n    type: github-app\n    clientId: existing\n    privateKeyFile: existing.pem\ntargets:\n  - id: existing\n    scope: owner/other\n    installationId: 42\n")
+	data := []byte("defaults:\n  credential:\n    type: github-app\n    clientId: existing\n    privateKeyFile: existing.pem\ntargets:\n  - scaleSet: existing\n    scope: owner/other\n    installationId: 42\n")
 	if err := os.WriteFile(f.options.Config, data, 0600); err != nil {
 		t.Fatal(err)
 	}
-	f.options.ID = ""
 	prepared, err := setupConfig(f.options)
-	if err != nil || prepared.target.ID != "owner-repo" || prepared.target.Credential.Type != "gh" {
+	if err != nil || prepared.target.ID != f.options.credentialName || prepared.target.Credential.Type != "gh" {
 		t.Fatal("new target inherited an unrelated App installation", err)
 	}
 	config, err := settings.ParseConfig(f.options.Config, prepared.proposed)
@@ -165,13 +164,13 @@ func TestSetupRejectsManagedPersistenceCollisionsBeforeAppCreation(t *testing.T)
 				case "metadata":
 					path = files.metadata
 				case "setup-lock":
-					path = filepath.Join(directory, "build.setup.lock")
+					path = filepath.Join(directory, f.options.credentialName+".setup.lock")
 				case "managed-lock":
-					path = filepath.Join(directory, "build.setup")
+					path = filepath.Join(directory, f.options.credentialName+".setup")
 				case "drop-in":
-					path = filepath.Join(credentialstore.SystemdDropInDirectory, "credential-build.conf")
+					path = filepath.Join(credentialstore.SystemdDropInDirectory, "credential-"+f.options.credentialName+".conf")
 				}
-				static := []byte(fmt.Sprintf("managedFile: %s\ntargets:\n  - id: build\n    scope: owner/repo\n", path))
+				static := []byte(fmt.Sprintf("managedFile: %s\ntargets:\n  - scaleSet: build\n    scope: owner/repo\n", path))
 				if name == "config-symlink" {
 					if err := os.Remove(f.options.Config); err != nil {
 						t.Fatal(err)

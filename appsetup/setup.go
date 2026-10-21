@@ -90,15 +90,15 @@ func (s service) run(ctx context.Context, options Options, input *os.File, outpu
 	files := setupPaths(directory, options)
 	reserved := []string{
 		files.key, files.diskKey, files.diskKey + ".previous", files.metadata,
-		filepath.Join(directory, options.ID+".setup.lock"), filepath.Join(directory, ".lock"),
+		filepath.Join(directory, options.credentialName+".setup.lock"), filepath.Join(directory, ".lock"),
 	}
 	if options.Systemd {
-		reserved = append(reserved, filepath.Join(credentialstore.SystemdDropInDirectory, "credential-"+options.ID+".conf"))
+		reserved = append(reserved, filepath.Join(credentialstore.SystemdDropInDirectory, "credential-"+options.credentialName+".conf"))
 	}
 	if err := settings.CheckManagedPaths(prepared.managedPath, options.Config, reserved...); err != nil {
 		return Result{}, err
 	}
-	lock, err := lockSetup(directory, options.ID)
+	lock, err := lockSetup(directory, options.credentialName)
 	if err != nil {
 		return Result{}, err
 	}
@@ -118,7 +118,7 @@ func (s service) run(ctx context.Context, options Options, input *os.File, outpu
 		}
 	}
 	state.reconcileKeyPath(options, files.key)
-	result := Result{ClientID: state.ClientID, KeyPath: state.KeyPath, MetadataPath: files.metadata, Target: options.ID}
+	result := Result{ClientID: state.ClientID, KeyPath: state.KeyPath, MetadataPath: files.metadata, Target: options.credentialName}
 	installed, verifiedKey, err := s.installApp(ctx, options, files, state, owner, permission, newApp, output)
 	if err != nil {
 		return result, err

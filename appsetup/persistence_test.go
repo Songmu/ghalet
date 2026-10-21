@@ -138,7 +138,7 @@ func TestSetupResumesAfterTrustedBaseMigration(t *testing.T) {
 				}
 				return
 			}
-			want := filepath.Join(moved, "credentials", f.options.ID+".pem")
+			want := filepath.Join(moved, "credentials", f.options.credentialName+".pem")
 			if err != nil || second.KeyPath != want || second.InstallationID != 123 ||
 				f.conversions.Load() != 1 || f.ownerCalls.Load() != 1 {
 				t.Fatal("resumption did not reuse the migrated App and canonical key", second, err)
@@ -227,12 +227,12 @@ func TestConversionWaitsForCredentialStoreLock(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("setup did not save credentials after the store lock was released")
 	}
-	keyPath := filepath.Join(directory, f.options.ID+".pem")
+	keyPath := filepath.Join(directory, f.options.credentialName+".pem")
 	key, err := readPrivate(keyPath)
 	if err != nil || !bytes.Equal(bytes.TrimSpace(key), bytes.TrimSpace([]byte(f.pem))) {
 		t.Fatal("store lock contention lost the original converted App key", err)
 	}
-	state, err := loadApp(filepath.Join(directory, f.options.ID+".app.json"))
+	state, err := loadApp(filepath.Join(directory, f.options.credentialName+".app.json"))
 	if err != nil || state.ID != 77 || state.ClientID != "Iv1.test" || state.KeyPath != keyPath {
 		t.Fatal("store lock contention lost resumption metadata", err)
 	}

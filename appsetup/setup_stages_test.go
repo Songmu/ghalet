@@ -54,13 +54,13 @@ func TestSetupPreservesPartialResult(t *testing.T) {
 			if err == nil {
 				t.Fatal("setup unexpectedly succeeded")
 			}
-			want := Result{MetadataPath: filepath.Join(directory, "build.app.json"), Target: "build"}
+			want := Result{MetadataPath: filepath.Join(directory, f.options.credentialName+".app.json"), Target: f.options.credentialName}
 			switch stage {
 			case "preflight":
 				want = Result{}
 			case "owner", "installation", "confirmation":
 				want.ClientID = "Iv1.test"
-				want.KeyPath = filepath.Join(directory, "build.pem")
+				want.KeyPath = filepath.Join(directory, f.options.credentialName+".pem")
 			}
 			if stage == "confirmation" {
 				want.InstallationID = 123

@@ -40,13 +40,9 @@ properties:
       type: object
       additionalProperties: false
       required:
-        - id
         - scope
+        - scaleSet
       properties:
-        id:
-          type: string
-          pattern: "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$"
-          description: Unique local ID used by management commands.
         scope:
           type: string
           minLength: 1
@@ -69,8 +65,9 @@ properties:
           description: Organization runner group; empty uses the default group. Not supported for repositories.
         scaleSet:
           type: string
-          pattern: '^(|[^\s\u0000]([^\r\n\u0000]*[^\s\u0000])?)$'
-          description: GitHub scale set name and runs-on label. Defaults to id when omitted or empty.
+          minLength: 1
+          pattern: '^[^\s\u0000]([^\r\n\u0000]*[^\s\u0000])?$'
+          description: GitHub scale set name and runs-on label. Together with scope and runnerGroup, identifies the target.
         scaling:
           type: object
           additionalProperties: false

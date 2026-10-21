@@ -212,11 +212,11 @@ func TestReconcileSchedulesFirstRunWithoutProcessInspection(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", dir+":"+os.Getenv("PATH"))
-	d.targets["build"].Assigned = 1
+	d.targets[buildTargetID].Assigned = 1
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.reconcile()
-	if len(d.runs) != 1 || d.active("build") != 1 {
+	if len(d.runs) != 1 || d.active(buildTargetID) != 1 {
 		t.Fatal("idle process inspection failure prevented the first reservation")
 	}
 	for _, run := range d.runs {
@@ -235,7 +235,7 @@ func TestEphemeralJobsNeverReuseExecutionDirectories(t *testing.T) {
 	seedDistribution(t, d.config, "#!/bin/sh\nprintf 'Listening for Jobs\\n'\nsleep 0.4\nexit 0\n")
 	ids := map[string]bool{}
 	for job := 0; job < 2; job++ {
-		d.targets["build"].Assigned = 1
+		d.targets[buildTargetID].Assigned = 1
 		var state *RunState
 		pumpUntil(t, d, func() bool {
 			for _, run := range d.runs {
@@ -251,7 +251,7 @@ func TestEphemeralJobsNeverReuseExecutionDirectories(t *testing.T) {
 		}
 		ids[state.RunID] = true
 		d.mu.Lock()
-		d.targets["build"].Assigned = 0
+		d.targets[buildTargetID].Assigned = 0
 		state.Busy, state.Phase = true, "busy"
 		d.save(d.runs[state.RunID])
 		d.mu.Unlock()
@@ -272,8 +272,8 @@ func TestSharedCapacityYieldsIdleButNeverBusyRunners(t *testing.T) {
 	d, api := testDaemon(t)
 	cleanupProcesses(t, d)
 	seedDistribution(t, d.config, "#!/bin/sh\nprintf 'Listening for Jobs\\n'\nsleep 30\n")
-	d.targets["build"].Config.Scaling.MinRunners = 2
-	otherConfig := d.targets["build"].Config
+	d.targets[buildTargetID].Config.Scaling.MinRunners = 2
+	otherConfig := d.targets[buildTargetID].Config
 	otherConfig.ID, otherConfig.ScaleSetName = "other", "other"
 	otherConfig.Scaling.MinRunners = 0
 	otherAPI := newFakeAPI()
@@ -297,7 +297,7 @@ func TestSharedCapacityYieldsIdleButNeverBusyRunners(t *testing.T) {
 		busyID = run.State.RunID
 		break
 	}
-	d.targets["build"].Assigned = 1
+	d.targets[buildTargetID].Assigned = 1
 	d.targets["other"].Assigned = 1
 	d.mu.Unlock()
 	pumpUntil(t, d, func() bool {
@@ -311,7 +311,7 @@ func TestSharedCapacityYieldsIdleButNeverBusyRunners(t *testing.T) {
 		}
 		return false
 	})
-	if d.runs[busyID] == nil || !d.runs[busyID].State.Busy || d.active("build") != 1 || d.active("other") != 1 {
+	if d.runs[busyID] == nil || !d.runs[busyID].State.Busy || d.active(buildTargetID) != 1 || d.active("other") != 1 {
 		t.Fatal("capacity yield stopped a busy runner or failed to transfer exactly one slot")
 	}
 	if api.removeCalls != 1 {
@@ -323,7 +323,7 @@ func TestAssignmentRacePreventsIdleReclamation(t *testing.T) {
 	d, api := testDaemon(t)
 	cleanupProcesses(t, d)
 	seedDistribution(t, d.config, "#!/bin/sh\nprintf 'Listening for Jobs\\n'\nsleep 30\n")
-	d.targets["build"].Config.Scaling.MinRunners = 1
+	d.targets[buildTargetID].Config.Scaling.MinRunners = 1
 	pumpUntil(t, d, func() bool {
 		for _, run := range d.runs {
 			return run.State.Ready
@@ -346,7 +346,7 @@ func TestDrainStartsPreviouslyAcceptedBacklogWithinCapacity(t *testing.T) {
 	cleanupProcesses(t, d)
 	d.config.Capacity.MaxRunners = 1
 	seedDistribution(t, d.config, "#!/bin/sh\nprintf 'Listening for Jobs\\n'\nsleep 0.4\n")
-	target := d.targets["build"]
+	target := d.targets[buildTargetID]
 	target.Assigned = 2
 	d.beginDrain(target)
 	seen := map[string]bool{}
@@ -371,7 +371,7 @@ func TestDrainStartsPreviouslyAcceptedBacklogWithinCapacity(t *testing.T) {
 		d.mu.Unlock()
 		pumpUntil(t, d, func() bool { return d.runs[run.State.RunID] == nil })
 	}
-	if !d.drained("build") || len(seen) != 2 {
+	if !d.drained(buildTargetID) || len(seen) != 2 {
 		t.Fatal("drain skipped previously accepted unstarted jobs")
 	}
 }
@@ -380,7 +380,7 @@ func TestStartupTimeoutIsMeasuredAfterProcessStart(t *testing.T) {
 	d, _ := testDaemon(t)
 	cleanupProcesses(t, d)
 	seedDistribution(t, d.config, "#!/bin/sh\nsleep 30\n")
-	d.targets["build"].Assigned = 1
+	d.targets[buildTargetID].Assigned = 1
 	var state *RunState
 	pumpUntil(t, d, func() bool {
 		for _, run := range d.runs {
@@ -400,7 +400,7 @@ func TestStartupTimeoutIsMeasuredAfterProcessStart(t *testing.T) {
 	d.mu.Unlock()
 	settleRuns(d)
 	d.mu.Lock()
-	if d.runs[state.RunID] != nil || d.targets["build"].Failures != 1 {
+	if d.runs[state.RunID] != nil || d.targets[buildTargetID].Failures != 1 {
 		status := d.statusLocked()
 		d.mu.Unlock()
 		t.Fatalf("startup timeout did not stop/reap and back off: status=%+v", status)
@@ -412,7 +412,7 @@ func TestDrainTimeoutForceStopsButIsNotSuccess(t *testing.T) {
 	d, _ := testDaemon(t)
 	cleanupProcesses(t, d)
 	seedDistribution(t, d.config, "#!/bin/sh\nprintf 'Listening for Jobs\\n'\nsleep 30\n")
-	target := d.targets["build"]
+	target := d.targets[buildTargetID]
 	target.Assigned = 1
 	pumpUntil(t, d, func() bool {
 		for _, run := range d.runs {
@@ -429,10 +429,10 @@ func TestDrainTimeoutForceStopsButIsNotSuccess(t *testing.T) {
 	d.reconcile()
 	d.mu.Unlock()
 	settleRuns(d)
-	if !target.Forced || !d.drained("build") || d.occupied() != 0 || len(d.statusLocked().Problems) == 0 {
+	if !target.Forced || !d.drained(buildTargetID) || d.occupied() != 0 || len(d.statusLocked().Problems) == 0 {
 		t.Fatal("forced drain was not distinguished from normal completion")
 	}
-	response := d.drain(t.Context(), "build")
+	response := d.drain(t.Context(), buildTargetID)
 	if response.Error == "" {
 		t.Fatal("forced drain returned success")
 	}
@@ -453,14 +453,14 @@ func TestShutdownWaitsForUncertainLiveRunnerAfterDrainDeadline(t *testing.T) {
 	cleanupProcesses(t, d)
 	seedDistribution(t, d.config, "#!/bin/sh\nprintf 'Listening for Jobs\\n'\nsleep 30\n")
 	d.config.Runner.DrainTimeout = settings.Duration(50 * time.Millisecond)
-	d.targets["build"].Assigned = 1
+	d.targets[buildTargetID].Assigned = 1
 	run := waitForRun(t, d, func(run *activeRun) bool {
 		return run.State.Ready && !run.Preparing
 	})
 	d.mu.Lock()
 	run.Uncertain, run.State.Error = true, "identity requires manual inspection"
 	run.State.Busy, run.State.Phase = true, "busy"
-	d.targets["build"].Assigned = 0
+	d.targets[buildTargetID].Assigned = 0
 	d.mu.Unlock()
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
@@ -539,7 +539,7 @@ func TestDrainedRequiresUncertainGroupAndObserverConfirmation(t *testing.T) {
 	if !d.drained("") || !run.Uncertain || len(d.statusLocked().Problems) == 0 {
 		t.Fatal("confirmed stopped execution blocked shutdown or lost its diagnostics")
 	}
-	if d.occupied() != 0 || d.active("build") != 0 {
+	if d.occupied() != 0 || d.active(buildTargetID) != 0 {
 		t.Fatal("confirmed stopped execution retained capacity")
 	}
 	run.output = nil
@@ -562,13 +562,13 @@ func TestRunnerExitStopsObservedDescendantsBeforeCollectingOutput(t *testing.T) 
 		t.Fatal(err)
 	}
 	seedDistribution(t, d.config, "#!/bin/sh\nsleep 30 &\nprintf 'Listening for Jobs\\n'\nread -r release < '"+release+"'\nprintf 'final-secret-tail'\nexit 0\n")
-	d.targets["build"].Assigned = 1
+	d.targets[buildTargetID].Assigned = 1
 	run := waitForRun(t, d, func(run *activeRun) bool {
 		return run.State.Ready && !run.Preparing && len(run.State.Members) >= 2
 	})
 	d.mu.Lock()
 	run.State.Busy, run.State.Phase = true, "busy"
-	d.targets["build"].Assigned = 0
+	d.targets[buildTargetID].Assigned = 0
 	if err := d.save(run); err != nil {
 		d.mu.Unlock()
 		t.Fatal(err)
@@ -584,7 +584,7 @@ func TestRunnerExitStopsObservedDescendantsBeforeCollectingOutput(t *testing.T) 
 		t.Fatal(err)
 	}
 	pumpUntil(t, d, func() bool { return d.runs[run.State.RunID] == nil })
-	if !run.Exited || !run.outputCollected() || d.occupied() != 0 || d.targets["build"].Forced {
+	if !run.Exited || !run.outputCollected() || d.occupied() != 0 || d.targets[buildTargetID].Forced {
 		t.Fatal("runner exit retained descendants/output or required forced drain")
 	}
 	data, err := os.ReadFile(filepath.Join(d.config.Logs.Root, "runs", run.State.RunID, "output.log"))
@@ -608,7 +608,7 @@ func TestExitClassificationWaitsForCollectedReadiness(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			d, _ := testDaemon(t)
-			target := d.targets["build"]
+			target := d.targets[buildTargetID]
 			target.Failures = maxAttempts - 1
 			state := testState(t, d.config)
 			state.Phase = "registered"
@@ -647,14 +647,14 @@ func TestExitClassificationWaitsForCollectedReadiness(t *testing.T) {
 func TestCompletedTargetDrainDoesNotExpire(t *testing.T) {
 	d, api := testDaemon(t)
 	useFakeManagement(d, api)
-	target := d.targets["build"]
+	target := d.targets[buildTargetID]
 	d.beginDrain(target)
 	target.DrainStarted = time.Now().Add(-time.Hour)
 	reconcileAndWait(d)
 	if target.Forced || len(d.statusLocked().Problems) != 0 {
 		t.Fatal("a completed drain became a forced-drain failure")
 	}
-	if response := d.drain(t.Context(), "build"); response.Error != "" {
+	if response := d.drain(t.Context(), buildTargetID); response.Error != "" {
 		t.Fatal(response.Error)
 	}
 	if err := d.deleteRetiredScaleSet(t.Context(), target); err != nil || api.deleteCalls != 1 {
@@ -664,18 +664,18 @@ func TestCompletedTargetDrainDoesNotExpire(t *testing.T) {
 
 func TestTransientPreparationFailuresRecoverOnlyAffectedTarget(t *testing.T) {
 	d, _ := testDaemon(t)
-	other := *d.targets["build"]
+	other := *d.targets[buildTargetID]
 	other.Config.ID = "other"
 	d.targets["other"] = &other
 	d.order = append(d.order, "other")
 	for range 20 {
-		d.startFailure(d.targets["build"], errTestAPI)
+		d.startFailure(d.targets[buildTargetID], errTestAPI)
 	}
-	if d.targets["build"].Fault != "" || d.canStart(d.targets["build"]) || !d.canStart(d.targets["other"]) {
+	if d.targets[buildTargetID].Fault != "" || d.canStart(d.targets[buildTargetID]) || !d.canStart(d.targets["other"]) {
 		t.Fatal("target failure was hidden or affected an unrelated target")
 	}
-	d.targets["build"].RetryAt = time.Now().Add(-time.Second)
-	if !d.canStart(d.targets["build"]) {
+	d.targets[buildTargetID].RetryAt = time.Now().Add(-time.Second)
+	if !d.canStart(d.targets[buildTargetID]) {
 		t.Fatal("transient failures permanently stopped the target")
 	}
 	state := testState(t, d.config)
@@ -683,7 +683,7 @@ func TestTransientPreparationFailuresRecoverOnlyAffectedTarget(t *testing.T) {
 	run := &activeRun{State: state}
 	d.runs[state.RunID] = run
 	// A real state write failure must not turn into an unrecorded launch.
-	os.WriteFile(d.config.Runner.WorkRoot+"/build", []byte("not a directory"), 0600)
+	os.WriteFile(d.config.Runner.WorkRoot+"/"+buildTargetID, []byte("not a directory"), 0600)
 	if err := d.save(run); err == nil || !run.Uncertain || d.occupied() != 1 {
 		t.Fatal("state failure did not retain a conservative reservation")
 	}
@@ -696,7 +696,7 @@ func TestRecoveryKeepsUnmatchedAndCorruptStateConservative(t *testing.T) {
 	state.Phase = "launching"
 	d.store.save(state)
 	brokenID, _ := newID()
-	broken := filepath.Join(d.config.Runner.WorkRoot, "build", brokenID)
+	broken := filepath.Join(d.config.Runner.WorkRoot, buildTargetID, brokenID)
 	fshelper.EnsureDirectory(broken, 0700)
 	os.WriteFile(filepath.Join(broken, "state.json"), []byte("{"), 0600)
 	invalid := testState(t, d.config)
@@ -711,7 +711,7 @@ func TestRecoveryKeepsUnmatchedAndCorruptStateConservative(t *testing.T) {
 		t.Fatal("unknown state did not reserve capacity and produce diagnostics")
 	}
 	session := &fakeSession{}
-	scaler := &targetScaler{daemon: d, target: d.targets["build"], session: session}
+	scaler := &targetScaler{daemon: d, target: d.targets[buildTargetID], session: session}
 	if err := scaler.Scale(t.Context(), availableMessage(1, 5)); err != nil || len(session.acquired) != 0 {
 		t.Fatal("malformed records did not retain acquisition capacity", err)
 	}
@@ -741,7 +741,7 @@ func TestRecoveredStoppedRunnerLookupFailureReleasesCapacity(t *testing.T) {
 	reconcileAndWait(d)
 	run := d.runs[state.RunID]
 	if run == nil || !run.CleanupTried || run.State.Error == "" || run.Uncertain ||
-		d.occupied() != 0 || d.active("build") != 0 || !d.drained("") {
+		d.occupied() != 0 || d.active(buildTargetID) != 0 || !d.drained("") {
 		t.Fatal("remote cleanup failure retained execution capacity or lost diagnostics")
 	}
 	if api.removeCalls != 0 {
@@ -779,7 +779,7 @@ func TestStoppedStatePersistenceFailureDoesNotRestoreCapacityReservation(t *test
 				}
 			}
 			if !run.Uncertain || !run.GroupStopped || run.State.Error == "" ||
-				d.occupied() != 0 || d.active("build") != 0 || !d.drained("") {
+				d.occupied() != 0 || d.active(buildTargetID) != 0 || !d.drained("") {
 				t.Fatal("persistence failure restored a verified stopped reservation or lost diagnostics")
 			}
 			if err := d.cleanup(run); err == nil {
@@ -798,7 +798,7 @@ func TestStoppedRecoveryAllowsUnrelatedRunnerLaunch(t *testing.T) {
 	if err := d.store.save(state); err != nil {
 		t.Fatal(err)
 	}
-	delete(d.targets, "build")
+	delete(d.targets, buildTargetID)
 	otherAPI := newFakeAPI()
 	other := &targetRuntime{Config: d.config.Targets[0], Client: otherAPI, Set: otherAPI.set, Assigned: 1}
 	other.Config.ID = "other"
@@ -810,7 +810,7 @@ func TestStoppedRecoveryAllowsUnrelatedRunnerLaunch(t *testing.T) {
 	waitForRun(t, d, func(run *activeRun) bool {
 		return run.State.TargetID == "other" && run.State.Ready && !run.Preparing
 	})
-	if d.occupied() != 1 || d.active("other") != 1 || d.active("build") != 0 || d.runs[state.RunID] == nil {
+	if d.occupied() != 1 || d.active("other") != 1 || d.active(buildTargetID) != 0 || d.runs[state.RunID] == nil {
 		t.Fatal("unrelated launch lost retained state or miscounted shared capacity")
 	}
 }
@@ -852,19 +852,19 @@ func TestRecoveryStoppedDiagnosticsDoNotReserveCapacity(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				other := *d.targets["build"]
+				other := *d.targets[buildTargetID]
 				other.Config.ID = "other"
 				d.targets["other"] = &other
 				d.order = append(d.order, "other")
 				switch mismatch {
 				case "removed target":
-					delete(d.targets, "build")
+					delete(d.targets, buildTargetID)
 					d.order = []string{"other"}
 				case "authentication":
-					d.targets["build"].Fault = "authentication failed"
-					d.targets["build"].Set = nil
+					d.targets[buildTargetID].Fault = "authentication failed"
+					d.targets[buildTargetID].Set = nil
 				case "registration":
-					d.targets["build"].Config.ScaleSetName = "replacement"
+					d.targets[buildTargetID].Config.ScaleSetName = "replacement"
 				case "execution user":
 					d.user.Home += "/changed"
 				}
@@ -877,7 +877,7 @@ func TestRecoveryStoppedDiagnosticsDoNotReserveCapacity(t *testing.T) {
 				}
 				d.reconcileRun(run, map[int]procgroup.Entry{})
 				status := d.statusLocked()
-				if status.Occupied != 0 || d.active("build") != 0 || len(status.Problems) == 0 || !d.canStart(&other) {
+				if status.Occupied != 0 || d.active(buildTargetID) != 0 || len(status.Problems) == 0 || !d.canStart(&other) {
 					t.Fatal("stopped diagnostic blocked unrelated capacity or lost diagnostics", status)
 				}
 				session := &fakeSession{}
@@ -948,11 +948,11 @@ func TestRecoveryPotentiallyLiveDiagnosticsKeepCapacity(t *testing.T) {
 				t.Fatal(err)
 			}
 			run := d.runs[state.RunID]
-			if run == nil || !run.Uncertain || run.GroupStopped || d.occupied() != 1 || d.active("build") != 1 || d.drained("") {
+			if run == nil || !run.Uncertain || run.GroupStopped || d.occupied() != 1 || d.active(buildTargetID) != 1 || d.drained("") {
 				t.Fatal("potentially live execution did not retain capacity and block drain")
 			}
-			scaler := &targetScaler{daemon: d, target: d.targets["build"], session: &fakeSession{}}
-			if err := scaler.Scale(t.Context(), availableMessage(1, 5)); err != nil || d.targets["build"].Pending != d.config.Capacity.MaxRunners-1 {
+			scaler := &targetScaler{daemon: d, target: d.targets[buildTargetID], session: &fakeSession{}}
+			if err := scaler.Scale(t.Context(), availableMessage(1, 5)); err != nil || d.targets[buildTargetID].Pending != d.config.Capacity.MaxRunners-1 {
 				t.Fatal("scaler ignored a potentially live reservation", err)
 			}
 			if response := d.gc(t.Context(), false); response.Error == "" || api.removeCalls != 0 {
@@ -1109,7 +1109,7 @@ func TestReparentedProcessHelper(t *testing.T) {
 
 func TestReservationRequiresSyncedRunParent(t *testing.T) {
 	d, _ := testDaemon(t)
-	parent := filepath.Join(d.config.Runner.WorkRoot, "build")
+	parent := filepath.Join(d.config.Runner.WorkRoot, buildTargetID)
 	if err := ensureExecutionDirectory(parent); err != nil {
 		t.Fatal(err)
 	}
@@ -1122,12 +1122,12 @@ func TestReservationRequiresSyncedRunParent(t *testing.T) {
 		}
 	})
 	d.mu.Lock()
-	if err := d.reserve(d.targets["build"]); err != nil {
+	if err := d.reserve(d.targets[buildTargetID]); err != nil {
 		t.Fatal(err)
 	}
 	d.mu.Unlock()
 	settleRuns(d)
-	if d.targets["build"].Failures != 1 {
+	if d.targets[buildTargetID].Failures != 1 {
 		t.Fatal("reservation skipped syncing the newly created run entry")
 	}
 	if len(d.runs) != 0 {

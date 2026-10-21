@@ -13,7 +13,7 @@ import (
 func TestListenerCompletionWaitsForCleanup(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		d, _ := testDaemon(t)
-		target := d.targets["build"]
+		target := d.targets[buildTargetID]
 		d.secrets.Add("cleanup-secret")
 		cleanupStarted := make(chan struct{})
 		finishCleanup := make(chan struct{})
@@ -53,7 +53,7 @@ func TestListenerCompletionWaitsForCleanup(t *testing.T) {
 
 func TestListenerCompletionPublishesFinalFault(t *testing.T) {
 	d, _ := testDaemon(t)
-	target := d.targets["build"]
+	target := d.targets[buildTargetID]
 	d.startListener(target)
 	<-target.ListenerDone
 	if !strings.Contains(target.Fault, "official scaleset client") {
@@ -65,7 +65,7 @@ func TestListenerCompletionPublishesFinalFault(t *testing.T) {
 func TestListenerRetainsCloseErrorAfterSessionRecovery(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		d, _ := testDaemon(t)
-		target := d.targets["build"]
+		target := d.targets[buildTargetID]
 		d.secrets.Add("close-secret")
 		var sessions, closed int
 		target.Client = retryTestClient(t, func(r *http.Request) (*http.Response, error) {

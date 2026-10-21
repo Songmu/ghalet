@@ -42,7 +42,6 @@ func prepareSetup(options Options) (preparedConfig, error) {
 	if err != nil {
 		return preparedConfig{}, err
 	}
-	prepared.options.ID = prepared.target.ID
 	return prepared, nil
 }
 
@@ -60,13 +59,13 @@ type setupFiles struct {
 
 func setupPaths(directory string, options Options) setupFiles {
 	files := setupFiles{
-		metadata: filepath.Join(directory, options.ID+".app.json"),
-		key:      filepath.Join(directory, options.ID+".pem"),
+		metadata: filepath.Join(directory, options.credentialName+".app.json"),
+		key:      filepath.Join(directory, options.credentialName+".pem"),
 	}
 	files.diskKey = files.key
 	if options.Systemd {
-		files.diskKey = filepath.Join(directory, options.ID+".cred")
-		files.key = "/run/credentials/ghalet.service/" + options.ID
+		files.diskKey = filepath.Join(directory, options.credentialName+".cred")
+		files.key = "/run/credentials/ghalet.service/" + options.credentialName
 	}
 	return files
 }
@@ -74,7 +73,7 @@ func setupPaths(directory string, options Options) setupFiles {
 func (s service) registerApp(ctx context.Context, options Options, files setupFiles, owner, permission string, output io.Writer) (savedApp, Result, error) {
 	for _, path := range []string{files.diskKey, files.diskKey + ".previous"} {
 		if _, err := os.Lstat(path); !errors.Is(err, os.ErrNotExist) {
-			return savedApp{}, Result{}, errors.New("credential already exists without setup metadata; use a different --id or import the existing App")
+			return savedApp{}, Result{}, errors.New("credential already exists without setup metadata; import the existing App or inspect the retained key")
 		}
 	}
 	var account account
@@ -85,7 +84,7 @@ func (s service) registerApp(ctx context.Context, options Options, files setupFi
 		(!strings.Contains(options.Scope, "/") && account.Type != "Organization") {
 		return savedApp{}, Result{}, errors.New("target owner is not an eligible user or organization")
 	}
-	if _, err := fmt.Fprintf(output, "Target: %s (%s)\nApp owner: %s\nRequested permission: %s (write)\n", options.ID, options.Scope, owner, permission); err != nil {
+	if _, err := fmt.Fprintf(output, "Target: %s (scale set %s, runner group %s)\nApp owner: %s\nRequested permission: %s (write)\n", options.Scope, options.ScaleSet, settings.RunnerGroupName(options.RunnerGroup), owner, permission); err != nil {
 		return savedApp{}, Result{}, err
 	}
 	var state savedApp
@@ -94,7 +93,7 @@ func (s service) registerApp(ctx context.Context, options Options, files setupFi
 		state, err = s.persistApp(ctx, options, files, created, owner)
 		return err
 	})
-	partial := Result{ClientID: state.ClientID, KeyPath: state.KeyPath, MetadataPath: files.metadata, Target: options.ID}
+	partial := Result{ClientID: state.ClientID, KeyPath: state.KeyPath, MetadataPath: files.metadata, Target: options.credentialName}
 	return state, partial, err
 }
 
@@ -106,7 +105,7 @@ func (s service) persistApp(ctx context.Context, options Options, files setupFil
 	// on cancellation or while another credential operation holds the lock.
 	storeContext := context.WithoutCancel(ctx)
 	storeOptions := credentialstore.Options{
-		Name: options.ID, Type: "github-app", Stdin: true, NoDefault: true, NoReplace: true,
+		Name: options.credentialName, Type: "github-app", Stdin: true, NoDefault: true, NoReplace: true,
 	}
 	var stored credentialstore.Result
 	var err error
@@ -141,9 +140,9 @@ func (state *savedApp) reconcileKeyPath(options Options, keyPath string) {
 	}
 	// Reconcile only the storage base, never the managed credential directory or key.
 	recordedBase := filepath.Dir(filepath.Dir(state.KeyPath))
-	if state.KeyPath == filepath.Join(recordedBase, "credentials", options.ID+".pem") {
+	if state.KeyPath == filepath.Join(recordedBase, "credentials", options.credentialName+".pem") {
 		base, err := fshelper.ResolveDirectory(recordedBase)
-		if err == nil && filepath.Join(base, "credentials", options.ID+".pem") == keyPath {
+		if err == nil && filepath.Join(base, "credentials", options.credentialName+".pem") == keyPath {
 			state.KeyPath = keyPath
 		}
 	}
@@ -185,15 +184,19 @@ func (prepared preparedConfig) confirm(ctx context.Context, state savedApp, inst
 	if _, err := settings.ParseConfig(options.Config, after); err != nil {
 		return nil, fmt.Errorf("validate proposed configuration: %w", err)
 	}
-	if _, err := fmt.Fprintf(output, "Save target %s in managed file %s:\n  scope: %s\n  credential.type: github-app\n  credential.clientId: %s\n  credential.privateKeyFile: %s\n  installationId: %d\nStatic configuration %s is not changed; explicit target authentication takes precedence.\n", prepared.target.ID, prepared.managedPath, options.Scope, state.ClientID, state.KeyPath, installationID, options.Config); err != nil {
+	if _, err := fmt.Fprintf(output, "Save target in managed file %s:\n  scope: %s\n  scaleSet: %s\n  runnerGroup: %s\n  credential.type: github-app\n  credential.clientId: %s\n  credential.privateKeyFile: %s\n  installationId: %d\nStatic configuration %s is not changed; explicit target authentication takes precedence.\n", prepared.managedPath, options.Scope, options.ScaleSet, settings.RunnerGroupName(options.RunnerGroup), state.ClientID, state.KeyPath, installationID, options.Config); err != nil {
 		return nil, err
 	}
 	if !prepared.targetExists {
-		if _, err := fmt.Fprintf(output, "Add this target to %s before starting or applying:\n  - id: %q\n    scope: %q\n", options.Config, prepared.target.ID, options.Scope); err != nil {
+		suggestion := fmt.Sprintf("  - scope: %q\n    scaleSet: %q\n", options.Scope, options.ScaleSet)
+		if options.RunnerGroup != "" {
+			suggestion += fmt.Sprintf("    runnerGroup: %q\n", options.RunnerGroup)
+		}
+		if _, err := fmt.Fprintf(output, "Add this target to %s before starting or applying:\n%s", options.Config, suggestion); err != nil {
 			return nil, err
 		}
 		if prepared.before == nil {
-			suggestion := fmt.Sprintf("targets:\n  - id: %q\n    scope: %q\n", prepared.target.ID, options.Scope)
+			suggestion = "targets:\n" + suggestion
 			if options.Systemd {
 				suggestion += "runner:\n  user: ghalet-runner\nlogs:\n  root: /var/log/ghalet/runners\n"
 			}
@@ -215,7 +218,7 @@ func (prepared preparedConfig) confirm(ctx context.Context, state savedApp, inst
 		}
 	}
 	prepared.managed.SetTarget(settings.ManagedTarget{
-		ID: prepared.target.ID, Scope: prepared.target.URL,
+		Scope: prepared.target.URL, RunnerGroup: prepared.target.RunnerGroup, ScaleSetName: prepared.target.ScaleSetName,
 		Credential:     settings.Credential{Type: "github-app", ClientID: state.ClientID, PrivateKeyFile: state.KeyPath},
 		InstallationID: installationID,
 	})
@@ -241,7 +244,7 @@ func (s service) commitSetup(ctx context.Context, prepared preparedConfig, direc
 		return errors.New("saved App key changed during setup; configuration not changed; restore the matching App key before retrying")
 	}
 	if s.provision != nil {
-		if err := s.provision(ctx, prepared.options.ID); err != nil {
+		if err := s.provision(ctx, prepared.options.credentialName); err != nil {
 			return fmt.Errorf("provision systemd App key: %w; App/key and setup metadata retained, rerun setup to resume", err)
 		}
 	}

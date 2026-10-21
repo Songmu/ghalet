@@ -74,7 +74,7 @@ func TestCleanupRetriesArePacedAndCapped(t *testing.T) {
 			if _, err := os.Stat(filepath.Dir(state.RunnerDir)); !errors.Is(err, os.ErrNotExist) {
 				t.Fatal("recovered cleanup retained execution files", err)
 			}
-			if d.targets["build"].Failures != 0 || !d.targets["build"].RetryAt.IsZero() {
+			if d.targets[buildTargetID].Failures != 0 || !d.targets[buildTargetID].RetryAt.IsZero() {
 				t.Fatal("run cleanup affected target retry policy")
 			}
 		})

@@ -64,7 +64,7 @@ func (s service) create(ctx context.Context, options Options, scope, ownerType, 
 	}
 	state := hex.EncodeToString(random[:32])
 	nonce := hex.EncodeToString(random[32:])
-	name := options.ID
+	name := options.credentialName
 	if len(name) > 20 {
 		name = name[:20]
 	}

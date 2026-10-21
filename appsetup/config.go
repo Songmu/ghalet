@@ -2,10 +2,8 @@ package appsetup
 
 import (
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	settings "github.com/Songmu/ghalet/config"
 	"github.com/Songmu/ghalet/fshelper"
@@ -60,37 +58,17 @@ func selectConfig(options Options) (preparedConfig, error) {
 	if err != nil {
 		return preparedConfig{}, err
 	}
-	var matches []settings.Target
+	key, err := settings.TargetKey(options.Scope, options.RunnerGroup, options.ScaleSet)
+	if err != nil {
+		return preparedConfig{}, err
+	}
+	options.credentialName = key
 	for _, target := range config.Targets {
-		if options.ID != "" && target.ID == options.ID {
-			if !strings.EqualFold(target.URL, "https://github.com/"+options.Scope) {
-				return preparedConfig{}, errors.New("--id already belongs to a target with a different scope")
-			}
+		if target.ID == key {
 			return preparedConfig{options: options, before: before, proposed: data, target: target, targetExists: true}, nil
 		}
-		if strings.EqualFold(target.URL, "https://github.com/"+options.Scope) {
-			matches = append(matches, target)
-		}
 	}
-	if options.ID == "" {
-		if len(matches) > 1 {
-			return preparedConfig{}, errors.New("multiple targets match --scope; select one with --id")
-		}
-		if len(matches) == 1 {
-			options.ID = matches[0].ID
-			return preparedConfig{options: options, before: before, proposed: data, target: matches[0], targetExists: true}, nil
-		}
-		options.ID = strings.NewReplacer("/", "-", ".", "-").Replace(strings.ToLower(options.Scope))
-	}
-	if err := validateID(options.ID); err != nil {
-		return preparedConfig{}, fmt.Errorf("%w; specify --id explicitly", err)
-	}
-	for _, target := range config.Targets {
-		if target.ID == options.ID {
-			return preparedConfig{}, errors.New("derived target ID collides with another scope; specify --id explicitly")
-		}
-	}
-	data, err = appendTarget(data, options.ID, options.Scope)
+	data, err = appendTarget(data, options.Scope, options.RunnerGroup, options.ScaleSet)
 	if err != nil {
 		return preparedConfig{}, err
 	}
@@ -101,12 +79,12 @@ func selectConfig(options Options) (preparedConfig, error) {
 	return preparedConfig{options: options, before: before, proposed: data, target: config.Targets[len(config.Targets)-1]}, nil
 }
 
-func appendTarget(data []byte, id, scope string) ([]byte, error) {
+func appendTarget(data []byte, scope, group, scaleSet string) ([]byte, error) {
 	editor, err := settings.NewEditor(data, nil)
 	if err != nil {
 		return nil, err
 	}
-	if err := editor.AppendTarget(id, scope); err != nil {
+	if err := editor.AppendTarget(scope, group, scaleSet); err != nil {
 		return nil, err
 	}
 	return editor.Marshal()

@@ -311,7 +311,7 @@ func TestManagementDiscoversDaemonAndApplyKeepsItsConfig(t *testing.T) {
 	if _, err := GetStatus(t.Context(), defaultPath); err == nil {
 		t.Fatal("explicit config fell back to an unrelated daemon")
 	}
-	if second.targets["build"].Draining || secondAPI.deleteCalls != 0 {
+	if second.targets[buildTargetID].Draining || secondAPI.deleteCalls != 0 {
 		t.Fatal("ambiguous discovery modified a daemon")
 	}
 	secondServer.close()

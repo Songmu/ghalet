@@ -123,8 +123,8 @@ func (d *daemon) replaceApplyConfig(ctx context.Context, next *settings.Config, 
 	if ctx.Err() != nil || d.stopping {
 		return false
 	}
-	// Retained executions keep their old credentials and log policy, not the
-	// new target that may reuse the same local ID.
+	// Retained executions keep their old credentials and log policy, even
+	// when the same registration remains in the new configuration.
 	for _, run := range d.runs {
 		if run.Target == nil {
 			run.Target = d.targets[run.State.TargetID]

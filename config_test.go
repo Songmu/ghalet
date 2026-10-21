@@ -524,7 +524,7 @@ func TestConfigMinimal(t *testing.T) {
 			}
 			target := c.Targets[0]
 			if target.Credential != (settings.Credential{Type: "gh"}) ||
-				target.ScaleSetName != target.ID || target.Scaling != (settings.ScalingConfig{MaxRunners: 2}) ||
+				target.ScaleSetName != "build" || target.Scaling != (settings.ScalingConfig{MaxRunners: 2}) ||
 				c.Runner.Version != settings.DefaultRunnerVersion {
 				t.Fatalf("unexpected minimal config defaults: %+v", c)
 			}
@@ -648,8 +648,8 @@ func TestConfigScaleSetName(t *testing.T) {
 	for _, tc := range []struct {
 		name, scaleSetName, want string
 	}{
-		{"omitted", "", "build"},
-		{"empty", `""`, "build"},
+		{"omitted", "", ""},
+		{"empty", `""`, ""},
 		{"explicit", "remote", "remote"},
 		{"non-ID name", "build/linux", "build/linux"},
 	} {
@@ -659,10 +659,17 @@ func TestConfigScaleSetName(t *testing.T) {
 				content = strings.Replace(content, "    scaling:", "    scaleSet: "+tc.scaleSetName+"\n    scaling:", 1)
 			}
 			c, err := settings.LoadConfig(writeConfig(t, content))
+			if tc.want == "" {
+				if err == nil {
+					t.Fatal("missing or empty scaleSet accepted")
+				}
+				return
+			}
 			if err != nil {
 				t.Fatal(err)
 			}
-			if c.Targets[0].ID != "build" || c.Targets[0].ScaleSetName != tc.want {
+			wantKey, _ := settings.TargetKey(c.Targets[0].URL, "", tc.want)
+			if c.Targets[0].ID != wantKey || c.Targets[0].ScaleSetName != tc.want {
 				t.Fatalf("unexpected target identity: %+v", c.Targets[0])
 			}
 		})
@@ -672,8 +679,7 @@ func TestConfigScaleSetName(t *testing.T) {
 func TestConfigScaleSetNameRegistrations(t *testing.T) {
 	testYAML := readFixture(t, "config/base.yaml")
 	const extra = `
-  - id: other
-    scope: owner/repository
+  - scope: owner/repository
     credential:
       type: gh
     scaleSet: build
@@ -688,7 +694,7 @@ runner:`
 		{"different scopes", "owner/another-repository", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			content := strings.Replace(testYAML, "    scaleSet: build\n", "", 1)
+			content := testYAML
 			second := strings.Replace(extra, "owner/repository", tc.scope, 1)
 			content = strings.Replace(content, "\nrunner:", second, 1)
 			c, err := settings.LoadConfig(writeConfig(t, content))
@@ -712,8 +718,7 @@ runner:`
 func TestConfigRejectsDuplicateShorthandRegistration(t *testing.T) {
 	testYAML := readFixture(t, "config/base.yaml")
 	const extra = `
-  - id: other
-    scope: REGISTRATION
+  - scope: REGISTRATION
     credential:
       type: gh
     scaleSet: build
@@ -841,22 +846,22 @@ func TestConfigRejectsInvalidInput(t *testing.T) {
 		"App without type":         strings.Replace(testYAML, "      type: pat\n      tokenEnv: GHALET_TEST_TOKEN", "      clientId: app\n      privateKeyFile: credentials/app.pem", 1),
 		"unknown credential key":   strings.Replace(testYAML, "      type: pat\n      tokenEnv: GHALET_TEST_TOKEN", "      unknown: true", 1),
 		"duplicate credential key": strings.Replace(testYAML, "      type: pat", "      type: pat\n      type: gh", 1),
-		"missing scope":            strings.Replace(testYAML, "    scope: https://github.com/owner/repository\n", "", 1),
+		"missing scope":            strings.Replace(testYAML, "scope: https://github.com/owner/repository", "scope: \"\"", 1),
 		"multiple scopes":          strings.Replace(testYAML, "scope: https://github.com/owner/repository", "scope: [owner/repository, owner/another-repository]", 1),
 		"old URL key":              strings.Replace(testYAML, "scope: https://github.com/owner/repository", "url: https://github.com/owner/repository", 1),
 		"legacy credentials":       testYAML + "credentials: {}\n",
 		"legacy scopes":            testYAML + "scopes: {}\n",
-		"legacy scopeRef":          strings.Replace(testYAML, "id: build", "id: build\n    scopeRef: repository", 1),
-		"legacy credentialRef":     strings.Replace(testYAML, "id: build", "id: build\n    credentialRef: personal", 1),
+		"legacy scopeRef":          strings.Replace(testYAML, "scaleSet: build", "scaleSet: build\n    scopeRef: repository", 1),
+		"legacy credentialRef":     strings.Replace(testYAML, "scaleSet: build", "scaleSet: build\n    credentialRef: personal", 1),
 		"old scale set key":        strings.Replace(testYAML, "scaleSet: build", "scaleSetName: build", 1),
 		"repository group":         strings.Replace(testYAML, "scaleSet: build", "runnerGroup: special\n    scaleSet: build", 1),
 		"enterprise":               strings.Replace(testYAML, "owner/repository", "enterprises/company", 1),
 		"HTTP scope":               strings.Replace(testYAML, "https:", "http:", 1),
 		"userinfo":                 strings.Replace(testYAML, "github.com/", "user:secret@github.com/", 1),
 		"query":                    strings.Replace(testYAML, "owner/repository", "owner/repository?token=abc", 1),
-		"invalid target id":        strings.Replace(testYAML, "id: build", "id: ../outside", 1),
-		"missing target id":        strings.Replace(testYAML, "  - id: build\n    scope:", "  - scope:", 1),
-		"empty target id":          strings.Replace(testYAML, "id: build", `id: ""`, 1),
+		"removed target id":        strings.Replace(testYAML, "scaleSet: build", "scaleSet: build\n    id: build", 1),
+		"missing scale set":        strings.Replace(testYAML, "    scaleSet: build\n", "", 1),
+		"empty scale set":          strings.Replace(testYAML, "scaleSet: build", `scaleSet: ""`, 1),
 		"negative min":             strings.Replace(testYAML, "minRunners: 0", "minRunners: -1", 1),
 		"min exceeds max":          strings.Replace(testYAML, "minRunners: 0", "minRunners: 3", 1),
 		"zero max":                 strings.Replace(testYAML, "maxRunners: 2", "maxRunners: 0", 1),
@@ -868,7 +873,7 @@ func TestConfigRejectsInvalidInput(t *testing.T) {
 		"old log root":             testYAML + "logs:\n  logRoot: logs\n",
 		"two PAT inputs":           strings.Replace(testYAML, "tokenEnv: GHALET_TEST_TOKEN", "tokenEnv: GHALET_TEST_TOKEN\n      tokenFile: token", 1),
 		"inline token":             strings.Replace(testYAML, "tokenEnv: GHALET_TEST_TOKEN", "token: secret", 1),
-		"App installation":         strings.Replace(testYAML, "id: build", "id: build\n    installationId: 10", 1),
+		"App installation":         strings.Replace(testYAML, "scaleSet: build", "scaleSet: build\n    installationId: 10", 1),
 		"credential env":           strings.Replace(testYAML, `"2.338.0"`, "\"2.338.0\"\n  env:\n    GH_TOKEN: never-copy", 1),
 		"custom credential env":    strings.Replace(testYAML, `"2.338.0"`, "\"2.338.0\"\n  env:\n    GHALET_TEST_TOKEN: never-copy", 1),
 		"identity env":             strings.Replace(testYAML, `"2.338.0"`, "\"2.338.0\"\n  env:\n    HOME: /tmp", 1),
@@ -933,22 +938,11 @@ func TestConfigDurationDecoding(t *testing.T) {
 	}
 }
 
-func TestConfigDuplicateRegistrationAndID(t *testing.T) {
-	for _, tc := range []struct {
-		name, targetID, wantErr string
-	}{
-		{"registration", "other", "duplicate scope/group/scale set registration"},
-		{"target ID", "build", "duplicate target id"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			c := testConfig(t)
-			target := c.Targets[0]
-			target.ID = tc.targetID
-			c.Targets = append(c.Targets, target)
-			if err := c.Validate(); err == nil || !strings.Contains(err.Error(), tc.wantErr) {
-				t.Fatalf("got %v, want %q", err, tc.wantErr)
-			}
-		})
+func TestConfigDuplicateRegistration(t *testing.T) {
+	c := testConfig(t)
+	c.Targets = append(c.Targets, c.Targets[0])
+	if err := c.Validate(); err == nil || !strings.Contains(err.Error(), "duplicate scope/group/scale set registration") {
+		t.Fatalf("duplicate registration accepted: %v", err)
 	}
 }
 
@@ -958,18 +952,15 @@ func TestConfigValidationOrder(t *testing.T) {
 		change func(*settings.Config)
 		want   string
 	}{
-		{"ID before scope", func(c *settings.Config) {
-			c.Targets[0].ID, c.Targets[0].URL = "!", "invalid"
-		}, `invalid or duplicate target id "!"`},
 		{"scope before credential", func(c *settings.Config) {
 			c.Targets[0].URL, c.Targets[0].Credential.Type = "invalid", "invalid"
-		}, "target build: scope URL must be an HTTPS organization or repository URL"},
+		}, "target " + buildTargetID + ": scope URL must be an HTTPS organization or repository URL"},
 		{"credential before installation", func(c *settings.Config) {
 			c.Targets[0].Credential.Type, c.Targets[0].InstallationID = "invalid", 1
-		}, `target build: unsupported credential type "invalid"`},
+		}, "target " + buildTargetID + `: unsupported credential type "invalid"`},
 		{"target before total minimum", func(c *settings.Config) {
 			c.Targets[0].Scaling.MinRunners = c.Capacity.MaxRunners + 1
-		}, "target build: require 0 <= minRunners <= maxRunners <= 10000"},
+		}, "target " + buildTargetID + ": require 0 <= minRunners <= maxRunners <= 10000"},
 		{"total minimum before environment", func(c *settings.Config) {
 			c.Targets[0].Scaling = settings.ScalingConfig{MinRunners: c.Capacity.MaxRunners + 1, MaxRunners: 10000}
 			c.Runner.Env = map[string]string{"HOME": "/tmp"}

@@ -2,43 +2,45 @@
 
 [English](app-setup.md) | [日本語](app-setup.ja.md)
 
-`ghalet app setup --scope OWNER/REPO` creates a private, user-owned or organization-owned
-GitHub App using [GitHub's Manifest flow][manifest]. No preexisting PAT, client
+`ghalet app setup --scope OWNER/REPO --scale-set project` creates a private,
+user-owned or organization-owned GitHub App using [GitHub's Manifest flow][manifest].
+No preexisting PAT, client
 secret, hosted callback service or PEM copy/paste is required. This wizard
 supports **GitHub.com and one target per App** on Linux/macOS.
 It stores an [ordinary, unencrypted credential file](file-credentials.md);
 `ghalet systemd app setup` stores an encrypted service credential instead.
-Neither command starts or reconfigures the daemon. These commands replace
-`ghalet auth setup NAME --target ID`; the old command is no longer accepted.
+Neither command starts or reconfigures the daemon.
 
 ## Local setup
 
 Run as the daemon user, with the same state-directory environment:
 
 ```sh
-ghalet app setup --scope OWNER/REPO
+ghalet app setup --scope OWNER/REPO --scale-set project
 # Organization target:
-ghalet app setup --scope ORG
-# Optional configuration path and target ID:
-ghalet app setup --scope OWNER/REPO --config ./config.yaml --id build
+ghalet app setup --scope ORG --scale-set project
+# Optional configuration path:
+ghalet app setup --scope OWNER/REPO --scale-set project --config ./config.yaml
+# Organization runner group:
+ghalet app setup --scope ORG --scale-set project --runner-group linux
 ```
 
 Select another configuration with `--config PATH`. The default is
-`~/.config/ghalet/config.yaml`. `--scope` is always required; it also accepts
-an HTTPS GitHub.com organization or repository URL.
+`~/.config/ghalet/config.yaml`. `--scope` and `--scale-set` are required;
+scope also accepts an HTTPS GitHub.com organization or repository URL.
 The wizard saves authentication in a separate
 [managed file](operations.md#managed-setup-information) after confirmation.
 It never creates or rewrites the static configuration. For a new target, add
 the printed YAML to your configuration; if no configuration exists, setup also
 prints a complete suggested configuration.
-Existing targets with the same scope are reused; use `--id` to select one when
-multiple targets match, or to create another target for that scope.
-Without a match or explicit ID, the ID is the lowercase scope with `/` and `.`
-replaced by `-`: `Songmu/ghalet` becomes `songmu-ghalet`. The credential uses
-the same ID. Collisions and IDs exceeding 64 characters require an explicit
-`--id`; setup never adds numeric suffixes or truncates IDs. The ID also defaults
-the scale set name used by `runs-on`. Each scope/ID is set up separately;
-the wizard does not broaden an existing App's permissions.
+Existing targets with the same normalized scope, runner group and scale set
+are reused. `--scale-set` selects the GitHub registration name and workflow
+`runs-on` label; `--runner-group` selects an organization runner group and
+defaults to the default group. There is no `--id` option.
+Credential filenames use a SHA-256 key derived from that registration, so
+different scopes, groups and scale sets remain separate without user-chosen IDs.
+Each registration is set up separately; the wizard does not broaden an
+existing App's permissions.
 
 1. Review the target, App owner and requested write permission in the terminal:
    repository `Administration`, or organization `Self-hosted runners`.
@@ -64,7 +66,8 @@ The browser pages below use example data:
 ![GitHub App installation link](images/app-setup-install.png)
 
 Other targets and `defaults.credential` are not changed. The managed target entry
-gets its scope, `type: github-app`, `clientId`, `privateKeyFile` and `installationId`.
+gets its scope, scale set, runner group, `type: github-app`, `clientId`,
+`privateKeyFile` and `installationId`.
 Only targets present in the static configuration become active. Explicit target
 authentication in that configuration takes precedence over the managed entry.
 No user OAuth authorization or webhook events are requested; webhook delivery
@@ -97,7 +100,7 @@ fixed port from the browser's machine:
 ```sh
 ssh -L 8765:127.0.0.1:8765 runner-host
 # In that SSH session:
-ghalet app setup --scope OWNER/REPO \
+ghalet app setup --scope OWNER/REPO --scale-set project \
   --listen 127.0.0.1:8765 --no-browser
 ```
 
@@ -112,7 +115,7 @@ No public callback or webhook endpoint is needed.
 On Linux with root and systemd 250 or later:
 
 ```sh
-sudo ghalet systemd app setup --scope OWNER/REPO
+sudo ghalet systemd app setup --scope OWNER/REPO --scale-set project
 sudo ghalet config validate --config /etc/ghalet/config.yaml
 sudo systemctl enable --now ghalet
 ```
@@ -131,11 +134,12 @@ Browser URLs are printed by default so the browser need not run as root.
 For SSH, use the port forwarding above and add `--listen 127.0.0.1:8765`
 to the systemd command. Open the URLs in the browser on your own machine.
 
-The key is encrypted directly into `/etc/ghalet/credentials/ID.cred`, without
+The key is encrypted directly into `/etc/ghalet/credentials/KEY.cred`, without
 writing a plaintext PEM. A dedicated drop-in loads it with
 `LoadCredentialEncrypted`, and the target's `privateKeyFile` points to
-`/run/credentials/ghalet.service/ID`. Public resume metadata is
-`/etc/ghalet/credentials/ID.app.json`. Resume decrypts the key only into memory.
+`/run/credentials/ghalet.service/KEY`. Public resume metadata is
+`/etc/ghalet/credentials/KEY.app.json`. `KEY` is the derived registration key.
+Resume decrypts the key only into memory.
 Registration reloads unit definitions but never starts or restarts the service.
 The encrypted key and resume metadata are saved before service provisioning.
 If drop-in creation or unit reload fails, they are retained; fix the reported
@@ -147,17 +151,17 @@ and rotation.
 
 ## Resume and credential storage
 
-For ordinary setup, the key is stored as `<StateDir>/credentials/ID.pem`; `ID.app.json` retains
+For ordinary setup, the key is stored as `<StateDir>/credentials/KEY.pem`; `KEY.app.json` retains
 the public App identity, scope and key path so setup can resume. Both files are
 `0600` under the `0700` credential directory. The JSON does not contain the PEM,
 client secret or webhook secret. Protect the PEM and its backups as described
 in [ordinary credential files](file-credentials.md).
 
 Each attempt waits up to 15 minutes. Rerun the same command, configuration,
-scope and optional ID after interruption, declined confirmation or installation
-approval. Once metadata is saved, setup reuses that App/key without creating
+scope, scale set and runner group after interruption, declined confirmation or
+installation approval. Once metadata is saved, setup reuses that App/key without creating
 another App or rotating the key. It refuses mismatched scopes, owners, key
-paths, orphaned existing keys, concurrent setup for the same ID, or concurrent
+paths, orphaned existing keys, concurrent setup for the same registration, or concurrent
 configuration edits. It never automatically deletes a GitHub App.
 
 If App creation completed in GitHub but the callback/exchange failed before

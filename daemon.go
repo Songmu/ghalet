@@ -144,14 +144,17 @@ type OperationResult struct {
 }
 
 type TargetStatus struct {
-	ID         string `json:"id"`
-	Assigned   int    `json:"assignedJobs"`
-	Pending    int    `json:"pendingAcquisitions"`
-	Active     int    `json:"activeRunners"`
-	Draining   bool   `json:"draining"`
-	Forced     bool   `json:"forced"`
-	Fault      string `json:"fault,omitempty"`
-	ScaleSetID int    `json:"scaleSetId,omitempty"`
+	ID          string `json:"id"`
+	Scope       string `json:"scope"`
+	RunnerGroup string `json:"runnerGroup"`
+	ScaleSet    string `json:"scaleSet"`
+	Assigned    int    `json:"assignedJobs"`
+	Pending     int    `json:"pendingAcquisitions"`
+	Active      int    `json:"activeRunners"`
+	Draining    bool   `json:"draining"`
+	Forced      bool   `json:"forced"`
+	Fault       string `json:"fault,omitempty"`
+	ScaleSetID  int    `json:"scaleSetId,omitempty"`
 }
 
 type Status struct {
@@ -389,7 +392,10 @@ func (d *daemon) statusLocked() Status {
 	status := Status{Config: d.config.Path, Capacity: d.config.Capacity.MaxRunners, Occupied: d.occupied(), Problems: append([]Problem(nil), d.problems...)}
 	for _, id := range d.order {
 		target := d.targets[id]
-		item := TargetStatus{ID: id, Assigned: target.Assigned, Pending: target.Pending, Active: d.active(id), Draining: target.Draining, Forced: target.Forced, Fault: target.Fault}
+		item := TargetStatus{
+			ID: id, Scope: target.Config.URL, RunnerGroup: settings.RunnerGroupName(target.Config.RunnerGroup), ScaleSet: target.Config.ScaleSetName,
+			Assigned: target.Assigned, Pending: target.Pending, Active: d.active(id), Draining: target.Draining, Forced: target.Forced, Fault: target.Fault,
+		}
 		if target.Set != nil {
 			item.ScaleSetID = target.Set.ID
 		}
