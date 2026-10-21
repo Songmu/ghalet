@@ -13,8 +13,10 @@ import (
 // EnsureDirectory creates missing directories with mode and verifies that path
 // is absolute, is not the filesystem root, and contains no symlinks or
 // non-directories. Newly created directories are chmodded to mode regardless of
-// umask; existing directory permissions are unchanged. Validation does not
-// protect subsequent path-based operations against concurrent replacement.
+// umask and their parents are synced before creating further children. Failed
+// creation syncs remove the new empty directory so retries repeat the sync.
+// Existing directory permissions are unchanged. Validation does not protect
+// subsequent path-based operations against concurrent replacement.
 func EnsureDirectory(path string, mode os.FileMode) error {
 	return managedDirectory(path, mode, true)
 }
@@ -34,10 +36,16 @@ func managedDirectory(path string, mode os.FileMode, create bool) error {
 		current = filepath.Join(current, part)
 		info, err := os.Lstat(current)
 		if create && errors.Is(err, os.ErrNotExist) {
-			if err := os.Mkdir(current, mode); err != nil && !errors.Is(err, os.ErrExist) {
-				return err
-			}
-			if err := os.Chmod(current, mode); err != nil {
+			err = os.Mkdir(current, mode)
+			if err == nil {
+				err = os.Chmod(current, mode)
+				if err == nil {
+					err = SyncDirectory(filepath.Dir(current))
+				}
+				if err != nil {
+					return errors.Join(err, os.Remove(current))
+				}
+			} else if !errors.Is(err, os.ErrExist) {
 				return err
 			}
 			info, err = os.Lstat(current)
@@ -50,6 +58,15 @@ func managedDirectory(path string, mode os.FileMode, create bool) error {
 		}
 	}
 	return nil
+}
+
+// SyncDirectory persists changes to the directory's entries.
+func SyncDirectory(path string) error {
+	file, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	return errors.Join(file.Sync(), file.Close())
 }
 
 // WriteFileAtomic writes data to a temporary file in dest's directory, sets its

@@ -81,6 +81,36 @@ func TestDirectoriesRejectUnsafePaths(t *testing.T) {
 	}
 }
 
+func TestEnsureDirectoryRetriesFailedParentSync(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("requires permission checks as a non-root user")
+	}
+	parent := testDirectory(t)
+	if err := os.Chmod(parent, 0300); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chmod(parent, 0700); err != nil {
+			t.Error(err)
+		}
+	})
+	dir := filepath.Join(parent, "first", "second")
+	for range 2 {
+		if err := EnsureDirectory(dir, 0700); !errors.Is(err, os.ErrPermission) {
+			t.Fatal("directory creation skipped a failed parent sync", err)
+		}
+		if _, err := os.Lstat(filepath.Dir(dir)); !errors.Is(err, os.ErrNotExist) {
+			t.Fatal("failed parent sync left an unsynced directory for a retry", err)
+		}
+	}
+	if err := os.Chmod(parent, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := EnsureDirectory(dir, 0700); err != nil {
+		t.Fatal("directory creation did not recover after parent sync was restored", err)
+	}
+}
+
 func TestWriteFileAtomic(t *testing.T) {
 	parent := testDirectory(t)
 	dest := filepath.Join(parent, "metadata.json")

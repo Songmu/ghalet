@@ -1051,3 +1051,32 @@ func TestReparentedProcessHelper(t *testing.T) {
 	}
 	os.Exit(0)
 }
+
+func TestReservationRequiresSyncedRunParent(t *testing.T) {
+	d, _ := testDaemon(t)
+	parent := filepath.Join(d.config.Runner.WorkRoot, "build")
+	if err := ensureExecutionDirectory(parent); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(parent, 0300); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chmod(parent, 0755); err != nil {
+			t.Error(err)
+		}
+	})
+	if err := d.reserve(d.targets["build"]); !errors.Is(err, os.ErrPermission) {
+		t.Fatal("reservation skipped syncing the newly created run entry", err)
+	}
+	if len(d.runs) != 0 {
+		t.Fatal("failed run-parent sync started preparation")
+	}
+	if err := os.Chmod(parent, 0755); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := os.ReadDir(parent)
+	if err != nil || len(entries) != 0 {
+		t.Fatal("failed reservation retained an unsynced run directory", entries, err)
+	}
+}

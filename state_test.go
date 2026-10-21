@@ -138,7 +138,7 @@ func TestStateAtomicRoundTripAndLastFileCleanup(t *testing.T) {
 	}
 }
 
-func TestStateSaveRequiresDurableDirectoryAncestry(t *testing.T) {
+func TestStateSaveSyncsOnlyExecutionDirectory(t *testing.T) {
 	c := testConfig(t)
 	ancestor := filepath.Join(testDirectory(t), "restricted")
 	c.Runner.WorkRoot = filepath.Join(ancestor, "runs")
@@ -155,17 +155,23 @@ func TestStateSaveRequiresDurableDirectoryAncestry(t *testing.T) {
 		}
 	})
 	store := stateStore{c.Runner.WorkRoot}
-	if err := store.save(state); !errors.Is(err, os.ErrPermission) {
-		t.Fatal("state save reported success without syncing an ancestor", err)
+	if err := store.save(state); err != nil {
+		t.Fatal("state save tried to sync an unchanged storage ancestor", err)
 	}
-	if _, err := os.Stat(filepath.Join(filepath.Dir(state.RunnerDir), "state.json")); err != nil {
-		t.Fatal("test did not reach the post-rename durability boundary", err)
-	}
-	if err := os.Chmod(ancestor, 0711); err != nil {
+	dir := filepath.Dir(state.RunnerDir)
+	if err := os.Chmod(dir, 0300); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.save(state); err != nil {
-		t.Fatal("state save did not resume after restoring ancestor access", err)
+	t.Cleanup(func() {
+		if err := os.Chmod(dir, 0755); err != nil {
+			t.Error(err)
+		}
+	})
+	if err := store.save(state); !errors.Is(err, os.ErrPermission) {
+		t.Fatal("state save did not require syncing its execution directory", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "state.json")); err != nil {
+		t.Fatal("test did not reach the post-rename durability boundary", err)
 	}
 }
 
