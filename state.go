@@ -141,9 +141,10 @@ func (s stateStore) save(state *RunState) error {
 }
 
 type recoveredState struct {
-	State *RunState
-	Path  string
-	Err   error
+	State            *RunState
+	Path             string
+	Err              error
+	NonExecutionFile bool
 }
 
 func (s stateStore) load() ([]recoveredState, error) {
@@ -158,7 +159,10 @@ func (s stateStore) load() ([]recoveredState, error) {
 		}
 		path := filepath.Join(s.root, target.Name())
 		if !target.IsDir() || target.Type()&os.ModeSymlink != 0 || !safeID.MatchString(target.Name()) {
-			result = append(result, recoveredState{Path: path, Err: errors.New("unrecognized workRoot entry; inspect manually")})
+			result = append(result, recoveredState{
+				Path: path, Err: errors.New("unrecognized workRoot entry; inspect manually"),
+				NonExecutionFile: target.Type().IsRegular(),
+			})
 			continue
 		}
 		runs, err := os.ReadDir(path)
@@ -167,7 +171,7 @@ func (s stateStore) load() ([]recoveredState, error) {
 		}
 		for _, run := range runs {
 			path := filepath.Join(path, run.Name())
-			record := recoveredState{Path: path}
+			record := recoveredState{Path: path, NonExecutionFile: run.Type().IsRegular()}
 			if !run.IsDir() || run.Type()&os.ModeSymlink != 0 {
 				record.Err = errors.New("execution entry is not a real directory")
 			} else {
