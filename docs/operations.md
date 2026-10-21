@@ -150,7 +150,10 @@ XDG bases or their HOME fallbacks, and an explicit `logs.root`) may use
 symlinks, including macOS `/var`. ghalet resolves existing base links before
 deriving managed paths; new state records and credential paths use these
 canonical locations. Keep the bases and their ancestors trusted and stable
-while ghalet runs. Managed children (including execution directories, runner
+while ghalet runs. Systemd drop-ins keep their fixed
+`/etc/ghalet/credentials/...` source references, so layout migrations do not
+invalidate existing directives or expose target directory names to systemd
+specifier expansion. Managed children (including execution directories, runner
 caches, credential directories/files and archive deletion roots) must not be
 redirected through symlinks. Cleanup does not follow links out of an owned
 execution or archive. Config-file parents may also use administrator layout

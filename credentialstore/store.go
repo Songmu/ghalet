@@ -115,18 +115,24 @@ func checkSystemd() error {
 }
 
 func systemdStore() (credentialStore, error) {
-	directory, err := fshelper.ResolveParent("/etc/ghalet/credentials")
+	return newSystemdStore("/etc/ghalet/credentials", "/etc/systemd/system/ghalet.service.d")
+}
+
+func newSystemdStore(directory, dropIns string) (credentialStore, error) {
+	sourceDirectory := directory
+	directory, err := fshelper.ResolveParent(directory)
 	if err != nil {
 		return credentialStore{}, err
 	}
-	dropIns, err := fshelper.ResolveParent("/etc/systemd/system/ghalet.service.d")
+	dropIns, err = fshelper.ResolveParent(dropIns)
 	if err != nil {
 		return credentialStore{}, err
 	}
 	return credentialStore{
-		directory: directory,
-		dropIns:   dropIns,
-		run:       runCredentialCommand,
+		directory:       directory,
+		dropIns:         dropIns,
+		sourceDirectory: sourceDirectory,
+		run:             runCredentialCommand,
 	}, nil
 }
 
@@ -233,7 +239,13 @@ func runCredentialCommand(ctx context.Context, name string, args []string, input
 
 type credentialStore struct {
 	directory, dropIns string
-	run                credentialCommand
+	// Keep unit references stable across layout changes and free of target-path specifiers.
+	sourceDirectory string
+	run             credentialCommand
+}
+
+func (s credentialStore) dropInData(name string) []byte {
+	return fmt.Appendf(nil, "[Service]\nLoadCredentialEncrypted=%s:%s\n", name, filepath.Join(s.sourceDirectory, name+".cred"))
 }
 
 func (s credentialStore) prepare(ctx context.Context) error {
@@ -323,7 +335,7 @@ func (s credentialStore) provisionAppKey(ctx context.Context, name string) error
 	if err != nil {
 		return err
 	}
-	data := fmt.Appendf(nil, "[Service]\nLoadCredentialEncrypted=%s:%s\n", name, filepath.Join(s.directory, name+".cred"))
+	data := s.dropInData(name)
 	if before.exists && !bytes.Equal(before.data, data) {
 		return fmt.Errorf("refusing to overwrite customized systemd drop-in %s", path)
 	}
@@ -369,7 +381,7 @@ func (s credentialStore) set(ctx context.Context, options Options, input io.Read
 	if err != nil {
 		return result, err
 	}
-	dropInData := fmt.Appendf(nil, "[Service]\nLoadCredentialEncrypted=%s:%s\n", options.Name, cipherPath)
+	dropInData := s.dropInData(options.Name)
 	if dropIn.exists && !bytes.Equal(dropIn.data, dropInData) {
 		return result, fmt.Errorf("refusing to overwrite customized systemd drop-in %s", dropInPath)
 	}
