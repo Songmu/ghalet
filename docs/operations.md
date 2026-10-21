@@ -206,6 +206,8 @@ the release asset's official SHA-256 digest, and checked again whenever the
 cached archive is reused. Releases without an official asset digest fail
 closed. The runner cache stores both the pinned digest and the archive;
 each execution gets an independent extraction into its execution directory.
+Cache preparation and verification are serialized; independent extractions can
+proceed concurrently.
 A corrupt cache is not silently replaced: remove the indicated bad archive,
 then restart.
 
