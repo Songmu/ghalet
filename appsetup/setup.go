@@ -88,9 +88,14 @@ func (s service) run(ctx context.Context, options Options, input *os.File, outpu
 		return Result{}, err
 	}
 	files := setupPaths(directory, options)
-	if err := settings.CheckManagedPaths(prepared.managedPath, options.Config,
-		files.key, files.diskKey, files.diskKey+".previous", files.metadata,
-		filepath.Join(directory, options.ID+".setup.lock"), filepath.Join(directory, ".lock")); err != nil {
+	reserved := []string{
+		files.key, files.diskKey, files.diskKey + ".previous", files.metadata,
+		filepath.Join(directory, options.ID+".setup.lock"), filepath.Join(directory, ".lock"),
+	}
+	if options.Systemd {
+		reserved = append(reserved, filepath.Join(credentialstore.SystemdDropInDirectory, "credential-"+options.ID+".conf"))
+	}
+	if err := settings.CheckManagedPaths(prepared.managedPath, options.Config, reserved...); err != nil {
 		return Result{}, err
 	}
 	lock, err := lockSetup(directory, options.ID)

@@ -22,6 +22,8 @@ import (
 
 var credentialName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$`)
 
+const SystemdDropInDirectory = "/etc/systemd/system/ghalet.service.d"
+
 // Options selects a credential and its explicit secret input source.
 type Options struct {
 	Name, Type, File, Config, ClientID string
@@ -107,7 +109,7 @@ func checkSystemd() error {
 }
 
 func systemdStore() (credentialStore, error) {
-	return newSystemdStore("/etc/ghalet/credentials", "/etc/systemd/system/ghalet.service.d")
+	return newSystemdStore("/etc/ghalet/credentials", SystemdDropInDirectory)
 }
 
 func newSystemdStore(directory, dropIns string) (credentialStore, error) {

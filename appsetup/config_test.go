@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	settings "github.com/Songmu/ghalet/config"
+	"github.com/Songmu/ghalet/credentialstore"
 	"github.com/Songmu/ghalet/fshelper"
 )
 
@@ -139,7 +140,11 @@ func TestWriteManagedCoordinatesWriters(t *testing.T) {
 
 func TestSetupRejectsManagedPersistenceCollisionsBeforeAppCreation(t *testing.T) {
 	for _, systemd := range []bool{false, true} {
-		for _, name := range []string{"key", "backup", "metadata", "setup-lock", "managed-lock"} {
+		names := []string{"key", "backup", "metadata", "setup-lock", "managed-lock"}
+		if systemd {
+			names = append(names, "drop-in")
+		}
+		for _, name := range names {
 			t.Run(fmt.Sprintf("%t/%s", systemd, name), func(t *testing.T) {
 				f := setupFixture(t, "owner/repo", "User")
 				f.options.Systemd = systemd
@@ -159,6 +164,8 @@ func TestSetupRejectsManagedPersistenceCollisionsBeforeAppCreation(t *testing.T)
 					path = filepath.Join(directory, "build.setup.lock")
 				case "managed-lock":
 					path = filepath.Join(directory, "build.setup")
+				case "drop-in":
+					path = filepath.Join(credentialstore.SystemdDropInDirectory, "credential-build.conf")
 				}
 				static := []byte(fmt.Sprintf("managedFile: %s\ntargets:\n  - id: build\n    scope: owner/repo\n", path))
 				if err := os.WriteFile(f.options.Config, static, 0600); err != nil {
