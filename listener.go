@@ -18,7 +18,7 @@ import (
 func (d *daemon) startListener(target *targetRuntime) {
 	ctx, cancel := context.WithCancel(d.ctx)
 	target.Cancel = cancel
-	target.ListenerDone = false
+	target.ListenerDone = make(chan struct{})
 	target.ListenerReady = make(chan struct{})
 	d.workers.Go(func() {
 		d.runListener(ctx, target)
@@ -26,6 +26,7 @@ func (d *daemon) startListener(target *targetRuntime) {
 }
 
 func (d *daemon) runListener(ctx context.Context, target *targetRuntime) {
+	defer close(target.ListenerDone)
 	signalReady := sync.OnceFunc(func() { close(target.ListenerReady) })
 	var lastErr error
 	attempt := 0
@@ -73,7 +74,6 @@ func (d *daemon) runListener(ctx context.Context, target *targetRuntime) {
 	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	target.ListenerDone = true
 	if ctx.Err() == nil && lastErr != nil {
 		target.Fault = d.secrets.Redact(lastErr.Error())
 		slog.Error("Target stopped accepting work", "event", "target.failed", "targetId", d.secrets.Redact(target.Config.ID), "error", target.Fault)
