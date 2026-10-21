@@ -354,6 +354,10 @@ files are limited to 1 MiB, including their final newline. Oversized saves fail
 without replacing the last readable record, including when a large descendant
 list cannot be persisted before signaling.
 
+State updates sync the file and its execution directory; creating a managed
+execution directory also syncs its immediate parent. Unchanged storage ancestors
+are not recursively synced to the filesystem root.
+
 For manual recovery, inspect the named paths/processes, wait for or explicitly
 stop only the identified execution, then run `gc --dry-run` and `gc`. Correct
 configuration/permission issues and restart to revalidate. Do not delete
