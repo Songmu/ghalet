@@ -170,8 +170,8 @@ func ParseManaged(data []byte) (*Managed, error) {
 		return nil, errors.New("managed file must contain exactly one YAML mapping")
 	}
 	var managed Managed
-	if err := yaml.NodeToValue(file.Docs[0].Body, &managed, yaml.Strict()); err != nil {
-		return nil, errors.New("managed file contains invalid or unknown fields")
+	if err := yaml.NodeToValue(file.Docs[0].Body, &managed); err != nil {
+		return nil, errors.New("managed file contains invalid fields")
 	}
 	if managed.Version != 1 {
 		return nil, errors.New("unsupported managed file version")

@@ -172,8 +172,9 @@ func TestManagedFilesRejectUnsafeOrInvalidData(t *testing.T) {
 	root, path := managedFixture(t)
 	managedPath := filepath.Join(root, "managed.yaml")
 	for _, data := range []string{
-		"", "version: 2\n", "version: 1\nunknown: value\n", "version: 1\n---\nversion: 1\n",
-		"version: 1\ntargets:\n  - id: build\n    scope: owner/repo\n    scaleSet: build\n    credential: {}\n",
+		"", "version: 2\n", "version: 1\n---\nversion: 1\n",
+		"version: 1\nversion: 1\n",
+		"version: 1\ntargets:\n  - scope: owner/repo\n    scope: owner/other\n    scaleSet: build\n    credential: {}\n",
 		"version: 1\ntargets:\n  - scaleSet: build\n    scope: https://github.com/owner/repo\n    credential:\n      type: github-app\n      clientId: app\n      privateKeyFile: key.pem\n",
 	} {
 		if _, err := ParseManaged([]byte(data)); err == nil {
@@ -218,6 +219,19 @@ func TestManagedFilesRejectUnsafeOrInvalidData(t *testing.T) {
 	}
 	if _, err := ParseConfig(path, []byte("managedFile: state/ghalet/logs/managed.yaml\ntargets: []\n")); err == nil {
 		t.Fatal("managed file within cleaned log directory accepted")
+	}
+}
+
+func TestManagedIgnoresUnknownProperties(t *testing.T) {
+	data := []byte("version: 1\nunknown: [true, 42]\ndefaults:\n  unknown: value\n  credential:\n    unknown: value\ntargets:\n  - id: ignored\n    scope: owner/repo\n    scaleSet: build\n    credential:\n      unknown: value\n")
+	managed, err := ParseManaged(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if managed.Version != 1 || managed.Defaults.Credential == nil || managed.Defaults.Credential.Type != "gh" ||
+		len(managed.Targets) != 1 || managed.Targets[0].Credential.Type != "gh" ||
+		managed.Targets[0].Scope != "owner/repo" || managed.Targets[0].ScaleSetName != "build" {
+		t.Fatalf("unknown properties changed managed configuration: %+v", managed)
 	}
 }
 

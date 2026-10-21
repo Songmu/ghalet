@@ -3,6 +3,7 @@ package ghalet
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -829,37 +830,56 @@ func TestConfigTargetCredentials(t *testing.T) {
 	}
 }
 
+func TestConfigIgnoresUnknownProperties(t *testing.T) {
+	base := readFixture(t, "config/base.yaml")
+	path := writeConfig(t, base)
+	want, err := settings.LoadConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := base + "unknown:\n  nested: [true, 42]\ndefaults:\n  unknown: value\ncapacity:\n  unknown: value\nlogs:\n  unknown: value\n"
+	input = strings.Replace(input, "    scaleSet: build", "    unknown: value\n    scaleSet: build", 1)
+	input = strings.Replace(input, "      type: pat", "      unknown: value\n      type: pat", 1)
+	input = strings.Replace(input, "      minRunners: 0", "      unknown: value\n      minRunners: 0", 1)
+	input = strings.Replace(input, "runner:\n", "runner:\n  unknown: value\n", 1)
+	legacy := base + "apiVersion: ghalet/v1alpha1\ncredentials: {}\nscopes: {}\ncleanup: {}\nlogs:\n  preserveLogs: false\n  logRetention: 1d\n  logRoot: ignored\n"
+	legacy = strings.Replace(legacy, "    scaleSet: build", "    id: ignored\n    scopeRef: ignored\n    credentialRef: ignored\n    scaleSet: build", 1)
+	legacy = strings.Replace(legacy, "runner:\n", "runner:\n  workRoot: ignored\n  distributionRoot: ignored\n  cacheRoot: ignored\n", 1)
+	for name, content := range map[string]string{"extensions": input, "legacy keys": legacy} {
+		t.Run(name, func(t *testing.T) {
+			got, err := settings.ParseConfig(path, []byte(content))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(got, want) {
+				t.Fatalf("unknown properties changed configuration: got %+v, want %+v", got, want)
+			}
+		})
+	}
+}
+
 func TestConfigRejectsInvalidInput(t *testing.T) {
 	testYAML := readFixture(t, "config/base.yaml")
 	cases := map[string]string{
-		"unknown key":              testYAML + "unknown: true\n",
-		"nested unknown key":       strings.Replace(testYAML, "minRunners: 0", "minRunners: 0\n      unknown: true", 1),
 		"duplicate YAML key":       testYAML + "targets: []\n",
 		"nested duplicate key":     strings.Replace(testYAML, "minRunners: 0", "minRunners: 0\n      minRunners: 1", 1),
 		"multiple documents":       testYAML + "---\ntargets: []\n",
 		"empty extra document":     testYAML + "---\n",
-		"removed apiVersion":       testYAML + "apiVersion: ghalet/v1alpha1\n",
 		"unfixed runner":           strings.Replace(testYAML, `"2.338.0"`, "latest", 1),
 		"empty runner version":     strings.Replace(testYAML, `"2.338.0"`, `""`, 1),
 		"empty credential type":    strings.Replace(testYAML, "    credential:\n      type: pat\n      tokenEnv: GHALET_TEST_TOKEN\n", "    credential:\n      type: \"\"\n", 1),
 		"PAT without type":         strings.Replace(testYAML, "      type: pat\n", "", 1),
 		"App without type":         strings.Replace(testYAML, "      type: pat\n      tokenEnv: GHALET_TEST_TOKEN", "      clientId: app\n      privateKeyFile: credentials/app.pem", 1),
-		"unknown credential key":   strings.Replace(testYAML, "      type: pat\n      tokenEnv: GHALET_TEST_TOKEN", "      unknown: true", 1),
 		"duplicate credential key": strings.Replace(testYAML, "      type: pat", "      type: pat\n      type: gh", 1),
 		"missing scope":            strings.Replace(testYAML, "scope: https://github.com/owner/repository", "scope: \"\"", 1),
 		"multiple scopes":          strings.Replace(testYAML, "scope: https://github.com/owner/repository", "scope: [owner/repository, owner/another-repository]", 1),
 		"old URL key":              strings.Replace(testYAML, "scope: https://github.com/owner/repository", "url: https://github.com/owner/repository", 1),
-		"legacy credentials":       testYAML + "credentials: {}\n",
-		"legacy scopes":            testYAML + "scopes: {}\n",
-		"legacy scopeRef":          strings.Replace(testYAML, "scaleSet: build", "scaleSet: build\n    scopeRef: repository", 1),
-		"legacy credentialRef":     strings.Replace(testYAML, "scaleSet: build", "scaleSet: build\n    credentialRef: personal", 1),
 		"old scale set key":        strings.Replace(testYAML, "scaleSet: build", "scaleSetName: build", 1),
 		"repository group":         strings.Replace(testYAML, "scaleSet: build", "runnerGroup: special\n    scaleSet: build", 1),
 		"enterprise":               strings.Replace(testYAML, "owner/repository", "enterprises/company", 1),
 		"HTTP scope":               strings.Replace(testYAML, "https:", "http:", 1),
 		"userinfo":                 strings.Replace(testYAML, "github.com/", "user:secret@github.com/", 1),
 		"query":                    strings.Replace(testYAML, "owner/repository", "owner/repository?token=abc", 1),
-		"removed target id":        strings.Replace(testYAML, "scaleSet: build", "scaleSet: build\n    id: build", 1),
 		"missing scale set":        strings.Replace(testYAML, "    scaleSet: build\n", "", 1),
 		"empty scale set":          strings.Replace(testYAML, "scaleSet: build", `scaleSet: ""`, 1),
 		"negative min":             strings.Replace(testYAML, "minRunners: 0", "minRunners: -1", 1),
@@ -867,19 +887,12 @@ func TestConfigRejectsInvalidInput(t *testing.T) {
 		"zero max":                 strings.Replace(testYAML, "maxRunners: 2", "maxRunners: 0", 1),
 		"min exceeds global":       strings.Replace(testYAML, "minRunners: 0", "minRunners: 2", 1) + "capacity:\n  maxRunners: 1\n",
 		"zero log retention":       testYAML + "logs:\n  retention: 0s\n",
-		"old cleanup namespace":    testYAML + "cleanup: {}\n",
-		"old log preservation":     testYAML + "logs:\n  preserveLogs: false\n",
-		"old log retention":        testYAML + "logs:\n  logRetention: 7d\n",
-		"old log root":             testYAML + "logs:\n  logRoot: logs\n",
 		"two PAT inputs":           strings.Replace(testYAML, "tokenEnv: GHALET_TEST_TOKEN", "tokenEnv: GHALET_TEST_TOKEN\n      tokenFile: token", 1),
 		"inline token":             strings.Replace(testYAML, "tokenEnv: GHALET_TEST_TOKEN", "token: secret", 1),
 		"App installation":         strings.Replace(testYAML, "scaleSet: build", "scaleSet: build\n    installationId: 10", 1),
 		"credential env":           strings.Replace(testYAML, `"2.338.0"`, "\"2.338.0\"\n  env:\n    GH_TOKEN: never-copy", 1),
 		"custom credential env":    strings.Replace(testYAML, `"2.338.0"`, "\"2.338.0\"\n  env:\n    GHALET_TEST_TOKEN: never-copy", 1),
 		"identity env":             strings.Replace(testYAML, `"2.338.0"`, "\"2.338.0\"\n  env:\n    HOME: /tmp", 1),
-		"removed workRoot":         strings.Replace(testYAML, `"2.338.0"`, "\"2.338.0\"\n  workRoot: runs", 1),
-		"removed distributionRoot": strings.Replace(testYAML, `"2.338.0"`, "\"2.338.0\"\n  distributionRoot: runners", 1),
-		"removed cacheRoot":        strings.Replace(testYAML, `"2.338.0"`, "\"2.338.0\"\n  cacheRoot: downloads", 1),
 		"empty log root":           testYAML + "logs:\n  root: \"\"\n",
 	}
 	for name, input := range cases {

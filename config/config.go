@@ -236,7 +236,7 @@ func ParseConfig(path string, content []byte) (*Config, error) {
 			Root: filepath.Join(stateDir, "logs"),
 		},
 	}
-	if err := yaml.NodeToValue(file.Docs[0].Body, c, yaml.Strict()); err != nil {
+	if err := yaml.NodeToValue(file.Docs[0].Body, c); err != nil {
 		return nil, fmt.Errorf("decode config: %w", err)
 	}
 	resolve := func(path string) string {
