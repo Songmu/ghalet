@@ -29,17 +29,21 @@ type Config struct {
 	CacheRoot string
 }
 
-// Manager serializes runner preparation and reuses verified cached archives.
+// Manager serializes cache preparation and extracts independent runs concurrently.
 // A Manager must be created with New and may be used concurrently.
 type Manager struct {
 	gate    chan struct{}
 	client  *http.Client
 	apiBase string
+	extract func(context.Context, string, string) error
 }
 
 // New creates a Manager with the given timeout for each HTTP request.
 func New(timeout time.Duration) *Manager {
-	return &Manager{gate: make(chan struct{}, 1), client: &http.Client{Timeout: timeout}, apiBase: "https://api.github.com"}
+	return &Manager{
+		gate: make(chan struct{}, 1), client: &http.Client{Timeout: timeout},
+		apiBase: "https://api.github.com", extract: extractRunner,
+	}
 }
 
 func runnerPlatform(goos, arch string) (string, error) {
@@ -65,65 +69,73 @@ func runnerPlatform(goos, arch string) (string, error) {
 }
 
 // Prepare verifies the cached runner archive, downloading it and its official
-// digest when needed, and extracts it into dest. Waiting for another preparation
+// digest when needed, and extracts it into dest. Waiting for cache preparation
 // and HTTP requests honor ctx; extraction checks ctx between archive entries.
 func (d *Manager) Prepare(ctx context.Context, c Config, dest string) error {
+	archive, err := d.cachedArchive(ctx, c)
+	if err != nil {
+		return err
+	}
+	return d.extract(ctx, archive, dest)
+}
+
+func (d *Manager) cachedArchive(ctx context.Context, c Config) (string, error) {
 	select {
 	case d.gate <- struct{}{}:
 		defer func() { <-d.gate }()
 	case <-ctx.Done():
-		return ctx.Err()
+		return "", ctx.Err()
 	}
 	if err := ctx.Err(); err != nil {
-		return err
+		return "", err
 	}
 	platform, err := runnerPlatform(runtime.GOOS, runtime.GOARCH)
 	if err != nil {
-		return err
+		return "", err
 	}
 	name := "actions-runner-" + platform + "-" + c.Version + ".tar.gz"
 	if err := fshelper.EnsureDirectory(c.CacheRoot, 0700); err != nil {
-		return err
+		return "", err
 	}
 	archive := filepath.Join(c.CacheRoot, name)
 	checksumFile := filepath.Join(c.CacheRoot, name+".sha256")
 	checksum, err := os.ReadFile(checksumFile)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
+		return "", err
 	}
 	expected := strings.TrimSpace(string(checksum))
 	if expected == "" {
 		expected, err = d.releaseDigest(ctx, c.Version, name)
 		if err != nil {
-			return err
+			return "", err
 		}
 		if err := fshelper.WriteFileAtomic(checksumFile, []byte(expected+"\n"), 0600); err != nil {
-			return err
+			return "", err
 		}
 	}
 	if len(expected) != 64 {
-		return errors.New("invalid official SHA-256 digest")
+		return "", errors.New("invalid official SHA-256 digest")
 	}
 	if _, err := hex.DecodeString(expected); err != nil {
-		return errors.New("invalid official SHA-256 digest")
+		return "", errors.New("invalid official SHA-256 digest")
 	}
 	if _, err := os.Stat(archive); errors.Is(err, os.ErrNotExist) {
 		url := "https://github.com/actions/runner/releases/download/v" + c.Version + "/" + name
 		if err := d.download(ctx, url, archive); err != nil {
-			return err
+			return "", err
 		}
 	} else if err != nil {
-		return err
+		return "", err
 	}
 	actual, err := fileDigest(archive)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if actual != expected {
 		// Do not reuse or silently repair an unverified cache.
-		return fmt.Errorf("runner checksum mismatch for %s; remove the corrupt cache and retry", archive)
+		return "", fmt.Errorf("runner checksum mismatch for %s; remove the corrupt cache and retry", archive)
 	}
-	return extractRunner(ctx, archive, dest)
+	return archive, nil
 }
 
 func (d *Manager) releaseDigest(ctx context.Context, version, name string) (string, error) {

@@ -206,6 +206,8 @@ the release asset's official SHA-256 digest, and checked again whenever the
 cached archive is reused. Releases without an official asset digest fail
 closed. The runner cache stores both the pinned digest and the archive;
 each execution gets an independent extraction into its execution directory.
+Cache preparation and verification are serialized; independent extractions can
+proceed concurrently.
 A corrupt cache is not silently replaced: remove the indicated bad archive,
 then restart.
 
@@ -232,11 +234,21 @@ Cross-target fairness and distributed writers are not provided.
 
 Preparation has a 10-minute deadline, API operations 45 seconds, authentication
 commands 15 seconds, and listener polls 60 seconds. Registration/listener
-failures and preparation/start failures have at most four attempts with
-1/2/4-second exponential delays. Permanent invalid-request/authentication
-errors stop immediately where the SDK exposes their type. Preparation
-starts are rate-limited to one per second per target. A target that exhausts
-retries remains faulted until `apply` or a normal stop/restart; other targets continue.
+failures and preparation/start failures recover automatically with exponential
+delays of 1/2/4/8/16/32 seconds, capped at one minute, without an attempt limit.
+Startup registration is bounded to four attempts; remaining transient failures
+recover in the background so other targets and control access remain available.
+Permanent invalid-request/authentication errors exposed by the SDK and unsafe
+registration, state, or credential-copying failures stop immediately and require
+inspection and `apply` or a normal stop/restart. Other targets continue.
+Preparation starts are rate-limited to one per second per target. Drain cancels
+pending registration recovery; apply and shutdown cancel the old listeners.
+An unresolved cleanup of a failed preparation or abnormally exited runner
+suspends new starts for that target until cleanup succeeds (or is resolved with
+`gc`/restart), preventing repeated
+failures from accumulating runner trees. Cleanup retry policy is unchanged.
+Transient listener and preparation/start failures remain visible in `status` and
+`doctor` until the corresponding listener or runner startup recovers.
 Workflow results are not retried by ghalet.
 
 SIGINT/SIGTERM starts drain for all targets during normal shutdown.
@@ -370,6 +382,9 @@ records, files and diagnostics remain; stopping alone does not authorize deletio
 Potentially live or unverifiable processes still reserve conservative capacity.
 Malformed records also reserve capacity because they provide no trusted identity
 with which to prove process absence; they are never used to authorize cleanup.
+Ordinary files directly in workRoot or a target directory are retained and logged
+as warnings without reserving capacity; unrecognized directories and symlinks
+remain conservative diagnostics.
 Recovery of a surviving process does not recreate `Wait` or
 invent its exit code. Descendants observed in the original process group can
 be recovered; escaped descendants cannot be completely detected or isolated.
@@ -432,9 +447,16 @@ defaults to `$STATE_DIRECTORY/logs` when `STATE_DIRECTORY` is set, otherwise
 An explicit `logs.root` overrides this default; relative values are
 still resolved against the selected config's directory. Credentials and
 workspace contents are not archived. Failed archives preserve the original
-logs and state. Once processes are confirmed stopped, file-only cleanup
-failures do not hold execution capacity; `gc` or the next startup retries
-them. `logs.retention` expires only complete saved archives (also checked
+logs and state. Once processes are confirmed stopped, cleanup failures do not
+hold execution capacity or indefinitely block drain completion. During normal
+operation, transient network/API failures (timeouts, rate limits and recoverable
+server errors) and temporary filesystem failures are retried after 5 seconds,
+with exponential waits capped at 5 minutes. Authentication/permission errors,
+identity mismatches, invalid state and output-collection failures require
+operator attention, not automatic retries. `gc` retries immediately regardless
+of the wait; the next startup also revalidates retained records. Unknown
+process or registration identities never authorize cleanup.
+`logs.retention` expires only complete saved archives (also checked
 hourly). There is no disk quota, disk-pressure monitor or automatic external
 log shipping.
 

@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -45,6 +46,20 @@ type targetRuntime struct {
 	ListenerDone  bool
 	ListenerReady chan struct{}
 	CloseError    string
+	RetryError    string
+	StartError    string
+}
+
+const maxTargetRetryWait = time.Minute
+
+var errUnsafeTarget = errors.New("unsafe target state")
+
+func targetRetryWait(failures int) time.Duration {
+	return min(time.Second<<min(max(failures-1, 0), 6), maxTargetRetryWait)
+}
+
+func permanentTargetFailure(err error) bool {
+	return errors.Is(err, scaleset.BadRequestError) || errors.Is(err, scaleset.UnauthorizedError) || errors.Is(err, errUnsafeTarget)
 }
 
 type activeRun struct {
@@ -55,6 +70,7 @@ type activeRun struct {
 	removed         bool
 	persistError    string
 	startError      error
+	readySaved      bool
 	forceStop       bool
 	output          *runOutputState
 	State           *RunState
@@ -67,6 +83,8 @@ type activeRun struct {
 	Uncertain       bool
 	GroupStopped    bool // Observed absence does not authorize cleanup of uncertain state.
 	CleanupTried    bool
+	CleanupFailures int
+	CleanupRetryAt  time.Time
 	WaitDone        chan struct{}
 	OutputError     error
 	OutputReady     bool
@@ -230,7 +248,7 @@ func retry(ctx context.Context, fn func() error) error {
 			}
 		}
 		err = fn()
-		if err == nil || errors.Is(err, scaleset.BadRequestError) || errors.Is(err, scaleset.UnauthorizedError) || ctx.Err() != nil {
+		if err == nil || permanentTargetFailure(err) || ctx.Err() != nil {
 			return err
 		}
 	}
@@ -259,28 +277,43 @@ func (d *daemon) initialize(ctx context.Context, offline bool) error {
 
 func (d *daemon) registerTarget(ctx context.Context, target *targetRuntime, create bool) {
 	err := retry(ctx, func() error {
-		callCtx, cancel := context.WithTimeout(ctx, apiTimeout)
-		defer cancel()
-		client, err := d.clientFactory(callCtx, target.Config)
-		if err != nil {
-			return err
-		}
-		target.Client = client
-		target.Set, err = registration(callCtx, client, target.Config, create)
-		return err
+		return d.registrationAttempt(ctx, target, create)
 	})
 	if err != nil {
-		target.Fault = d.secrets.Redact(err.Error())
-		slog.Error("Target registration failed", "event", "target.failed", "targetId", d.secrets.Redact(target.Config.ID), "error", target.Fault)
+		target.RetryError = d.secrets.Redact(err.Error())
+		if !create || permanentTargetFailure(err) {
+			target.Fault = target.RetryError
+		}
+		slog.Error("Target registration failed", "event", "target.failed", "targetId", d.secrets.Redact(target.Config.ID), "error", target.RetryError)
 	} else if target.Set == nil {
 		target.Fault = "scale set is not registered"
-	} else {
-		set := *target.Set
-		target.Set = &set
+	}
+}
+
+// The caller owns target until the result is published under d.mu.
+func (d *daemon) registrationAttempt(ctx context.Context, target *targetRuntime, create bool) error {
+	callCtx, cancel := context.WithTimeout(ctx, apiTimeout)
+	defer cancel()
+	client, err := d.clientFactory(callCtx, target.Config)
+	if err != nil {
+		return err
+	}
+	set, err := registration(callCtx, client, target.Config, create)
+	if err != nil {
+		return err
+	}
+	if set != nil && (set.ID <= 0 || set.RunnerGroupID <= 0) {
+		return fmt.Errorf("%w: GitHub returned an invalid scale set registration", errUnsafeTarget)
+	}
+	target.Client, target.Set = client, set
+	if set != nil {
+		copy := *set
+		target.Set = &copy
 		if set.Statistics != nil {
 			target.Assigned = set.Statistics.TotalAssignedJobs
 		}
 	}
+	return nil
 }
 
 func (d *daemon) recover(ctx context.Context) error {
@@ -299,6 +332,10 @@ func (d *daemon) recover(ctx context.Context) error {
 		return err
 	}
 	for _, record := range records {
+		if record.NonExecutionFile {
+			slog.Warn("Non-execution file ignored", "event", "recovery.unrelated_file", "path", d.secrets.Redact(record.Path))
+			continue
+		}
 		if record.Err != nil {
 			d.problems = append(d.problems, Problem{Path: record.Path, Reason: record.Err.Error()})
 			continue
@@ -386,6 +423,7 @@ func (d *daemon) runIO(run *activeRun, operation func(*activeRun) error) <-chan 
 	state.Members = append([]ProcessIdentity(nil), state.Members...)
 	work.State, work.detached = &state, true
 	work.startError, work.persistError = nil, ""
+	work.readySaved = false
 	work.Target, work.Config = d.runTarget(run), run.Config
 	if work.Target != nil {
 		work.forceStop = work.Target.Forced
@@ -406,6 +444,9 @@ func (d *daemon) runIO(run *activeRun, operation func(*activeRun) error) <-chan 
 		run.generation++
 		if work.persistError != "" && work.Target != nil {
 			work.Target.Fault = work.persistError
+		}
+		if work.readySaved && work.Target != nil {
+			work.Target.StartError, work.Target.Failures = "", 0
 		}
 		if work.startError != nil && work.Target != nil {
 			d.startFailure(work.Target, work.startError)
@@ -447,16 +488,61 @@ func (d *daemon) startListener(target *targetRuntime) {
 			}
 		}
 		var lastErr error
-		for attempt := 0; attempt < maxAttempts; attempt++ {
-			if attempt > 0 {
+		attempt := 0
+		if target.Set == nil {
+			attempt = maxAttempts
+		}
+		for ; ; attempt = min(attempt+1, 7) {
+			if attempt > 0 || target.Set == nil {
+				signalReady()
 				select {
 				case <-ctx.Done():
 					lastErr = ctx.Err()
-				case <-time.After(time.Second << (attempt - 1)):
+				case <-time.After(targetRetryWait(max(1, attempt))):
 				}
 				if ctx.Err() != nil {
 					break
 				}
+			}
+			if target.Set == nil {
+				d.mu.Lock()
+				draining := target.Draining
+				d.mu.Unlock()
+				if draining {
+					break
+				}
+				candidate := &targetRuntime{Config: target.Config}
+				err := d.registrationAttempt(ctx, candidate, true)
+				d.mu.Lock()
+				if err == nil && candidate.Set == nil {
+					err = fmt.Errorf("%w: scale set is not registered", errUnsafeTarget)
+				}
+				if err == nil {
+					target.Client, target.Set = candidate.Client, candidate.Set
+					if ctx.Err() == nil && !target.Draining {
+						target.Assigned = candidate.Assigned
+					}
+					target.RetryError = ""
+					d.retired = slices.DeleteFunc(d.retired, func(old *targetRuntime) bool {
+						if old.Set == nil {
+							return false
+						}
+						_, adopted := d.scaleSetReference(d.config, old)
+						return adopted
+					})
+				} else if ctx.Err() == nil {
+					target.RetryError = d.secrets.Redact(err.Error())
+				}
+				stopped := ctx.Err() != nil || target.Draining
+				d.mu.Unlock()
+				lastErr = err
+				if stopped || permanentTargetFailure(err) {
+					break
+				}
+				if err != nil {
+					continue
+				}
+				attempt = 0
 			}
 			client, ok := target.Client.(*scaleset.Client)
 			if !ok {
@@ -468,6 +554,17 @@ func (d *daemon) startListener(target *targetRuntime) {
 			setupCancel()
 			if err != nil {
 				lastErr = err
+				if ctx.Err() != nil {
+					break
+				}
+				d.mu.Lock()
+				target.RetryError = d.secrets.Redact(err.Error())
+				signalReady()
+				d.mu.Unlock()
+				if permanentTargetFailure(err) {
+					break
+				}
+				slog.Warn("Message session setup failed; retrying", "event", "listener.retry", "targetId", d.secrets.Redact(target.Config.ID), d.secrets.ReplaceAttr(nil, slog.Any("error", err)))
 				continue
 			}
 			d.mu.Lock()
@@ -479,7 +576,10 @@ func (d *daemon) startListener(target *targetRuntime) {
 			if err == nil {
 				target.Listener = l
 				target.HasMessage = false
+				target.RetryError = ""
 				signalReady()
+			} else {
+				err = errors.Join(errUnsafeTarget, err)
 			}
 			d.mu.Unlock()
 			if err == nil {
@@ -495,7 +595,12 @@ func (d *daemon) startListener(target *targetRuntime) {
 				slog.Error("Message session cleanup failed", "event", "listener.close_failed", "targetId", d.secrets.Redact(target.Config.ID), "error", d.secrets.Redact(closeErr.Error()))
 			}
 			lastErr = err
-			if ctx.Err() != nil || errors.Is(err, scaleset.BadRequestError) || errors.Is(err, scaleset.UnauthorizedError) {
+			if err != nil && ctx.Err() == nil {
+				d.mu.Lock()
+				target.RetryError = d.secrets.Redact(err.Error())
+				d.mu.Unlock()
+			}
+			if ctx.Err() != nil || permanentTargetFailure(err) {
 				break
 			}
 			slog.Warn("Listener failed; retrying", "event", "listener.retry", "targetId", d.secrets.Redact(target.Config.ID), "attempt", attempt+1, d.secrets.ReplaceAttr(nil, slog.Any("error", err)))
@@ -617,6 +722,7 @@ func (d *daemon) jobEvent(ctx context.Context, target *targetRuntime, runnerID i
 	if d.runs[run.State.RunID] != run || run.State.RunnerID != runnerID {
 		return nil
 	}
+	newlyReady := busy && !run.State.Ready
 	run.State.Busy = busy
 	if busy {
 		run.State.Ready, run.State.Phase = true, "busy"
@@ -626,6 +732,7 @@ func (d *daemon) jobEvent(ctx context.Context, target *targetRuntime, runnerID i
 	var err error
 	done := d.runIO(run, func(work *activeRun) error {
 		err = d.save(work)
+		work.readySaved = err == nil && newlyReady
 		return err
 	})
 	d.mu.Unlock()
@@ -675,6 +782,9 @@ func (d *daemon) retire(run *activeRun) {
 func (d *daemon) beginDrain(target *targetRuntime) {
 	if !target.Draining {
 		target.Draining, target.DrainStarted = true, time.Now()
+		if target.Set == nil && target.Cancel != nil {
+			target.Cancel()
+		}
 		if target.Listener != nil {
 			target.Listener.SetMaxRunners(0)
 		}
@@ -749,11 +859,16 @@ func (d *daemon) processEvent(event runEvent) {
 		if run.State.ProcessDone || run.Stopping || run.Uncertain {
 			return
 		}
+		newlyReady := !run.State.Ready
 		run.State.Ready = true
 		if !run.State.Busy {
 			run.State.Phase = "idle"
 		}
-		d.runIO(run, d.save)
+		d.runIO(run, func(work *activeRun) error {
+			err := d.save(work)
+			work.readySaved = err == nil && newlyReady
+			return err
+		})
 	case "exit":
 		run.Exited = true
 		run.ExitResult = &runExit{err: event.err, stopping: run.Stopping}
@@ -776,6 +891,7 @@ func (d *daemon) finishExit(run *activeRun) {
 	}
 	result := run.ExitResult
 	run.ExitResult = nil
+	newlyReady := run.OutputReady && !run.State.Ready
 	if run.OutputReady {
 		run.State.Ready = true
 	}
@@ -790,6 +906,9 @@ func (d *daemon) finishExit(run *activeRun) {
 	} else if !result.stopping && result.err == nil && run.State.Ready {
 		if target := d.runTarget(run); target != nil {
 			target.Failures = 0
+			if newlyReady {
+				target.StartError = ""
+			}
 		}
 	}
 }
@@ -834,10 +953,13 @@ func (d *daemon) inspectRuns() {
 	var candidates []candidate
 	var identities []ProcessIdentity
 	for _, run := range d.runs {
-		if run.ioDone != nil || run.Preparing || (run.State.ProcessDone && !run.Uncertain && run.CleanupTried) {
+		if run.ioDone != nil || run.Preparing {
 			continue
 		}
 		if run.State.ProcessDone && !run.Uncertain {
+			if run.CleanupTried && (run.CleanupRetryAt.IsZero() || time.Now().Before(run.CleanupRetryAt)) {
+				continue
+			}
 			d.runIO(run, func(work *activeRun) error {
 				d.reconcileRun(work, nil)
 				return nil
@@ -893,7 +1015,7 @@ func (d *daemon) reconcileRun(run *activeRun, table map[int]processEntry) {
 		return
 	}
 	if state.ProcessDone {
-		if !run.CleanupTried {
+		if !run.CleanupTried || (!run.CleanupRetryAt.IsZero() && !time.Now().Before(run.CleanupRetryAt)) {
 			d.cleanup(run)
 		}
 		return
@@ -1034,6 +1156,14 @@ func (d *daemon) reconcileIdle(target *targetRuntime, realDemand bool) {
 }
 
 func (d *daemon) canStart(target *targetRuntime) bool {
+	for _, run := range d.runs {
+		// Do not accumulate failed runner trees while their cleanup is
+		// unresolved, even though a stopped process releases runner capacity.
+		if d.runTarget(run) == target && run.State.ProcessDone && (!run.State.Ready || run.ExitError != "") &&
+			run.CleanupTried && run.State.Error != "" {
+			return false
+		}
+	}
 	return !d.reloading && (!d.offline || target.Draining) && target.Client != nil && target.Set != nil && target.Fault == "" && !target.Forced && !time.Now().Before(target.RetryAt)
 }
 
@@ -1119,6 +1249,9 @@ func (d *daemon) reserve(target *targetRuntime) error {
 		work.Preparing = false
 		if err != nil {
 			work.State.Error = d.secrets.Redact(err.Error())
+			if work.Uncertain {
+				err = errors.Join(errUnsafeTarget, err)
+			}
 			// Rollback may wait on GitHub or files; stop accepting work for
 			// a failed target before entering that slow cleanup.
 			d.mu.Lock()
@@ -1137,7 +1270,11 @@ func (d *daemon) reserve(target *targetRuntime) error {
 
 func createRunDirectory(dir string) error {
 	if err := ensureExecutionDirectory(filepath.Dir(dir)); err != nil {
-		return err
+		var pathErr *os.PathError
+		if errors.As(err, &pathErr) {
+			return err
+		}
+		return errors.Join(errUnsafeTarget, err)
 	}
 	if err := os.Mkdir(dir, 0755); err != nil {
 		return err
@@ -1178,7 +1315,14 @@ func (d *daemon) prepare(ctx context.Context, target *targetRuntime, run *active
 	check := exec.CommandContext(ctx, "/bin/sh", "-c", `test -d "$HOME" && test -w "$1" && test -x "$2"`, "ghalet-access", state.Workspace, filepath.Join(state.RunnerDir, "bin", "Runner.Listener"))
 	check.Dir, check.Env, check.SysProcAttr = state.RunnerDir, runnerEnvironment(config, d.user, ""), processAttributes(d.user)
 	if err := check.Run(); err != nil {
-		return fmt.Errorf("execution user cannot access HOME, workspace or runner: %w", err)
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		var exitErr *exec.ExitError
+		if !errors.As(err, &exitErr) {
+			return err
+		}
+		return fmt.Errorf("%w: execution user cannot access HOME, workspace or runner: %w", errUnsafeTarget, err)
 	}
 	if err := ctx.Err(); err != nil {
 		return err
@@ -1193,12 +1337,12 @@ func (d *daemon) prepare(ctx context.Context, target *targetRuntime, run *active
 	}
 	if jit == nil || jit.Runner == nil || jit.Runner.ID <= 0 || jit.EncodedJITConfig == "" ||
 		jit.Runner.Name != state.RunnerName || jit.Runner.RunnerScaleSetID != state.ScaleSetID {
-		return errors.New("GitHub returned incomplete JIT configuration; registration must be inspected")
+		return fmt.Errorf("%w: GitHub returned incomplete JIT configuration; registration must be inspected", errUnsafeTarget)
 	}
 	run.JITSecrets = d.secrets.AddJIT(jit.EncodedJITConfig)
 	for key, value := range config.Runner.Env {
 		if d.secrets.Redact(value) != value {
-			return fmt.Errorf("runner.env %s contains a management credential; refusing to copy it into a job", key)
+			return fmt.Errorf("%w: runner.env %s contains a management credential; refusing to copy it into a job", errUnsafeTarget, key)
 		}
 	}
 	state.RunnerID, state.Phase = jit.Runner.ID, "registered"
@@ -1352,9 +1496,13 @@ func (d *daemon) launch(ctx context.Context, run *activeRun, jit string) (retErr
 }
 
 func (d *daemon) startFailure(target *targetRuntime, err error) {
-	target.Failures++
-	target.RetryAt = time.Now().Add(time.Second << min(target.Failures-1, 6))
-	if target.Failures >= maxAttempts || errors.Is(err, scaleset.UnauthorizedError) || errors.Is(err, scaleset.BadRequestError) {
+	if errors.Is(err, context.Canceled) {
+		return
+	}
+	target.StartError = d.secrets.Redact(err.Error())
+	target.Failures = min(target.Failures+1, 7)
+	target.RetryAt = time.Now().Add(targetRetryWait(target.Failures))
+	if permanentTargetFailure(err) {
 		target.Fault = d.secrets.Redact(err.Error())
 		if target.Listener != nil {
 			target.Listener.SetMaxRunners(0)
@@ -1405,8 +1553,15 @@ func (d *daemon) retireIdle(run *activeRun) error {
 	// Never stop the process if GitHub refuses deletion or cannot be queried.
 	if err := d.unregister(run); err != nil {
 		if errors.Is(err, scaleset.JobStillRunningError) {
+			newlyReady := !run.State.Ready
 			run.State.Busy, run.State.Ready, run.State.Phase = true, true, "busy"
-			d.save(run)
+			if d.save(run) == nil && newlyReady {
+				if run.detached {
+					run.readySaved = true
+				} else if target := d.runTarget(run); target != nil {
+					target.StartError, target.Failures = "", 0
+				}
+			}
 		}
 		return err
 	}
@@ -1458,27 +1613,32 @@ func (d *daemon) cleanup(run *activeRun) error {
 		run.OutputReady, run.OutputError = run.output.ready, run.output.err
 	}
 	run.CleanupTried = true
-	fail := func(err error) error {
+	fail := func(err error, retryable bool) error {
+		run.CleanupRetryAt = time.Time{}
 		run.State.Error = d.secrets.Redact(err.Error())
-		d.save(run)
-		slog.Error("Cleanup incomplete; state and files retained", "event", "cleanup.failed", "runId", d.secrets.Redact(run.State.RunID), "targetId", d.secrets.Redact(run.State.TargetID), "error", d.secrets.Redact(err.Error()))
+		if d.save(run) == nil && retryable && d.ctx.Err() == nil {
+			run.CleanupFailures = min(run.CleanupFailures+1, 7)
+			delay := min(5*time.Second<<uint(run.CleanupFailures-1), 5*time.Minute)
+			run.CleanupRetryAt = time.Now().Add(delay)
+		}
+		slog.Error("Cleanup incomplete; state and files retained", "event", "cleanup.failed", "runId", d.secrets.Redact(run.State.RunID), "targetId", d.secrets.Redact(run.State.TargetID), "error", d.secrets.Redact(err.Error()), "retryAt", run.CleanupRetryAt)
 		return err
 	}
 	if run.OutputError != nil {
-		return fail(fmt.Errorf("collect runner output: %w", run.OutputError))
+		return fail(fmt.Errorf("collect runner output: %w", run.OutputError), false)
 	}
 	if err := d.unregister(run); err != nil {
-		return fail(err)
+		return fail(err, cleanupRetryable(err))
 	}
 	config := run.Config
 	if config == nil {
 		config = d.config
 	}
 	if err := archiveLogs(config, run.State, d.secrets); err != nil {
-		return fail(err)
+		return fail(err, cleanupRetryable(err))
 	}
 	if err := d.store.removeFiles(run.State); err != nil {
-		return fail(err)
+		return fail(err, cleanupRetryable(err))
 	}
 	if run.detached {
 		run.removed = true
@@ -1533,6 +1693,11 @@ func (d *daemon) statusLocked() Status {
 		status.Targets = append(status.Targets, item)
 		if target.Fault != "" {
 			status.Problems = append(status.Problems, Problem{TargetID: id, Reason: target.Fault})
+		} else if target.RetryError != "" {
+			status.Problems = append(status.Problems, Problem{TargetID: id, Reason: target.RetryError})
+		}
+		if target.Fault == "" && target.StartError != "" {
+			status.Problems = append(status.Problems, Problem{TargetID: id, Reason: target.StartError})
 		}
 		if target.Forced {
 			status.Problems = append(status.Problems, Problem{TargetID: id, Reason: "drain deadline exceeded; jobs may be unfinished"})

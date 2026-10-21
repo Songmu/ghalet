@@ -624,7 +624,7 @@ func TestExitClassificationWaitsForCollectedReadiness(t *testing.T) {
 			} else if tc.stopping {
 				wantFailures = maxAttempts - 1
 			}
-			if target.Failures != wantFailures || (target.Fault != "") != tc.wantFailure {
+			if target.Failures != wantFailures || target.Fault != "" {
 				t.Fatal("incorrect readiness-dependent exit classification", target.Failures, target.Fault)
 			}
 			d.processEvent(runEvent{id: state.RunID, kind: "ready"})
@@ -653,17 +653,21 @@ func TestCompletedTargetDrainDoesNotExpire(t *testing.T) {
 	}
 }
 
-func TestFinitePreparationFailuresFaultOnlyAffectedTarget(t *testing.T) {
+func TestTransientPreparationFailuresRecoverOnlyAffectedTarget(t *testing.T) {
 	d, _ := testDaemon(t)
 	other := *d.targets["build"]
 	other.Config.ID = "other"
 	d.targets["other"] = &other
 	d.order = append(d.order, "other")
-	for range maxAttempts {
+	for range 20 {
 		d.startFailure(d.targets["build"], errTestAPI)
 	}
-	if d.canStart(d.targets["build"]) || !d.canStart(d.targets["other"]) {
+	if d.targets["build"].Fault != "" || d.canStart(d.targets["build"]) || !d.canStart(d.targets["other"]) {
 		t.Fatal("target failure was hidden or affected an unrelated target")
+	}
+	d.targets["build"].RetryAt = time.Now().Add(-time.Second)
+	if !d.canStart(d.targets["build"]) {
+		t.Fatal("transient failures permanently stopped the target")
 	}
 	state := testState(t, d.config)
 	state.ProcessDone = true
