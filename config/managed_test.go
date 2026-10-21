@@ -208,18 +208,26 @@ func TestManagedSizeLimitIncludesGeneratedHeader(t *testing.T) {
 }
 
 func TestManagedFilesCannotContainRuntimeDirectories(t *testing.T) {
-	_, path := managedFixture(t)
-	for _, field := range []struct {
-		name, yaml string
-	}{
-		{"logs", "logs:\n  root: "},
-		{"work", "runner:\n  workRoot: "},
-		{"cache", "runner:\n  cacheRoot: "},
-	} {
+	root, path := managedFixture(t)
+	base, err := ParseConfig(path, []byte("managedFile: generated\ntargets: []\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range []string{"logs", "work", "cache"} {
 		for _, parent := range []string{"generated", "generated.lock"} {
-			t.Run(field.name+"/"+parent, func(t *testing.T) {
-				data := "managedFile: generated\n" + field.yaml + parent + "/runtime\ntargets: []\n"
-				if _, err := ParseConfig(path, []byte(data)); err == nil || !strings.Contains(err.Error(), "managedFile") {
+			t.Run(field+"/"+parent, func(t *testing.T) {
+				config := *base
+				directory := filepath.Join(root, parent, "runtime")
+				switch field {
+				case "logs":
+					config.Logs.Root = directory
+				case "work":
+					config.Runner.WorkRoot = directory
+				case "cache":
+					config.Runner.CacheRoot = directory
+				}
+				want := "managedFile and its lock must not overlap runner or log directories: " + config.ManagedFile
+				if err := config.validateDirectories(); err == nil || err.Error() != want {
 					t.Fatal("runtime directory below a managed file or lock was not rejected", err)
 				}
 			})
