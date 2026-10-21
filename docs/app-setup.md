@@ -1,6 +1,6 @@
 # GitHub App setup wizard
 
-[English](app-setup.md) | [日本語](app-setup.ja.md)
+[日本語](app-setup.ja.md)
 
 `ghalet app setup --scope OWNER/REPO --scale-set project` creates a private,
 user-owned or organization-owned GitHub App using [GitHub's Manifest flow][manifest].

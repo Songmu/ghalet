@@ -1,11 +1,13 @@
 # Linux パッケージとコンテナ
 
-[English](distribution.md) | [日本語](distribution.ja.md)
+[English](distribution.md)
 
 リリースタグごとに amd64 / arm64 のバイナリ、`.deb` / `.rpm` パッケージ、
 マルチプラットフォームイメージ `ghcr.io/songmu/ghalet:TAG` を公開します。
 既存のアーカイブ、`install.sh`、`go install` も引き続き利用できます。
-この配布設定には APT/DNF リポジトリや Homebrew のサービス連携は含みません。
+この配布設定には APT/DNF リポジトリは含みません。
+Homebrew でのインストールと macOS のサービス連携は
+[README](../README.ja.md#インストール)を参照してください。
 
 ## Debian / RPM パッケージ
 

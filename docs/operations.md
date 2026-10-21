@@ -1,6 +1,6 @@
 # Operations
 
-[English](operations.md) | [日本語](operations.ja.md)
+[日本語](operations.ja.md)
 
 This guide covers configuring, running and maintaining ghalet on a single
 trusted host. Start with the [README](../README.md#quick-start) for setup and

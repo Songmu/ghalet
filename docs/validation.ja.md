@@ -1,6 +1,6 @@
 # 検証ガイド
 
-[English](validation.md) | [日本語](validation.ja.md)
+[English](validation.md)
 
 自動テストと、公式 runner・GitHub に対して任意で実行するテストの手順です。
 セットアップと常駐化は [README](../README.ja.md) と

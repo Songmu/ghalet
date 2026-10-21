@@ -1,6 +1,6 @@
 # Ordinary credential files
 
-[English](file-credentials.md) | [日本語](file-credentials.ja.md)
+[日本語](file-credentials.ja.md)
 
 `ghalet credential set` imports a named PAT or GitHub App private key on Linux
 or macOS without systemd or root. It writes **unencrypted, owner-only files**,

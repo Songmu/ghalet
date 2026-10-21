@@ -12,32 +12,30 @@
 [PkgGoDev]: https://pkg.go.dev/github.com/Songmu/ghalet
 [deepwiki]: https://deepwiki.com/Songmu/ghalet
 
-[English](README.md) | [日本語](README.ja.md)
+[日本語](README.ja.md)
 
-ghalet turns a Linux or macOS host into an automatically scaling
-self-hosted GitHub Actions runner environment. Put a spare Mac, a dedicated
-Linux machine, or an always-on VM to work for your trusted repositories,
-without setting up Kubernetes, Docker, or a VM for every job.
+**A lightweight, simple supervisor for GitHub Actions self-hosted runners**
 
-It is a Go daemon that manages GitHub Actions Runner Scale Sets and starts
-native runner processes as jobs arrive. Each runner handles one job, then
-exits; ghalet cleans up its runner directory and workspace. Several
-repositories or organizations can share the host with per-target and
-host-wide concurrency limits.
+- **Runs as a single Go daemon with a configuration file**
+  - No dependencies on components such as Kubernetes or databases
+  - A small footprint and minimal stored state make setup and rebuilding easy
+- **Scales runners on demand**
+  - Runners run as lightweight native processes on the host
+  - A configurable execution user provides basic privilege separation
+- **Manages multiple repositories and organizations together**
+  - Share one host across multiple projects
+  - Fine-grained concurrency control through global and per-target scaling settings
 
-## Use cases
+By design, ghalet does not provide strict isolation between runners. It is
+intended for standalone, dedicated hosts, such as:
 
-- **Use a spare Mac for macOS builds.** Run jobs directly on macOS with
-  tools already installed on the machine.
-- **Share a Linux host across trusted projects.** Register several
-  repository or organization targets and let ghalet start runners on
-  demand within a shared capacity limit.
-- **Keep the runner setup small and disposable.** Run one daemon on a
-  dedicated account or an always-on VM, including a Lima VM on macOS.
-  Configuration defines the setup; small local state files support recovery
-  without a separate database.
+- High-performance dedicated build machines
+- Single-purpose VMs
+- Home servers, such as a Mac mini or a spare laptop
 
-ghalet scales **runner processes on one host**, not the hosts themselves.
+ghalet manages GitHub Actions Runner Scale Sets on Linux and macOS.
+Each runner handles one job, then exits; ghalet cleans up its runner directory
+and workspace. It scales **runner processes on one host**, not the hosts themselves.
 It does not orchestrate multiple machines or provision per-job VMs or
 containers. **Ephemeral registration is not job isolation:** jobs share the
 execution user's HOME, tools, caches and privileges. Use only trusted
@@ -50,18 +48,16 @@ Linux `.deb`/`.rpm` packages with a systemd unit and a GHCR container image
 are also built for releases. See [packages and containers](docs/distribution.md)
 for installation, configuration, and updates.
 
-```console
-# Install the latest version into ./bin/ by default.
-% curl -sfL https://raw.githubusercontent.com/Songmu/ghalet/main/install.sh | sh -s
+Install with Homebrew:
 
-# Specify the installation directory and version.
-% curl -sfL https://raw.githubusercontent.com/Songmu/ghalet/main/install.sh | sh -s -- -b $(go env GOPATH)/bin [vX.Y.Z]
+```sh
+brew install Songmu/tap/ghalet
+```
 
-# On Alpine Linux without curl.
-% wget -O - -q https://raw.githubusercontent.com/Songmu/ghalet/main/install.sh | sh -s [vX.Y.Z]
+Or install with Go:
 
-# Or install with Go.
-% go install github.com/Songmu/ghalet/cmd/ghalet@latest
+```sh
+go install github.com/Songmu/ghalet/cmd/ghalet@latest
 ```
 
 Add the installation directory to your `PATH`. Install the build tools your
@@ -120,6 +116,25 @@ configured drain deadline. After that deadline, remaining jobs may be
 forcibly stopped. After editing configuration, use `ghalet apply` (or
 `sudo systemctl reload ghalet` for the packaged service) to drain and
 reconfigure without exiting the daemon.
+
+### Homebrew service (macOS only)
+
+If you installed with Homebrew, after setting up configuration and authentication,
+use `brew services` instead of `ghalet run` to run in the background.
+If the foreground daemon is already running, stop it with Ctrl-C first.
+Run these commands without `sudo`, as the same user who configured ghalet and
+authentication. The service uses the default configuration file,
+`~/.config/ghalet/config.yaml`.
+
+```sh
+# Start now and enable automatic startup at login.
+brew services start ghalet
+
+# Stop and disable automatic startup at login.
+brew services stop ghalet
+```
+
+The service does not start before login or prevent the host from sleeping.
 
 ## Commands
 

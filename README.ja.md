@@ -12,30 +12,31 @@
 [PkgGoDev]: https://pkg.go.dev/github.com/Songmu/ghalet
 [deepwiki]: https://deepwiki.com/Songmu/ghalet
 
-[English](README.md) | [日本語](README.ja.md)
+[English](README.md)
 
-ghalet は、Linux / macOS ホストを、ジョブ需要に応じて自動で増減する
-GitHub Actions のセルフホステッド runner 環境にするツールです。余っている Mac、
-専用の Linux マシン、常時起動する VM を、信頼できるリポジトリのために活用できます。
-Kubernetes や Docker、ジョブごとの VM を用意する必要はありません。
+**軽量でシンプルな、GitHub Actions Self-hosted runner スーパーバイザー**
 
-Go 製のデーモンが GitHub Actions Runner Scale Set を管理し、ジョブが届くと
-ネイティブの runner プロセスを起動します。各 runner は 1 ジョブを実行して終了し、
-ghalet が runner 専用ディレクトリと workspace を削除します。複数のリポジトリや
-Organization で 1 台のホストを共有し、target ごと・ホスト全体の並列実行数を制限できます。
+- **単一の Go デーモンと設定ファイルで動作**
+  - Kubernetes や DB などの依存コンポーネントは不要
+  - 構成が小さく、保持する状態も少ないため、導入も再構築も容易
+- **オンデマンドな runner のスケーリング**
+  - ホスト上のネイティブプロセスとして runner が軽量に動作
+  - 実行ユーザー指定による最低限の権限分離
+- **複数のリポジトリ・Organization をまとめて管理**
+  - 1台のホストを複数のプロジェクトで共有
+  - 全体と個別それぞれのスケーリング設定による細やかな同時実行数制御
 
-## 主なユースケース
+runner の厳密な隔離は行わない割り切りなので、独立した専用ホスト、
+具体的には以下のような環境上での動作を想定しています。
 
-- **余っている Mac を macOS ビルドに使う。** マシンにインストール済みのツールを使い、
-  macOS 上で直接ジョブを実行できます。
-- **信頼できる複数のプロジェクトで Linux ホストを共有する。** リポジトリや
-  Organization の target を登録し、共通の同時実行上限の範囲で必要な runner を起動します。
-- **小さく、作り直しやすい runner 環境を持つ。** 専用アカウントや常設 VM 上で
-  デーモンを 1 つ動かす構成です。macOS 上の Lima VM も利用できます。
-  設定ファイルを構成の正とし、小さなローカルステートファイルで復旧するため、
-  別途データベースは不要です。
+- 高性能な専用ビルドマシン
+- 単一用途の VM
+- Mac mini や余ったノート PC などの自宅サーバー
 
-ghalet が増減するのは **単一ホスト上の runner プロセス** であり、ホスト自体ではありません。
+ghalet は Linux / macOS 上で GitHub Actions Runner Scale Set を管理します。
+各 runner は1ジョブを実行して終了し、ghalet が runner 専用ディレクトリと
+workspace を削除します。増減するのは **単一ホスト上の runner プロセス** であり、
+ホスト自体ではありません。
 複数マシンのオーケストレーションや、ジョブごとの VM / コンテナの作成は行いません。
 **Ephemeral な登録はジョブの隔離を意味しません。** ジョブは実行ユーザーの HOME、
 ツール、キャッシュ、権限を共有します。信頼できる workflow のみに使用し、
@@ -48,18 +49,16 @@ systemd unit を含む Linux 向け `.deb` / `.rpm` パッケージと、
 GHCR のコンテナイメージもリリース時にビルドします。
 導入・設定・更新の手順は[パッケージとコンテナ](docs/distribution.ja.md)を参照してください。
 
-```console
-# 最新版をインストール。デフォルトの配置先は ./bin/。
-% curl -sfL https://raw.githubusercontent.com/Songmu/ghalet/main/install.sh | sh -s
+Homebrew でインストールできます。
 
-# 配置先ディレクトリとバージョンを指定。
-% curl -sfL https://raw.githubusercontent.com/Songmu/ghalet/main/install.sh | sh -s -- -b $(go env GOPATH)/bin [vX.Y.Z]
+```sh
+brew install Songmu/tap/ghalet
+```
 
-# curl がない Alpine Linux では wget を使用。
-% wget -O - -q https://raw.githubusercontent.com/Songmu/ghalet/main/install.sh | sh -s [vX.Y.Z]
+または Go でインストールできます。
 
-# または Go でインストール。
-% go install github.com/Songmu/ghalet/cmd/ghalet@latest
+```sh
+go install github.com/Songmu/ghalet/cmd/ghalet@latest
 ```
 
 インストール先を `PATH` に追加してください。workflow で使うビルドツールと、
@@ -116,6 +115,24 @@ ghalet doctor
 受付済みの処理を待ちます。期限を超えたジョブは強制停止される場合があります。
 設定を編集した後は `ghalet apply`（パッケージのサービスでは
 `sudo systemctl reload ghalet`）で、デーモンを終了せずに drain と再設定を行えます。
+
+### Homebrew での常駐化（macOS のみ）
+
+Homebrew でインストールした場合、設定と認証を済ませた後、
+`ghalet run` の代わりに `brew services` でバックグラウンド実行できます。
+フォアグラウンドで起動済みの場合は、先に Ctrl-C で停止してください。
+設定と認証を用意したユーザーで、`sudo` を付けずに実行します。
+デフォルトの設定ファイル `~/.config/ghalet/config.yaml` を使用します。
+
+```sh
+# 起動し、ログイン時の自動起動を有効化
+brew services start ghalet
+
+# 停止し、ログイン時の自動起動を無効化
+brew services stop ghalet
+```
+
+ログイン前には起動せず、ホストのスリープも防ぎません。
 
 ## コマンド
 
