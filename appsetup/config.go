@@ -20,18 +20,10 @@ type preparedConfig struct {
 }
 
 func setupConfig(options Options) (preparedConfig, error) {
-	if options.Config == "" {
-		if options.Systemd {
-			options.Config = "/etc/ghalet/config.yaml"
-		} else {
-			home, err := os.UserHomeDir()
-			if err != nil {
-				return preparedConfig{}, err
-			}
-			options.Config = filepath.Join(home, ".config", "ghalet", "config.yaml")
-		}
+	if options.Config == "" && options.Systemd {
+		options.Config = "/etc/ghalet/config.yaml"
 	}
-	path, err := filepath.Abs(options.Config)
+	path, err := settings.ResolvePath(options.Config)
 	if err != nil {
 		return preparedConfig{}, err
 	}

@@ -39,7 +39,7 @@ type targetRuntime struct {
 	Cancel        context.CancelFunc
 	Failures      int
 	RetryAt       time.Time
-	ListenerDone  bool
+	ListenerDone  chan struct{}
 	ListenerReady chan struct{}
 	CloseError    string
 	RetryError    string

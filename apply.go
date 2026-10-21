@@ -280,26 +280,17 @@ func (d *daemon) validateApply(next *settings.Config) error {
 }
 
 func (d *daemon) waitListeners(ctx context.Context, targets []*targetRuntime) error {
-	ticker := time.NewTicker(100 * time.Millisecond)
-	defer ticker.Stop()
-	for {
-		d.mu.Lock()
-		done := true
-		for _, target := range targets {
-			if target.Cancel != nil && !target.ListenerDone {
-				done = false
-			}
-		}
-		d.mu.Unlock()
-		if done {
-			return nil
+	for _, target := range targets {
+		if target.ListenerDone == nil {
+			continue
 		}
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-ticker.C:
+		case <-target.ListenerDone:
 		}
 	}
+	return nil
 }
 
 func (d *daemon) scaleSetReference(next *settings.Config, old *targetRuntime) (referenced, adopted bool) {

@@ -362,12 +362,9 @@ func (s credentialStore) set(ctx context.Context, options Options, input io.Read
 	cipherPath := filepath.Join(s.directory, options.Name+".cred")
 	previousPath := cipherPath + ".previous"
 	dropInPath := filepath.Join(s.dropIns, "credential-"+options.Name+".conf")
-	cipher, err := snapshotCredentialFile(cipherPath)
+	cipher, err := snapshotReplacementCredential(cipherPath, options.NoReplace)
 	if err != nil {
 		return result, err
-	}
-	if options.NoReplace && cipher.exists {
-		return result, fmt.Errorf("credential already exists at %s; existing credential unchanged", cipherPath)
 	}
 	dropIn, err := snapshotCredentialFile(dropInPath)
 	if err != nil {
@@ -377,27 +374,14 @@ func (s credentialStore) set(ctx context.Context, options Options, input io.Read
 	if dropIn.exists && !bytes.Equal(dropIn.data, dropInData) {
 		return result, fmt.Errorf("refusing to overwrite customized systemd drop-in %s", dropInPath)
 	}
-	previous, err := snapshotCredentialFile(previousPath)
+	previous, err := snapshotPreviousCredential(previousPath, "previous credential backup already exists at %s; finish or roll back the previous rotation before updating again")
 	if err != nil {
 		return result, err
 	}
-	if previous.exists {
-		return result, fmt.Errorf("previous credential backup already exists at %s; finish or roll back the previous rotation before updating again", previousPath)
-	}
-	var config credentialFile
-	var configData []byte
-	if !options.NoDefault {
-		config, err = snapshotConfigFile(options.Config)
-		if err != nil {
-			return result, err
-		}
-		if !config.exists {
-			return result, fmt.Errorf("configuration %s does not exist; copy the package example first, or use --no-default", options.Config)
-		}
-		configData, err = defaultCredentialConfig(config.data, options)
-		if err != nil {
-			return result, err
-		}
+	config, err := prepareCredentialConfig(options, "/run/credentials/ghalet.service/"+options.Name,
+		fmt.Sprintf("configuration %s does not exist; copy the package example first, or use --no-default", options.Config))
+	if err != nil {
+		return result, err
 	}
 	secret, err := s.readSecret(ctx, options, input)
 	if err != nil {
@@ -420,7 +404,7 @@ func (s credentialStore) set(ctx context.Context, options Options, input io.Read
 		return cause
 	}
 	if !options.NoDefault {
-		configLock, err := fshelper.LockFile(config.path + ".lock")
+		configLock, err := config.lock()
 		if err != nil {
 			return result, err
 		}
@@ -445,11 +429,10 @@ func (s credentialStore) set(ctx context.Context, options Options, input io.Read
 		return result, rollback(err)
 	}
 	if !options.NoDefault {
-		current, err := os.ReadFile(config.path)
-		if err != nil || !bytes.Equal(current, config.data) {
+		if !config.unchanged() {
 			return result, rollback(errors.New("configuration changed during credential input; refusing to overwrite it"))
 		}
-		if err := updates.write(config, configData, 0600); err != nil {
+		if err := updates.write(config.original, config.data, 0600); err != nil {
 			return result, rollback(err)
 		}
 	}
@@ -534,10 +517,6 @@ func snapshotCredentialFile(path string) (credentialFile, error) {
 	file.data, err = os.ReadFile(path)
 	file.mode, file.exists = info.Mode().Perm(), true
 	return file, err
-}
-
-func defaultCredentialConfig(data []byte, options Options) ([]byte, error) {
-	return credentialConfig(data, options, "/run/credentials/ghalet.service/"+options.Name)
 }
 
 func credentialConfig(data []byte, options Options, path string) ([]byte, error) {

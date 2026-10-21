@@ -46,7 +46,7 @@ func TestDefaultCredentialConfig(t *testing.T) {
 		"defaults:\n  credential:\n    type: pat\n    tokenEnv: OLD_TOKEN\n",
 	} {
 		data := []byte("# Keep this comment.\n" + prefix + "targets:\n  - id: build # Keep this too.\n    scope: owner/repository\n")
-		updated, err := defaultCredentialConfig(data, Options{Name: "new-token", Type: "pat"})
+		updated, err := credentialConfig(data, Options{Name: "new-token", Type: "pat"}, "/run/credentials/ghalet.service/new-token")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -73,7 +73,7 @@ func TestDefaultCredentialConfig(t *testing.T) {
 func TestDefaultAppCredentialConfig(t *testing.T) {
 	data := []byte("defaults:\n  credential:\n    type: github-app\n    clientId: existing-client\n    privateKeyFile: old.pem\ntargets:\n  - id: build\n    scope: owner/repository\n    installationId: 123\n")
 	for _, clientID := range []string{"", "new-client"} {
-		updated, err := defaultCredentialConfig(data, Options{Name: "app-key", Type: "github-app", ClientID: clientID})
+		updated, err := credentialConfig(data, Options{Name: "app-key", Type: "github-app", ClientID: clientID}, "/run/credentials/ghalet.service/app-key")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -91,7 +91,7 @@ func TestDefaultAppCredentialConfig(t *testing.T) {
 		"unknown: value\ntargets: []\n",
 		"targets: []\n---\ntargets: []\n",
 	} {
-		if _, err := defaultCredentialConfig([]byte(data), Options{Name: "app", Type: "github-app"}); err == nil {
+		if _, err := credentialConfig([]byte(data), Options{Name: "app", Type: "github-app"}, "/run/credentials/ghalet.service/app"); err == nil {
 			t.Fatal("invalid App config accepted", data)
 		}
 	}
@@ -99,7 +99,7 @@ func TestDefaultAppCredentialConfig(t *testing.T) {
 
 func TestDefaultCredentialConfigPreservesExplicitAliases(t *testing.T) {
 	input := []byte("defaults:\n  credential: &shared\n    type: pat\n    tokenEnv: OLD_TOKEN # Keep credential override.\ntargets:\n  - id: build\n    scope: owner/repository\n    credential: *shared\n")
-	updated, err := defaultCredentialConfig(input, Options{Name: "new", Type: "pat"})
+	updated, err := credentialConfig(input, Options{Name: "new", Type: "pat"}, "/run/credentials/ghalet.service/new")
 	if err != nil {
 		t.Fatal(err)
 	}

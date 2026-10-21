@@ -2,8 +2,11 @@ package ghalet
 
 import (
 	"context"
+	"errors"
 	"strings"
+	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	settings "github.com/Songmu/ghalet/config"
@@ -16,7 +19,8 @@ func TestApplyWaitsForListenerStartup(t *testing.T) {
 	starting := make(chan *targetRuntime, 1)
 	d.listen = func(target *targetRuntime) {
 		target.ListenerReady = make(chan struct{})
-		target.Cancel = func() { target.ListenerDone = true }
+		target.ListenerDone = make(chan struct{})
+		target.Cancel = sync.OnceFunc(func() { close(target.ListenerDone) })
 		starting <- target
 	}
 	ctx, cancel := context.WithCancel(t.Context())
@@ -48,6 +52,66 @@ func TestApplyWaitsForListenerStartup(t *testing.T) {
 	}
 }
 
+func listenerCompleted(target *targetRuntime) bool {
+	select {
+	case <-target.ListenerDone:
+		return true
+	default:
+		return false
+	}
+}
+
+func TestWaitListeners(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		d, _ := testDaemon(t)
+		old := d.targets["build"]
+		old.ListenerDone = make(chan struct{})
+		// Applying a new instance with the same ID must not replace the wait.
+		replacement := &targetRuntime{Config: old.Config, ListenerDone: make(chan struct{})}
+		close(replacement.ListenerDone)
+		d.targets[old.Config.ID] = replacement
+		done := make(chan error, 1)
+		go func() {
+			done <- d.waitListeners(t.Context(), []*targetRuntime{
+				{Cancel: func() {}}, old, replacement,
+			})
+		}()
+		synctest.Wait()
+		select {
+		case err := <-done:
+			t.Fatal("wait ignored the old listener", err)
+		default:
+		}
+		old.CloseError = "final cleanup diagnostic"
+		close(old.ListenerDone)
+		synctest.Wait()
+		select {
+		case err := <-done:
+			if err != nil || old.CloseError != "final cleanup diagnostic" {
+				t.Fatal("wait lost completion diagnostics", err)
+			}
+		default:
+			t.Fatal("listener completion did not wake the waiter immediately")
+		}
+	})
+}
+
+func TestWaitListenersCancellation(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		d, _ := testDaemon(t)
+		ctx, cancel := context.WithCancel(t.Context())
+		done := make(chan error, 1)
+		go func() {
+			done <- d.waitListeners(ctx, []*targetRuntime{{ListenerDone: make(chan struct{})}})
+		}()
+		synctest.Wait()
+		cancel()
+		if err := <-done; !errors.Is(err, context.Canceled) {
+			t.Fatal("listener wait did not honor cancellation", err)
+		}
+	})
+}
+
 func TestApplyReportsListenerStartupFailure(t *testing.T) {
 	d, api := testDaemon(t)
 	useFakeManagement(d, api)
@@ -68,7 +132,7 @@ func TestApplyWaitsForOldListenerClosure(t *testing.T) {
 	d, api := testDaemon(t)
 	useFakeManagement(d, api)
 	target := d.targets["build"]
-	target.ListenerDone = false
+	target.ListenerDone = make(chan struct{})
 	closing := make(chan struct{})
 	target.Cancel = func() { close(closing) }
 	next := nextConfig(d)
@@ -88,9 +152,7 @@ func TestApplyWaitsForOldListenerClosure(t *testing.T) {
 		t.Fatal("apply deleted the scale set before its listener closed", response)
 	default:
 	}
-	d.mu.Lock()
-	target.ListenerDone = true
-	d.mu.Unlock()
+	close(target.ListenerDone)
 	select {
 	case response := <-applied:
 		if response.Error != "" || api.deleteCalls != 1 {

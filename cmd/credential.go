@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"strings"
 
+	settings "github.com/Songmu/ghalet/config"
 	"github.com/Songmu/ghalet/credentialstore"
 )
 
@@ -103,19 +103,12 @@ func parseCredentialOptionsFor(args []string, config string, errOut io.Writer, e
 	if err := options.Validate(); err != nil {
 		return options, err
 	}
-	if options.Config == "" && !options.NoDefault {
-		home, err := os.UserHomeDir()
+	if options.Config != "" || !options.NoDefault {
+		path, err := settings.ResolvePath(options.Config)
 		if err != nil {
 			return options, err
 		}
-		options.Config = filepath.Join(home, ".config", "ghalet", "config.yaml")
-	}
-	if options.Config != "" {
-		absolute, err := filepath.Abs(options.Config)
-		if err != nil {
-			return options, err
-		}
-		options.Config = absolute
+		options.Config = path
 	}
 	return options, nil
 }
