@@ -55,11 +55,6 @@ type RunState struct {
 type stateStore struct{ root string }
 
 func ensureExecutionDirectory(path string) error {
-	_, err := os.Lstat(path)
-	created := errors.Is(err, os.ErrNotExist)
-	if err != nil && !created {
-		return err
-	}
 	if err := fshelper.EnsureDirectory(path, 0755); err != nil {
 		return err
 	}
@@ -69,12 +64,7 @@ func ensureExecutionDirectory(path string) error {
 	}
 	// Upgrade only the legacy managed mode, not custom ancestor permissions.
 	if info.Mode() == os.ModeDir|0711 {
-		if err := os.Chmod(path, 0755); err != nil {
-			return err
-		}
-	}
-	if created {
-		return syncDirectory(filepath.Dir(path))
+		return os.Chmod(path, 0755)
 	}
 	return nil
 }
@@ -85,14 +75,6 @@ func newID() (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(bytes[:]), nil
-}
-
-func syncDirectory(path string) error {
-	file, err := os.Open(path)
-	if err != nil {
-		return err
-	}
-	return errors.Join(file.Sync(), file.Close())
 }
 
 func (s stateStore) directory(state *RunState) (string, error) {
@@ -155,7 +137,7 @@ func (s stateStore) save(state *RunState) error {
 	if err := os.Rename(name, filepath.Join(dir, "state.json")); err != nil {
 		return err
 	}
-	return syncDirectory(dir)
+	return fshelper.SyncDirectory(dir)
 }
 
 type recoveredState struct {

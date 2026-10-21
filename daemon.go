@@ -824,6 +824,9 @@ func (d *daemon) reserve(target *targetRuntime) error {
 	if err := os.Chmod(dir, 0755); err != nil {
 		return err
 	}
+	if err := fshelper.SyncDirectory(filepath.Dir(dir)); err != nil {
+		return errors.Join(err, os.Remove(dir))
+	}
 	state := &RunState{
 		Schema: 1, RunID: id, TargetID: target.Config.ID,
 		ScopeURL: target.Config.URL, GroupName: target.Config.RunnerGroup,

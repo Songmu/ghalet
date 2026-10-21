@@ -112,7 +112,7 @@ func archiveLogs(c *Config, state *RunState, secret *logreduct.Redactor) error {
 			if err := syncLogArchive(final); err != nil {
 				return err
 			}
-			return syncDirectory(base)
+			return fshelper.SyncDirectory(base)
 		}
 		return errors.New("existing log archive is incomplete or belongs to another execution")
 	} else if !errors.Is(err, os.ErrNotExist) {
@@ -190,7 +190,7 @@ func archiveLogs(c *Config, state *RunState, secret *logreduct.Redactor) error {
 	if err := os.Rename(stage, final); err != nil {
 		return err
 	}
-	return syncDirectory(base)
+	return fshelper.SyncDirectory(base)
 }
 
 func syncLogArchive(path string) error {
