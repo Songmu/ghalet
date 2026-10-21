@@ -264,6 +264,16 @@ func (d *daemon) drain(ctx context.Context, id string) controlResponse {
 
 func (d *daemon) gc(ctx context.Context, dryRun bool) controlResponse {
 	d.mu.Lock()
+	if d.ctx.Err() != nil {
+		d.mu.Unlock()
+		return controlResponse{Error: "daemon has stopped; retry gc after shutdown"}
+	}
+	d.gcActive++
+	defer func() {
+		d.mu.Lock()
+		d.gcActive--
+		d.mu.Unlock()
+	}()
 	response := controlResponse{}
 	config := d.config
 	var runs []*activeRun

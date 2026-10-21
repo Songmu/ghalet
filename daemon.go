@@ -184,6 +184,7 @@ type daemon struct {
 	stopping         bool
 	offline          bool
 	retaining        bool
+	gcActive         int
 	inspecting       chan struct{}
 	nextRetention    time.Time
 	clientFactory    func(context.Context, Target) (scaleAPI, error)
@@ -1111,7 +1112,11 @@ func (d *daemon) reserve(target *targetRuntime) error {
 		work.Preparing = false
 		if err != nil {
 			work.State.Error = d.secrets.Redact(err.Error())
-			work.startError = err
+			// Rollback may wait on GitHub or files; stop accepting work for
+			// a failed target before entering that slow cleanup.
+			d.mu.Lock()
+			d.startFailure(target, err)
+			d.mu.Unlock()
 			if !work.Uncertain {
 				if stopErr := d.stop(work, true); stopErr != nil {
 					return errors.Join(err, fmt.Errorf("cleanup: %w", stopErr))
@@ -1479,6 +1484,9 @@ func (d *daemon) cleanup(run *activeRun) error {
 }
 
 func (d *daemon) drained(id string) bool {
+	if id == "" && d.gcActive != 0 {
+		return false
+	}
 	for _, target := range d.targets {
 		if id != "" && id != target.Config.ID {
 			continue
