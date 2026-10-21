@@ -26,8 +26,16 @@ func pumpUntil(t *testing.T, d *daemon, predicate func() bool) {
 			case event := <-d.events:
 				d.processEvent(event)
 			default:
+				for _, run := range d.runs {
+					if run.ioDone != nil {
+						return false
+					}
+				}
+				if predicate() {
+					return true
+				}
 				d.reconcile()
-				return predicate()
+				return false
 			}
 		}
 	}
@@ -42,6 +50,32 @@ func pumpUntil(t *testing.T, d *daemon, predicate func() bool) {
 	status, _ := json.MarshalIndent(d.statusLocked(), "", "  ")
 	d.mu.Unlock()
 	t.Fatalf("condition not satisfied before timeout: %s", status)
+}
+
+func settleRuns(d *daemon) {
+	for {
+		d.mu.Lock()
+		var pending []<-chan struct{}
+		for _, run := range d.runs {
+			if run.ioDone != nil {
+				pending = append(pending, run.ioDone)
+			}
+		}
+		d.mu.Unlock()
+		if len(pending) == 0 {
+			return
+		}
+		for _, done := range pending {
+			<-done
+		}
+	}
+}
+
+func reconcileAndWait(d *daemon) {
+	d.mu.Lock()
+	d.reconcile()
+	d.mu.Unlock()
+	settleRuns(d)
 }
 
 func cleanupProcesses(t *testing.T, d *daemon) {
@@ -128,14 +162,13 @@ func TestReconcileInspectsOnlyMonitoredRuns(t *testing.T) {
 			}
 			t.Setenv("PATH", dir+":"+os.Getenv("PATH"))
 			d.nextRetention = time.Now().Add(-time.Hour)
-			before := d.nextRetention
-			d.reconcile()
+			reconcileAndWait(d)
 			_, err := os.Stat(marker)
 			if tc.wantInspect {
-				if err != nil || !d.nextRetention.Equal(before) {
-					t.Fatal("failed process inspection did not suspend reconciliation", err)
+				if err != nil {
+					t.Fatal("monitored execution was not inspected", err)
 				}
-			} else if !os.IsNotExist(err) || d.nextRetention.Equal(before) {
+			} else if !os.IsNotExist(err) {
 				t.Fatal("reconciliation inspected processes or skipped maintenance without monitored runs", err)
 			}
 		})
@@ -338,6 +371,9 @@ func TestStartupTimeoutIsMeasuredAfterProcessStart(t *testing.T) {
 	d.mu.Lock()
 	state.StartedAt = time.Now().Add(-3 * time.Minute)
 	d.reconcile()
+	d.mu.Unlock()
+	settleRuns(d)
+	d.mu.Lock()
 	if d.runs[state.RunID] != nil || d.targets["build"].Failures != 1 {
 		status := d.statusLocked()
 		d.mu.Unlock()
@@ -366,6 +402,7 @@ func TestDrainTimeoutForceStopsButIsNotSuccess(t *testing.T) {
 	target.DrainStarted = time.Now().Add(-time.Hour)
 	d.reconcile()
 	d.mu.Unlock()
+	settleRuns(d)
 	if !target.Forced || !d.drained("build") || d.occupied() != 0 || len(d.statusLocked().Problems) == 0 {
 		t.Fatal("forced drain was not distinguished from normal completion")
 	}
@@ -427,15 +464,16 @@ func TestShutdownWaitsForUncertainLiveRunnerAfterDrainDeadline(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if alive, _, err := inspectGroup(run.State, table); err != nil || !alive {
+	d.mu.Lock()
+	snapshot := *run.State
+	d.mu.Unlock()
+	if alive, _, err := inspectGroup(&snapshot, table); err != nil || !alive {
 		t.Fatal("shutdown stopped the uncertain runner", err)
 	}
-	if _, err := os.Stat(filepath.Join(filepath.Dir(run.State.RunnerDir), "state.json")); err != nil {
+	if _, err := os.Stat(filepath.Join(filepath.Dir(snapshot.RunnerDir), "state.json")); err != nil {
 		t.Fatal("shutdown removed the recovery record", err)
 	}
-	d.mu.Lock()
-	err = stopGroup(t.Context(), run.State, func() error { return d.store.save(run.State) })
-	d.mu.Unlock()
+	err = stopGroup(t.Context(), &snapshot, func() error { return d.store.save(&snapshot) })
 	if err != nil {
 		t.Fatal("test could not stop its verified runner", err)
 	}
@@ -464,7 +502,7 @@ func TestDrainedRequiresUncertainGroupAndObserverConfirmation(t *testing.T) {
 	if d.drained("") {
 		t.Fatal("persisted stopped state bypassed uncertain group verification")
 	}
-	d.reconcile()
+	reconcileAndWait(d)
 	if !run.GroupStopped || d.drained("") {
 		t.Fatal("group absence bypassed exit/output observers")
 	}
@@ -488,7 +526,7 @@ func TestDrainedRequiresUncertainGroupAndObserverConfirmation(t *testing.T) {
 		t.Fatal("recovered execution required a nonexistent local exit observer")
 	}
 	state.Process = ProcessIdentity{PID: 2, PGID: 3, UID: state.UID}
-	d.reconcile()
+	reconcileAndWait(d)
 	if run.GroupStopped || d.drained("") {
 		t.Fatal("failed process inspection retained a stale absence confirmation")
 	}
@@ -570,7 +608,7 @@ func TestExitClassificationWaitsForCollectedReadiness(t *testing.T) {
 			}
 			run.OutputReady = tc.ready
 			close(run.WaitDone)
-			d.reconcile()
+			reconcileAndWait(d)
 			if d.runs[state.RunID] != nil || run.ExitResult != nil {
 				t.Fatal("collected exit did not finish classification and cleanup")
 			}
@@ -597,7 +635,7 @@ func TestCompletedTargetDrainDoesNotExpire(t *testing.T) {
 	target := d.targets["build"]
 	d.beginDrain(target)
 	target.DrainStarted = time.Now().Add(-time.Hour)
-	d.reconcile()
+	reconcileAndWait(d)
 	if target.Forced || len(d.statusLocked().Problems) != 0 {
 		t.Fatal("a completed drain became a forced-drain failure")
 	}
@@ -681,7 +719,7 @@ func TestRecoveredStoppedRunnerLookupFailureReleasesCapacity(t *testing.T) {
 	if err := d.recover(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	d.reconcile()
+	reconcileAndWait(d)
 	run := d.runs[state.RunID]
 	if run == nil || !run.CleanupTried || run.State.Error == "" || run.Uncertain ||
 		d.occupied() != 0 || d.active("build") != 0 || !d.drained("") {
@@ -997,7 +1035,7 @@ func testRecoveredRunner(t *testing.T, missingCompletion bool) {
 		if err := stopGroup(t.Context(), run.State, func() error { return d.store.save(run.State) }); err != nil {
 			t.Fatal(err)
 		}
-		d.reconcile()
+		reconcileAndWait(d)
 		if !run.Exited || run.ExitError != "" || d.runs[state.RunID] != nil || d.occupied() != 0 {
 			t.Fatal("missing completion retained a recovered busy execution or invented an exit result")
 		}
@@ -1066,8 +1104,14 @@ func TestReservationRequiresSyncedRunParent(t *testing.T) {
 			t.Error(err)
 		}
 	})
-	if err := d.reserve(d.targets["build"]); !errors.Is(err, os.ErrPermission) {
-		t.Fatal("reservation skipped syncing the newly created run entry", err)
+	d.mu.Lock()
+	if err := d.reserve(d.targets["build"]); err != nil {
+		t.Fatal(err)
+	}
+	d.mu.Unlock()
+	settleRuns(d)
+	if d.targets["build"].Failures != 1 {
+		t.Fatal("reservation skipped syncing the newly created run entry")
 	}
 	if len(d.runs) != 0 {
 		t.Fatal("failed run-parent sync started preparation")

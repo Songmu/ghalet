@@ -264,41 +264,22 @@ func (d *daemon) drain(ctx context.Context, id string) controlResponse {
 
 func (d *daemon) gc(ctx context.Context, dryRun bool) controlResponse {
 	d.mu.Lock()
-	defer d.mu.Unlock()
 	response := controlResponse{}
-	table, err := processTable(ctx)
-	if err != nil {
-		return controlResponse{Error: err.Error()}
-	}
+	config := d.config
+	var runs []*activeRun
 	for _, problem := range d.problems {
 		response.Results = append(response.Results, OperationResult{Path: problem.Path, Error: problem.Reason})
 	}
 	for _, run := range d.runs {
-		state := run.State
-		result := OperationResult{RunID: state.RunID, Path: filepath.Dir(state.RunnerDir), Action: "cleanup stopped execution"}
-		if run.Uncertain || run.Preparing {
-			result.Error = "execution is preparing or unverified for cleanup; inspect manually, never delete state to free capacity"
-		} else {
-			alive, _, err := inspectGroup(state, table)
-			if err != nil {
-				result.Error = err.Error()
-			} else if alive {
-				result.Action = "retain active execution"
-			} else if !run.outputCollected() || (run.WaitDone != nil && !run.Exited && !run.Stopping) {
-				result.Action = "retain execution awaiting output collection or exit observation"
-			} else if !dryRun {
-				run.GroupStopped = true
-				state.ProcessDone, state.Phase = true, "cleaning"
-				if err := d.save(run); err != nil {
-					result.Error = err.Error()
-				} else if err := d.cleanup(run); err != nil {
-					result.Error = d.secrets.Redact(err.Error())
-				}
-			}
-		}
-		response.Results = append(response.Results, result)
+		runs = append(runs, run)
 	}
-	expired, err := expireLogs(ctx, d.config, dryRun)
+	d.mu.Unlock()
+	for _, run := range runs {
+		response.Results = append(response.Results, d.gcRun(ctx, run, dryRun))
+	}
+	d.retentionMu.Lock()
+	expired, err := expireLogs(ctx, config, dryRun)
+	d.retentionMu.Unlock()
 	response.Results = append(response.Results, expired...)
 	if err != nil {
 		response.Error = err.Error()
@@ -309,4 +290,63 @@ func (d *daemon) gc(ctx context.Context, dryRun bool) controlResponse {
 		}
 	}
 	return response
+}
+
+func (d *daemon) gcRun(ctx context.Context, run *activeRun, dryRun bool) OperationResult {
+	d.mu.Lock()
+	result := OperationResult{RunID: run.State.RunID, Path: filepath.Dir(run.State.RunnerDir), Action: "cleanup stopped execution"}
+	for run.ioDone != nil && !run.Preparing && !run.Uncertain {
+		done := run.ioDone
+		d.mu.Unlock()
+		select {
+		case <-done:
+		case <-ctx.Done():
+			result.Error = ctx.Err().Error()
+			return result
+		}
+		d.mu.Lock()
+	}
+	if d.runs[run.State.RunID] != run {
+		d.mu.Unlock()
+		return result
+	}
+	if d.ctx.Err() != nil {
+		result.Error = "daemon has stopped; retry gc after shutdown"
+		d.mu.Unlock()
+		return result
+	}
+	if run.Preparing || run.Uncertain {
+		result.Error = "execution is preparing or unverified for cleanup; inspect manually, never delete state to free capacity"
+		d.mu.Unlock()
+		return result
+	}
+	done := d.runIO(run, func(work *activeRun) error {
+		state := work.State
+		table, err := processTable(ctx)
+		if err != nil {
+			result.Error = err.Error()
+			return nil
+		}
+		alive, _, err := inspectGroup(state, table)
+		if err != nil {
+			result.Error = err.Error()
+		} else if alive {
+			result.Action = "retain active execution"
+		} else if !work.outputCollected() || (work.WaitDone != nil && !work.Exited && !work.Stopping) {
+			result.Action = "retain execution awaiting output collection or exit observation"
+		} else if !dryRun {
+			work.GroupStopped = true
+			state.ProcessDone, state.Phase = true, "cleaning"
+			if err := d.save(work); err != nil {
+				result.Error = err.Error()
+			} else if err := d.cleanup(work); err != nil {
+				result.Error = d.secrets.Redact(err.Error())
+			}
+		}
+		return nil
+	})
+	d.mu.Unlock()
+	// GC reports completed work, not merely queued operations.
+	<-done
+	return result
 }

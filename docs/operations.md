@@ -328,6 +328,14 @@ deadline and `TimeoutStopSec` when increasing drain timeouts or target counts.
 
 ## Diagnosis and garbage collection
 
+Slow GitHub requests, runner preparation, process stopping, and cleanup do not
+hold the daemon's shared status/scheduling lock. Other targets can continue
+scheduling, and `status`/`doctor` return the last coherent execution snapshot
+while an operation is in progress. A reservation remains visible until its
+preparation or cleanup result is published. Drain and apply wait for execution
+operations to finish; `gc` still waits for the cleanup it reports rather than
+returning merely queued work.
+
 ```sh
 ghalet status --config /path/to/config.yaml
 ghalet doctor --config /path/to/config.yaml

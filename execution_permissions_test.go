@@ -79,7 +79,6 @@ func TestReserveExecutionDirectoryPermissions(t *testing.T) {
 	d, _ := testDaemon(t)
 	d.cancel()
 	d.mu.Lock()
-	defer d.mu.Unlock()
 	for range 2 {
 		if err := d.reserve(d.targets["build"]); err != nil {
 			t.Fatal(err)
@@ -88,6 +87,8 @@ func TestReserveExecutionDirectoryPermissions(t *testing.T) {
 	if len(d.runs) != 2 {
 		t.Fatal("reservations did not create distinct run IDs")
 	}
+	d.mu.Unlock()
+	settleRuns(d)
 	for _, run := range d.runs {
 		dir := filepath.Dir(run.State.RunnerDir)
 		for _, path := range []string{d.config.Runner.WorkRoot, filepath.Dir(dir), dir} {

@@ -133,7 +133,7 @@ func testIncompleteGroupSnapshot(t *testing.T, zombieLeader bool) {
 	if err := d.recover(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	d.reconcile()
+	reconcileAndWait(d)
 	run := d.runs[state.RunID]
 	if run == nil || !run.Uncertain || run.State.ProcessDone || run.GroupStopped || d.occupied() != 1 || d.drained("") {
 		t.Fatal("incomplete snapshot released capacity or allowed shutdown")
