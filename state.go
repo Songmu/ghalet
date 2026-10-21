@@ -58,6 +58,10 @@ func ensureExecutionDirectory(path string) error {
 	if err := fshelper.EnsureDirectory(path, 0755); err != nil {
 		return err
 	}
+	return upgradeExecutionMode(path)
+}
+
+func upgradeExecutionMode(path string) error {
 	info, err := os.Lstat(path)
 	if err != nil {
 		return err
@@ -96,8 +100,11 @@ func (s stateStore) ensureDirectory(state *RunState) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	if err := fshelper.EnsureDirectory(dir, 0755); err != nil {
+		return "", err
+	}
 	for _, path := range []string{s.root, filepath.Dir(dir), dir} {
-		if err := ensureExecutionDirectory(path); err != nil {
+		if err := upgradeExecutionMode(path); err != nil {
 			return "", err
 		}
 	}
