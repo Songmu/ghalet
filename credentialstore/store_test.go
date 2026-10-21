@@ -498,7 +498,7 @@ func TestCredentialRegistrationFailureIsNonDestructive(t *testing.T) {
 					}
 				}
 			case "bad-config":
-				if err := os.WriteFile(options.Config, []byte("unknown: value\n"), 0600); err != nil {
+				if err := os.WriteFile(options.Config, []byte("targets: invalid\n"), 0600); err != nil {
 					t.Fatal(err)
 				}
 			}

@@ -27,7 +27,7 @@ type targetIdentity struct {
 }
 
 // NewEditor reads one configuration mapping. When schema is non-nil, it also
-// strictly decodes the configuration into schema before allowing edits.
+// decodes known fields into schema before allowing edits.
 func NewEditor(data []byte, schema any) (*Editor, error) {
 	file, err := parser.ParseBytes(data, parser.ParseComments)
 	if err != nil {
@@ -41,8 +41,8 @@ func NewEditor(data []byte, schema any) (*Editor, error) {
 		return nil, errors.New("configuration must be a YAML mapping")
 	}
 	if schema != nil {
-		if err := yaml.NodeToValue(root, schema, yaml.Strict()); err != nil {
-			return nil, errors.New("configuration contains invalid or unknown fields; validate it before registering a credential")
+		if err := yaml.NodeToValue(root, schema); err != nil {
+			return nil, errors.New("configuration contains invalid fields; validate it before registering a credential")
 		}
 	}
 	editor := &Editor{comments: yaml.CommentMap{}}

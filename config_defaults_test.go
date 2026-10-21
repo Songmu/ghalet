@@ -84,7 +84,6 @@ func TestSharedCredentialPathsAndEnvironment(t *testing.T) {
 
 func TestInvalidSharedCredentials(t *testing.T) {
 	for _, input := range []string{
-		"defaults:\n  unknown: value\n",
 		"defaults:\n  credential:\n    type: pat\n",
 		"defaults:\n  credential:\n    type: pat\n    tokenEnv: TOKEN\n    privateKeyFile: key.pem\n",
 		"defaults:\n  credential:\n    type: \"\"\n",

@@ -8,8 +8,8 @@ import (
 )
 
 func TestEditorTargetEdits(t *testing.T) {
-	input := "# keep header\ncapacity:\n  maxRunners: 3\ntargets:\n  - scaleSet: 123 # keep scale set comment\n    scope: owner/old\n    credential: &old\n      type: pat\n      tokenEnv: OLD_TOKEN\n  - scaleSet: alias\n    scope: owner/alias\n    credential: *old\n"
-	editor, err := NewEditor([]byte(input), nil)
+	input := "# keep header\nunknown: keep\ncapacity:\n  maxRunners: 3\n  unknown: nested\ntargets:\n  - scaleSet: 123 # keep scale set comment\n    scope: owner/old\n    unknown: target\n    credential: &old\n      type: pat\n      tokenEnv: OLD_TOKEN\n  - scaleSet: alias\n    scope: owner/alias\n    credential: *old\n"
+	editor, err := NewEditor([]byte(input), &Config{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -29,9 +29,9 @@ func TestEditorTargetEdits(t *testing.T) {
 		t.Fatal(err)
 	}
 	output := string(data)
-	for _, comment := range []string{"# keep header", "# keep scale set comment"} {
-		if !strings.Contains(output, comment) {
-			t.Fatalf("lost comment %q:\n%s", comment, data)
+	for _, preserved := range []string{"# keep header", "# keep scale set comment", "unknown: keep", "unknown: nested", "unknown: target"} {
+		if !strings.Contains(output, preserved) {
+			t.Fatalf("lost content %q:\n%s", preserved, data)
 		}
 	}
 	if strings.Index(output, "capacity:") > strings.Index(output, "targets:") {
@@ -86,8 +86,8 @@ func TestEditorRejectsInvalidDocuments(t *testing.T) {
 	var schema struct {
 		Targets []targetIdentity `yaml:"targets"`
 	}
-	if _, err := NewEditor([]byte("unknown: value\ntargets: []\n"), &schema); err == nil {
-		t.Fatal("strict schema validation ignored an unknown field")
+	if _, err := NewEditor([]byte("targets: invalid\n"), &schema); err == nil {
+		t.Fatal("schema validation ignored an invalid field type")
 	}
 	for _, input := range []string{"defaults: {}", "targets: {}", "targets: [123]"} {
 		editor, err := NewEditor([]byte(input), nil)

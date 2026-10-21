@@ -7,7 +7,6 @@ description: |
   the configuration file's directory. Use ghalet config validate for additional
   checks such as conflicting registrations, capacity totals, and path safety.
 type: object
-additionalProperties: false
 required:
   - targets
 properties:
@@ -20,14 +19,12 @@ properties:
       configuration-specific file in the state directory.
   defaults:
     type: object
-    additionalProperties: false
     properties:
       credential:
         $ref: "#/$defs/credential"
         description: Shared authentication for targets that omit credential. Explicit target credentials replace it completely.
   capacity:
     type: object
-    additionalProperties: false
     properties:
       maxRunners:
         $ref: "#/$defs/runnerLimit"
@@ -38,7 +35,6 @@ properties:
     description: Repository or organization runner registrations. Use an empty array to remove all targets.
     items:
       type: object
-      additionalProperties: false
       required:
         - scope
         - scaleSet
@@ -70,7 +66,6 @@ properties:
           description: GitHub scale set name and runs-on label. Together with scope and runnerGroup, identifies the target.
         scaling:
           type: object
-          additionalProperties: false
           properties:
             minRunners:
               type: integer
@@ -108,7 +103,6 @@ properties:
               const: 0
   runner:
     type: object
-    additionalProperties: false
     properties:
       version:
         type: string
@@ -138,7 +132,6 @@ properties:
   logs:
     type: object
     description: Runner log archiving; daemon stdout and stderr are managed separately.
-    additionalProperties: false
     properties:
       preserve:
         type: boolean
@@ -168,7 +161,6 @@ $defs:
     description: Positive Go duration, such as 90m or 1h30m, or a number of days, such as 7d or 1.5d.
   credential:
     type: object
-    additionalProperties: false
     description: Management credential. Defaults to gh, including when type is omitted.
     properties:
       type:

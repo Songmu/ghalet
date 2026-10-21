@@ -73,7 +73,7 @@ func TestAppConfigFlagRouting(t *testing.T) {
 		t.Fatal(err)
 	}
 	path := filepath.Join(root, "invalid.yaml")
-	if err := os.WriteFile(path, []byte("invalid: configuration\n"), 0600); err != nil {
+	if err := os.WriteFile(path, []byte("targets: invalid\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	for _, args := range [][]string{

@@ -130,8 +130,8 @@ managed ファイルがなければ空として扱い、不正な形式や未対
 
 古い設定では `apiVersion` を削除し、トップレベルの `scopes` / `credentials` を
 各 target に移してください。`scopeRef` / `credentialRef` は使いません。
-`scaleSetName` は `scaleSet` に変更します。これらの旧キーとその他の未知のキーは、
-GitHub への操作を行う前に拒否されます。
+`scaleSetName` は `scaleSet` に変更します。旧キーを含む未知のキーは、静的設定・managed 設定の
+どの階層でも許容し、無視します。既知の項目の値の検証と YAML キーの重複の拒否は引き続き行います。
 
 デフォルトの `gh` 認証では、ghalet の実行環境に GitHub CLI をインストールし、
 実際にサービスを起動するアカウントでログインしてください。ghalet は 15 秒の期限で

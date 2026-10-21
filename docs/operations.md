@@ -142,8 +142,9 @@ registrations, minimum capacities, and managed directory safety.
 
 For older configurations, remove `apiVersion`, move top-level `scopes` /
 `credentials` into each target instead of using `scopeRef` / `credentialRef`,
-and rename `scaleSetName` to `scaleSet`. These legacy keys and all other
-unknown keys are rejected before any GitHub operation.
+and rename `scaleSetName` to `scaleSet`. Unknown keys, including legacy keys,
+are accepted and ignored at every level of static and managed configuration.
+Known fields are still validated, and duplicate YAML keys are rejected.
 
 For the default `gh` authentication, install GitHub CLI where ghalet runs
 and log in as the account that actually starts the service. ghalet runs
