@@ -80,12 +80,7 @@ func TestControlRejectsWrongPeerUIDBeforeSendingRequest(t *testing.T) {
 
 func TestDiscoveredSocketReplacementCannotRetargetCommands(t *testing.T) {
 	original, _ := testDaemon(t)
-	server, err := listenControl(original.config.Path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { server.close(); os.Remove(server.path + ".lock") })
-	go server.serve(original)
+	server := serveTestControl(t, original)
 	daemons, err := ListDaemons(t.Context(), original.config.Path)
 	if err != nil || len(daemons) != 1 {
 		t.Fatal("could not discover the original daemon", daemons, err)
@@ -96,12 +91,7 @@ func TestDiscoveredSocketReplacementCannotRetargetCommands(t *testing.T) {
 	}
 	other, api := testDaemon(t)
 	otherConfig := other.config
-	otherServer, err := listenControl(other.config.Path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { otherServer.close(); os.Remove(otherServer.path + ".lock") })
-	go otherServer.serve(other)
+	otherServer := serveTestControl(t, other)
 	server.close()
 	if err := os.Symlink(otherServer.path, server.path); err != nil {
 		t.Fatal(err)
@@ -149,12 +139,7 @@ func TestCleanupDoesNotCountPendingObserversAsAttempt(t *testing.T) {
 
 func TestControlAddressAndRunningSnapshotSurviveConfigEdit(t *testing.T) {
 	d, _ := testDaemon(t)
-	server, err := listenControl(d.config.Path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { server.close(); os.Remove(server.path + ".lock") })
-	go server.serve(d)
+	serveTestControl(t, d)
 	original := socketPath(d.config.Path)
 	os.WriteFile(d.config.Path, []byte("this is no longer valid YAML\nworkRoot: /somewhere/else"), 0600)
 	status, err := GetStatus(t.Context(), d.config.Path)
@@ -178,12 +163,7 @@ func TestStatusAndDoctorExitCodesAndPartialGC(t *testing.T) {
 	d, _ := testDaemon(t)
 	d.targets["build"].Fault = "credentials expired"
 	d.problems = append(d.problems, Problem{Path: "/unrecognized", Reason: "corrupt state"})
-	server, err := listenControl(d.config.Path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { server.close(); os.Remove(server.path + ".lock") })
-	go server.serve(d)
+	serveTestControl(t, d)
 	for _, command := range []string{"status", "doctor", "gc"} {
 		var err error
 		var results []OperationResult
@@ -222,12 +202,7 @@ func TestDisconnectedControlCannotBypassWorkRootLock(t *testing.T) {
 
 func TestControlRejectsRemovedCommands(t *testing.T) {
 	d, api := testDaemon(t)
-	server, err := listenControl(d.config.Path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { server.close(); os.Remove(server.path + ".lock") })
-	go server.serve(d)
+	serveTestControl(t, d)
 	for _, command := range []string{"drain", "destroy", "destroy-plan"} {
 		response, err := controlCall(t.Context(), d.config.Path, controlRequest{Command: command})
 		if err != nil || response.Error != "unknown control command" || response.Status != nil {

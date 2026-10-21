@@ -253,12 +253,7 @@ func TestManagementDiscoversDaemonAndApplyKeepsItsConfig(t *testing.T) {
 	if err := os.WriteFile(defaultPath, []byte(unrelated), 0600); err != nil {
 		t.Fatal(err)
 	}
-	server, err := listenControl(next.Path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { server.close(); os.Remove(server.path + ".lock") })
-	go server.serve(d)
+	serveTestControl(t, d)
 	for _, command := range []string{"status", "doctor", "gc", "apply"} {
 		switch command {
 		case "status":
@@ -292,12 +287,7 @@ func TestManagementDiscoversDaemonAndApplyKeepsItsConfig(t *testing.T) {
 	}
 	second, secondAPI := testDaemon(t)
 	useFakeManagement(second, secondAPI)
-	secondServer, err := listenControl(second.config.Path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { secondServer.close(); os.Remove(secondServer.path + ".lock") })
-	go secondServer.serve(second)
+	secondServer := serveTestControl(t, second)
 	for _, command := range []string{"status", "doctor", "gc", "apply"} {
 		var err error
 		switch command {

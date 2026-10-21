@@ -323,48 +323,39 @@ func TestBlockedProcessInspectionDoesNotHoldSharedLock(t *testing.T) {
 	}
 }
 
-func TestProcessInspectionSnapshotIsSharedAcrossExecutions(t *testing.T) {
-	d, _ := testDaemon(t)
-	for range 2 {
-		state := testState(t, d.config)
-		d.runs[state.RunID] = &activeRun{State: state, Uncertain: true}
-	}
-
-	dir := testDirectory(t)
-	marker := filepath.Join(dir, "scans")
-	t.Setenv("GHALET_TEST_PS_SCANS", marker)
-	t.Setenv("PATH", dir+":"+os.Getenv("PATH"))
-	if err := os.WriteFile(filepath.Join(dir, "ps"), []byte("#!/bin/sh\nprintf 'scan\\n' >> \"$GHALET_TEST_PS_SCANS\"\n"), 0700); err != nil {
-		t.Fatal(err)
-	}
-	reconcileAndWait(d)
-	data, err := os.ReadFile(marker)
-	if err != nil || strings.Count(string(data), "scan\n") != 1 {
-		t.Fatal("monitored executions did not share one process snapshot", string(data), err)
-	}
-}
-
-func TestGCProcessSnapshotIsSharedAcrossExecutions(t *testing.T) {
-	d, _ := testDaemon(t)
-	for range 2 {
-		state := testState(t, d.config)
-		state.ProcessDone, state.Phase = true, "cleaning"
-		if err := d.store.save(state); err != nil {
-			t.Fatal(err)
-		}
-		d.runs[state.RunID] = &activeRun{State: state}
-	}
-	dir := testDirectory(t)
-	marker := filepath.Join(dir, "scans")
-	t.Setenv("GHALET_TEST_PS_SCANS", marker)
-	t.Setenv("PATH", dir+":"+os.Getenv("PATH"))
-	if err := os.WriteFile(filepath.Join(dir, "ps"), []byte("#!/bin/sh\nprintf 'scan\\n' >> \"$GHALET_TEST_PS_SCANS\"\n"), 0700); err != nil {
-		t.Fatal(err)
-	}
-	response := d.gc(t.Context(), false)
-	data, err := os.ReadFile(marker)
-	if response.Error != "" || len(d.runs) != 0 || err != nil || strings.Count(string(data), "scan\n") != 1 {
-		t.Fatal("GC executions did not share one process snapshot", response, string(data), err)
+func TestProcessSnapshotIsSharedAcrossExecutions(t *testing.T) {
+	for _, operation := range []string{"reconcile", "gc"} {
+		t.Run(operation, func(t *testing.T) {
+			d, _ := testDaemon(t)
+			for range 2 {
+				state := testState(t, d.config)
+				if operation == "gc" {
+					state.ProcessDone, state.Phase = true, "cleaning"
+					if err := d.store.save(state); err != nil {
+						t.Fatal(err)
+					}
+				}
+				d.runs[state.RunID] = &activeRun{State: state, Uncertain: operation == "reconcile"}
+			}
+			dir := testDirectory(t)
+			marker := filepath.Join(dir, "scans")
+			t.Setenv("GHALET_TEST_PS_SCANS", marker)
+			t.Setenv("PATH", dir+":"+os.Getenv("PATH"))
+			if err := os.WriteFile(filepath.Join(dir, "ps"), []byte("#!/bin/sh\nprintf 'scan\\n' >> \"$GHALET_TEST_PS_SCANS\"\n"), 0700); err != nil {
+				t.Fatal(err)
+			}
+			if operation == "gc" {
+				if response := d.gc(t.Context(), false); response.Error != "" || len(d.runs) != 0 {
+					t.Fatal("GC did not clean stopped executions", response)
+				}
+			} else {
+				reconcileAndWait(d)
+			}
+			data, err := os.ReadFile(marker)
+			if err != nil || strings.Count(string(data), "scan\n") != 1 {
+				t.Fatal("executions did not share one process snapshot", string(data), err)
+			}
+		})
 	}
 }
 

@@ -57,6 +57,21 @@ func pumpUntil(t *testing.T, d *daemon, predicate func() bool) {
 	t.Fatalf("condition not satisfied before timeout: %s", status)
 }
 
+func waitForRun(t *testing.T, d *daemon, predicate func(*activeRun) bool) *activeRun {
+	t.Helper()
+	var matched *activeRun
+	pumpUntil(t, d, func() bool {
+		for _, run := range d.runs {
+			if predicate(run) {
+				matched = run
+				return true
+			}
+		}
+		return false
+	})
+	return matched
+}
+
 func settleRuns(d *daemon) {
 	for {
 		d.mu.Lock()
@@ -439,15 +454,8 @@ func TestShutdownWaitsForUncertainLiveRunnerAfterDrainDeadline(t *testing.T) {
 	seedDistribution(t, d.config, "#!/bin/sh\nprintf 'Listening for Jobs\\n'\nsleep 30\n")
 	d.config.Runner.DrainTimeout = settings.Duration(50 * time.Millisecond)
 	d.targets["build"].Assigned = 1
-	var run *activeRun
-	pumpUntil(t, d, func() bool {
-		for _, candidate := range d.runs {
-			if candidate.State.Ready && !candidate.Preparing {
-				run = candidate
-				return true
-			}
-		}
-		return false
+	run := waitForRun(t, d, func(run *activeRun) bool {
+		return run.State.Ready && !run.Preparing
 	})
 	d.mu.Lock()
 	run.Uncertain, run.State.Error = true, "identity requires manual inspection"
@@ -555,15 +563,8 @@ func TestRunnerExitStopsObservedDescendantsBeforeCollectingOutput(t *testing.T) 
 	}
 	seedDistribution(t, d.config, "#!/bin/sh\nsleep 30 &\nprintf 'Listening for Jobs\\n'\nread -r release < '"+release+"'\nprintf 'final-secret-tail'\nexit 0\n")
 	d.targets["build"].Assigned = 1
-	var run *activeRun
-	pumpUntil(t, d, func() bool {
-		for _, candidate := range d.runs {
-			if candidate.State.Ready && !candidate.Preparing && len(candidate.State.Members) >= 2 {
-				run = candidate
-				return true
-			}
-		}
-		return false
+	run := waitForRun(t, d, func(run *activeRun) bool {
+		return run.State.Ready && !run.Preparing && len(run.State.Members) >= 2
 	})
 	d.mu.Lock()
 	run.State.Busy, run.State.Phase = true, "busy"
@@ -806,13 +807,8 @@ func TestStoppedRecoveryAllowsUnrelatedRunnerLaunch(t *testing.T) {
 	if err := d.recover(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	pumpUntil(t, d, func() bool {
-		for _, run := range d.runs {
-			if run.State.TargetID == "other" && run.State.Ready && !run.Preparing {
-				return true
-			}
-		}
-		return false
+	waitForRun(t, d, func(run *activeRun) bool {
+		return run.State.TargetID == "other" && run.State.Ready && !run.Preparing
 	})
 	if d.occupied() != 1 || d.active("other") != 1 || d.active("build") != 0 || d.runs[state.RunID] == nil {
 		t.Fatal("unrelated launch lost retained state or miscounted shared capacity")

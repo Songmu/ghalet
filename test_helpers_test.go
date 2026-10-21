@@ -255,6 +255,17 @@ func testDaemon(t *testing.T) (*daemon, *fakeScaleAPI) {
 	return d, api
 }
 
+func serveTestControl(t *testing.T, d *daemon) *controlServer {
+	t.Helper()
+	server, err := listenControl(d.config.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { server.close(); os.Remove(server.path + ".lock") })
+	go server.serve(d)
+	return server
+}
+
 func testState(t *testing.T, c *settings.Config) *RunState {
 	t.Helper()
 	account, err := resolveUser(c.Runner.User)
