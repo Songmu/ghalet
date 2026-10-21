@@ -138,87 +138,6 @@ func TestStateAtomicRoundTripAndLastFileCleanup(t *testing.T) {
 	}
 }
 
-func TestStateIdentityThroughTrustedBaseAlias(t *testing.T) {
-	c := testConfig(t)
-	base := testDirectory(t)
-	link := filepath.Join(testDirectory(t), "state-layout")
-	if err := os.Symlink(base, link); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("STATE_DIRECTORY", link)
-	c, err := ParseConfig(c.Path, []byte(readFixture(t, "config/base.yaml")))
-	if err != nil {
-		t.Fatal(err)
-	}
-	state := testState(t, c)
-	store := stateStore{c.Runner.WorkRoot}
-	if !strings.HasPrefix(state.RunnerDir, base+string(filepath.Separator)) {
-		t.Fatal("new state retained a storage alias", state.RunnerDir)
-	}
-	if err := store.save(state); err != nil {
-		t.Fatal(err)
-	}
-	lock, err := lockWorkRoot(c.Runner.WorkRoot)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer lock.close()
-	t.Setenv("STATE_DIRECTORY", base)
-	reloaded, err := LoadConfig(c.Path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if second, err := lockWorkRoot(reloaded.Runner.WorkRoot); err == nil {
-		second.close()
-		t.Fatal("canonical base bypassed the alias's work lock")
-	}
-	records, err := (stateStore{reloaded.Runner.WorkRoot}).load()
-	if err != nil || len(records) != 1 || records[0].Err != nil ||
-		records[0].State.RunnerDir != state.RunnerDir || records[0].State.Workspace != state.Workspace {
-		t.Fatal("canonical base changed recovery identity", records, err)
-	}
-	if err := store.removeFiles(records[0].State); err != nil {
-		t.Fatal("canonical recovered state could not be cleaned", err)
-	}
-}
-
-func TestStateCleanupRejectsReplacedDeletionRoots(t *testing.T) {
-	for _, location := range []string{"workRoot", "target", "run"} {
-		t.Run(location, func(t *testing.T) {
-			c := testConfig(t)
-			state := testState(t, c)
-			store := stateStore{c.Runner.WorkRoot}
-			if err := store.save(state); err != nil {
-				t.Fatal(err)
-			}
-			path := c.Runner.WorkRoot
-			switch location {
-			case "target":
-				path = filepath.Dir(filepath.Dir(state.RunnerDir))
-			case "run":
-				path = filepath.Dir(state.RunnerDir)
-			}
-			outside := filepath.Join(testDirectory(t), "moved")
-			if err := os.Rename(path, outside); err != nil {
-				t.Fatal(err)
-			}
-			if err := os.Symlink(outside, path); err != nil {
-				t.Fatal(err)
-			}
-			sentinel := filepath.Join(outside, "keep")
-			if err := os.WriteFile(sentinel, []byte("outside"), 0600); err != nil {
-				t.Fatal(err)
-			}
-			if err := store.removeFiles(state); err == nil {
-				t.Fatal("cleanup followed a replaced deletion root")
-			}
-			if data, err := os.ReadFile(sentinel); err != nil || string(data) != "outside" {
-				t.Fatal("cleanup modified an external file", err)
-			}
-		})
-	}
-}
-
 func TestStateSaveRequiresDurableDirectoryAncestry(t *testing.T) {
 	c := testConfig(t)
 	ancestor := filepath.Join(testDirectory(t), "restricted")
@@ -400,5 +319,86 @@ func TestRecoveryRetainsMalformedProcessIDs(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(filepath.Dir(state.RunnerDir), "state.json")); err != nil {
 		t.Fatal("malformed recovery state was removed", err)
+	}
+}
+
+func TestStateIdentityThroughTrustedBaseAlias(t *testing.T) {
+	c := testConfig(t)
+	base := testDirectory(t)
+	link := filepath.Join(testDirectory(t), "state-layout")
+	if err := os.Symlink(base, link); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("STATE_DIRECTORY", link)
+	c, err := ParseConfig(c.Path, []byte(readFixture(t, "config/base.yaml")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := testState(t, c)
+	store := stateStore{c.Runner.WorkRoot}
+	if !strings.HasPrefix(state.RunnerDir, base+string(filepath.Separator)) {
+		t.Fatal("new state retained a storage alias", state.RunnerDir)
+	}
+	if err := store.save(state); err != nil {
+		t.Fatal(err)
+	}
+	lock, err := lockWorkRoot(c.Runner.WorkRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lock.close()
+	t.Setenv("STATE_DIRECTORY", base)
+	reloaded, err := LoadConfig(c.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second, err := lockWorkRoot(reloaded.Runner.WorkRoot); err == nil {
+		second.close()
+		t.Fatal("canonical base bypassed the alias's work lock")
+	}
+	records, err := (stateStore{reloaded.Runner.WorkRoot}).load()
+	if err != nil || len(records) != 1 || records[0].Err != nil ||
+		records[0].State.RunnerDir != state.RunnerDir || records[0].State.Workspace != state.Workspace {
+		t.Fatal("canonical base changed recovery identity", records, err)
+	}
+	if err := store.removeFiles(records[0].State); err != nil {
+		t.Fatal("canonical recovered state could not be cleaned", err)
+	}
+}
+
+func TestStateCleanupRejectsReplacedDeletionRoots(t *testing.T) {
+	for _, location := range []string{"workRoot", "target", "run"} {
+		t.Run(location, func(t *testing.T) {
+			c := testConfig(t)
+			state := testState(t, c)
+			store := stateStore{c.Runner.WorkRoot}
+			if err := store.save(state); err != nil {
+				t.Fatal(err)
+			}
+			path := c.Runner.WorkRoot
+			switch location {
+			case "target":
+				path = filepath.Dir(filepath.Dir(state.RunnerDir))
+			case "run":
+				path = filepath.Dir(state.RunnerDir)
+			}
+			outside := filepath.Join(testDirectory(t), "moved")
+			if err := os.Rename(path, outside); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(outside, path); err != nil {
+				t.Fatal(err)
+			}
+			sentinel := filepath.Join(outside, "keep")
+			if err := os.WriteFile(sentinel, []byte("outside"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			if err := store.removeFiles(state); err == nil {
+				t.Fatal("cleanup followed a replaced deletion root")
+			}
+			if data, err := os.ReadFile(sentinel); err != nil || string(data) != "outside" {
+				t.Fatal("cleanup modified an external file", err)
+			}
+		})
 	}
 }
