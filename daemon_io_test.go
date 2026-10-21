@@ -122,7 +122,7 @@ func (b *blockedRunnerAPI) RemoveRunner(ctx context.Context, id int64) error {
 	return b.scaleAPI.RemoveRunner(ctx, id)
 }
 
-func TestBlockedJITAllowsOtherTargetAndCancelledPreparationCannotLaunch(t *testing.T) {
+func TestBlockedJITAllowsOtherTargetAndCanceledPreparationCannotLaunch(t *testing.T) {
 	d, api := testDaemon(t)
 	cleanupProcesses(t, d)
 	seedDistribution(t, d.config, "#!/bin/sh\nprintf 'Listening for Jobs\\n'\nsleep 30\n")
@@ -161,26 +161,26 @@ func TestBlockedJITAllowsOtherTargetAndCancelledPreparationCannotLaunch(t *testi
 		time.Sleep(20 * time.Millisecond)
 	}
 	d.mu.Lock()
-	var cancelled *activeRun
+	var canceled *activeRun
 	for _, run := range d.runs {
 		if run.State.TargetID == first.Config.ID {
-			cancelled = run
+			canceled = run
 			run.Cancel()
 		}
 	}
 	d.mu.Unlock()
 	close(blocked.jitRelease)
 	settleRuns(d)
-	if cancelled.State.Process.PID != 0 {
-		t.Fatal("cancelled preparation launched after JIT returned")
+	if canceled.State.Process.PID != 0 {
+		t.Fatal("canceled preparation launched after JIT returned")
 	}
-	if _, err := os.Stat(filepath.Join(cancelled.State.RunnerDir, "output.log")); !os.IsNotExist(err) {
-		t.Fatal("cancelled preparation opened runner output", err)
+	if _, err := os.Stat(filepath.Join(canceled.State.RunnerDir, "output.log")); !os.IsNotExist(err) {
+		t.Fatal("canceled preparation opened runner output", err)
 	}
 	api.mu.Lock()
 	defer api.mu.Unlock()
 	if api.nextID != 101 || api.removeCalls != 1 || len(api.runners) != 0 {
-		t.Fatal("preparation was duplicated or cancelled registration was not cleaned")
+		t.Fatal("preparation was duplicated or canceled registration was not cleaned")
 	}
 }
 
