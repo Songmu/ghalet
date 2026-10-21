@@ -10,8 +10,8 @@ import (
 	"syscall"
 
 	"github.com/Songmu/ghalet"
+	configeditor "github.com/Songmu/ghalet/config"
 	"github.com/Songmu/ghalet/fshelper"
-	"github.com/goccy/go-yaml"
 )
 
 func setupConfig(options Options) (Options, []byte, []byte, ghalet.Target, error) {
@@ -89,26 +89,14 @@ func setupConfig(options Options) (Options, []byte, []byte, ghalet.Target, error
 }
 
 func appendTarget(data []byte, id, scope string) ([]byte, error) {
-	var document yaml.MapSlice
-	comments := yaml.CommentMap{}
-	if err := yaml.UnmarshalWithOptions(data, &document, yaml.UseOrderedMap(), yaml.CommentToMap(comments)); err != nil {
+	editor, err := configeditor.NewEditor(data, nil)
+	if err != nil {
 		return nil, err
 	}
-	for i := range document {
-		if document[i].Key != "targets" {
-			continue
-		}
-		targets, ok := document[i].Value.([]any)
-		if !ok {
-			return nil, errors.New("configuration targets must be a sequence")
-		}
-		document[i].Value = append(targets, yaml.MapSlice{
-			{Key: "id", Value: id}, {Key: "scope", Value: scope},
-			{Key: "credential", Value: yaml.MapSlice{}},
-		})
-		return yaml.MarshalWithOptions(document, yaml.WithComment(comments))
+	if err := editor.AppendTarget(id, scope); err != nil {
+		return nil, err
 	}
-	return nil, errors.New("configuration must contain targets")
+	return editor.Marshal()
 }
 
 func configSnapshot(path string) ([]byte, error) {
@@ -131,64 +119,14 @@ func configSnapshot(path string) ([]byte, error) {
 }
 
 func targetConfig(data []byte, target string, state savedApp, installationID int64) ([]byte, error) {
-	var identities struct {
-		Targets []struct {
-			ID string `yaml:"id"`
-		} `yaml:"targets"`
+	editor, err := configeditor.NewEditor(data, nil)
+	if err != nil {
+		return nil, err
 	}
-	if err := yaml.Unmarshal(data, &identities); err != nil {
-		return nil, errors.New("cannot decode target IDs for configuration update")
+	if err := editor.SetTargetApp(target, state.ClientID, state.KeyPath, installationID); err != nil {
+		return nil, err
 	}
-	var document yaml.MapSlice
-	comments := yaml.CommentMap{}
-	if err := yaml.UnmarshalWithOptions(data, &document, yaml.UseOrderedMap(), yaml.CommentToMap(comments)); err != nil {
-		return nil, errors.New("cannot parse configuration for update")
-	}
-	found := false
-	for _, item := range document {
-		if item.Key != "targets" {
-			continue
-		}
-		targets, ok := item.Value.([]any)
-		if !ok {
-			return nil, errors.New("configuration targets must be a sequence")
-		}
-		if len(targets) != len(identities.Targets) {
-			return nil, errors.New("configuration target mappings do not match decoded target IDs")
-		}
-		for i, value := range targets {
-			mapping, ok := value.(yaml.MapSlice)
-			if !ok {
-				return nil, errors.New("configuration target must be a mapping")
-			}
-			if identities.Targets[i].ID != target {
-				continue
-			}
-			credential := yaml.MapSlice{
-				{Key: "type", Value: "github-app"},
-				{Key: "clientId", Value: state.ClientID},
-				{Key: "privateKeyFile", Value: state.KeyPath},
-			}
-			setMapping(&mapping, "credential", credential)
-			setMapping(&mapping, "installationId", installationID)
-			targets[i] = mapping
-			found = true
-		}
-	}
-	if !found {
-		return nil, fmt.Errorf("target %q disappeared from the configuration", target)
-	}
-	return yaml.MarshalWithOptions(document, yaml.WithComment(comments))
-}
-
-func setMapping(mapping *yaml.MapSlice, key string, value any) {
-	for i := range *mapping {
-		if (*mapping)[i].Key == key {
-			(*mapping)[i].Value = value
-			return
-		}
-	}
-	*mapping = append(*mapping, yaml.MapItem{Key: key, Value: value})
+	return editor.Marshal()
 }
 
 func writeConfig(path string, before, after []byte) error {

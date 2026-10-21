@@ -21,10 +21,8 @@ import (
 	"time"
 
 	"github.com/Songmu/ghalet"
+	configeditor "github.com/Songmu/ghalet/config"
 	"github.com/Songmu/ghalet/fshelper"
-	"github.com/goccy/go-yaml"
-	"github.com/goccy/go-yaml/ast"
-	"github.com/goccy/go-yaml/parser"
 )
 
 const maxCredentialSize = 1024 * 1024
@@ -634,49 +632,20 @@ func defaultCredentialConfig(data []byte, options Options) ([]byte, error) {
 }
 
 func credentialConfig(data []byte, options Options, path string) ([]byte, error) {
-	file, err := parser.ParseBytes(data, parser.ParseComments)
-	if err != nil {
-		return nil, errors.New("cannot parse the selected configuration")
-	}
-	if len(file.Docs) != 1 {
-		return nil, errors.New("configuration must contain exactly one YAML document")
-	}
-	root, ok := file.Docs[0].Body.(*ast.MappingNode)
-	if !ok {
-		return nil, errors.New("configuration must be a YAML mapping")
-	}
 	var config ghalet.Config
-	if err := yaml.NodeToValue(root, &config, yaml.Strict()); err != nil {
-		return nil, errors.New("configuration contains invalid or unknown fields; validate it before registering a credential")
+	editor, err := configeditor.NewEditor(data, &config)
+	if err != nil {
+		return nil, err
 	}
-	cred := map[string]string{"type": options.Type}
-	if options.Type == "pat" {
-		cred["tokenFile"] = path
-	} else {
-		clientID := options.ClientID
+	clientID := options.ClientID
+	if options.Type != "pat" {
 		if clientID == "" && config.Defaults.Credential != nil && config.Defaults.Credential.Type == "github-app" {
 			clientID = config.Defaults.Credential.ClientID
 		}
 		if clientID == "" {
 			return nil, errors.New("GitHub App defaults require --client-id or an existing defaults.credential.clientId")
 		}
-		cred["clientId"], cred["privateKeyFile"] = clientID, path
 	}
-	comments := yaml.CommentMap{}
-	var document yaml.MapSlice
-	if err := yaml.UnmarshalWithOptions(data, &document, yaml.UseOrderedMap(), yaml.CommentToMap(comments)); err != nil {
-		return nil, errors.New("cannot read configuration mappings")
-	}
-	defaults := yaml.MapSlice{{Key: "credential", Value: cred}}
-	replaced := false
-	for i := range document {
-		if document[i].Key == "defaults" {
-			document[i].Value, replaced = defaults, true
-			break
-		}
-	}
-	if !replaced {
-		document = append(document, yaml.MapItem{Key: "defaults", Value: defaults})
-	}
-	return yaml.MarshalWithOptions(document, yaml.WithComment(comments))
+	editor.SetDefaultCredential(options.Type, clientID, path)
+	return editor.Marshal()
 }
