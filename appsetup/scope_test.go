@@ -127,10 +127,14 @@ func TestSystemdAppSetupResumesAfterProvisionFailure(t *testing.T) {
 	if err != nil || saves != 1 || reads != 4 || provisions != 2 || first.KeyPath != second.KeyPath || f.conversions.Load() != 1 {
 		t.Fatal("systemd setup did not reuse the encrypted key", saves, reads, err)
 	}
+	logRoot, err := fshelper.ResolveDirectory("/var/log/ghalet/runners")
+	if err != nil {
+		t.Fatal(err)
+	}
 	config, err := ghalet.LoadConfig(f.options.Config)
 	if err != nil || config.Targets[0].Credential.PrivateKeyFile != first.KeyPath ||
 		config.Targets[0].InstallationID != 123 || config.Runner.User != "ghalet-runner" ||
-		config.Logs.Root != "/var/log/ghalet/runners" {
+		config.Logs.Root != logRoot {
 		t.Fatal("new systemd config does not use package service settings", config, err)
 	}
 	if _, err := os.Stat(filepath.Join(directory, "build.pem")); !errors.Is(err, os.ErrNotExist) {

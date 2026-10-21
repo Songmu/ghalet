@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Songmu/ghalet/fshelper"
 	"github.com/goccy/go-yaml"
 	"github.com/goccy/go-yaml/parser"
 )
@@ -156,7 +157,7 @@ func storageDirectory(serviceEnv, xdgEnv, fallback string) (string, error) {
 		if !filepath.IsAbs(path) || strings.ContainsRune(path, ':') {
 			return "", fmt.Errorf("%s must specify a single absolute directory", serviceEnv)
 		}
-		return filepath.Clean(path), nil
+		return fshelper.ResolveDirectory(path)
 	}
 	// XDG paths are user-specific bases; unset or relative values use HOME.
 	// https://specifications.freedesktop.org/basedir/latest/
@@ -168,10 +169,15 @@ func storageDirectory(serviceEnv, xdgEnv, fallback string) (string, error) {
 		}
 		base = filepath.Join(home, fallback)
 	}
+	base, err := fshelper.ResolveDirectory(base)
+	if err != nil {
+		return "", err
+	}
 	return filepath.Join(base, "ghalet"), nil
 }
 
-// StateDirectory returns the persistent application directory used by this process.
+// StateDirectory returns the persistent application directory used by this
+// process, resolving symlinks in its trusted storage base.
 func StateDirectory() (string, error) {
 	return storageDirectory("STATE_DIRECTORY", "XDG_STATE_HOME", filepath.Join(".local", "state"))
 }
@@ -236,6 +242,20 @@ func ParseConfig(path string, content []byte) (*Config, error) {
 		return nil, errors.New("directory paths cannot be empty")
 	}
 	c.Logs.Root = resolve(c.Logs.Root)
+	var configured struct {
+		Logs struct {
+			Root *string `yaml:"root"`
+		} `yaml:"logs"`
+	}
+	if err := yaml.NodeToValue(file.Docs[0].Body, &configured); err != nil {
+		return nil, err
+	}
+	if configured.Logs.Root != nil {
+		c.Logs.Root, err = fshelper.ResolveDirectory(c.Logs.Root)
+		if err != nil {
+			return nil, fmt.Errorf("resolve log directory: %w", err)
+		}
+	}
 	resolveCredential := func(cred *Credential) {
 		if cred.TokenFile != "" {
 			cred.TokenFile = resolve(cred.TokenFile)
@@ -380,8 +400,19 @@ func (c *Config) validateEnvironment() error {
 func (c *Config) validateDirectories() error {
 	paths := []string{c.Runner.WorkRoot, c.Runner.CacheRoot, c.Logs.Root}
 	home, _ := os.UserHomeDir()
+	if home != "" {
+		var err error
+		home, err = fshelper.ResolveDirectory(home)
+		if err != nil {
+			return fmt.Errorf("resolve home directory: %w", err)
+		}
+	}
+	config, err := fshelper.ResolveParent(c.Path)
+	if err != nil {
+		return fmt.Errorf("resolve config directory: %w", err)
+	}
 	for i, path := range paths {
-		if !filepath.IsAbs(path) || path == "/" || within(path, c.Path) || (home != "" && within(path, home)) {
+		if !filepath.IsAbs(path) || path == "/" || within(path, config) || (home != "" && within(path, home)) {
 			return fmt.Errorf("unsafe managed directory %q", path)
 		}
 		for _, other := range paths[:i] {

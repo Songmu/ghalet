@@ -6,7 +6,117 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/Songmu/ghalet/fshelper"
 )
+
+func TestConfigCanonicalTrustedBases(t *testing.T) {
+	for _, source := range []string{"service", "xdg", "home"} {
+		t.Run(source, func(t *testing.T) {
+			canonical := testDirectory(t)
+			link := filepath.Join(testDirectory(t), "layout")
+			if err := os.Symlink(canonical, link); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("STATE_DIRECTORY", "")
+			t.Setenv("CACHE_DIRECTORY", "")
+			t.Setenv("XDG_STATE_HOME", "")
+			t.Setenv("XDG_CACHE_HOME", "")
+			t.Setenv("HOME", link)
+			stateBase := filepath.Join(canonical, ".local", "state", "ghalet")
+			cacheBase := filepath.Join(canonical, ".cache", "ghalet")
+			switch source {
+			case "service":
+				t.Setenv("STATE_DIRECTORY", filepath.Join(link, "state"))
+				t.Setenv("CACHE_DIRECTORY", filepath.Join(link, "cache"))
+				stateBase, cacheBase = filepath.Join(canonical, "state"), filepath.Join(canonical, "cache")
+			case "xdg":
+				t.Setenv("XDG_STATE_HOME", filepath.Join(link, "state"))
+				t.Setenv("XDG_CACHE_HOME", filepath.Join(link, "cache"))
+				stateBase, cacheBase = filepath.Join(canonical, "state", "ghalet"), filepath.Join(canonical, "cache", "ghalet")
+			}
+			path := filepath.Join(link, "config.yaml")
+			c, err := ParseConfig(path, []byte(readFixture(t, "config/base.yaml")))
+			if err != nil {
+				t.Fatal(err)
+			}
+			for got, want := range map[string]string{
+				c.Runner.WorkRoot:  filepath.Join(stateBase, "runs"),
+				c.Runner.CacheRoot: filepath.Join(cacheBase, "runners"),
+				c.Logs.Root:        filepath.Join(stateBase, "logs"),
+			} {
+				if got != want {
+					t.Fatalf("got %q, want canonical %q", got, want)
+				}
+			}
+			if c.Path != path || socketPath(c.Path) != socketPath(path) ||
+				socketPath(c.Path) == socketPath(filepath.Join(canonical, "config.yaml")) {
+				t.Fatal("canonical storage changed lexical config/control identity")
+			}
+			if err := fshelper.EnsureDirectory(c.Runner.WorkRoot, 0755); err != nil {
+				t.Fatal("canonical execution path was rejected", err)
+			}
+			if _, err := os.Stat(c.Runner.CacheRoot); !os.IsNotExist(err) {
+				t.Fatal("parsing created cache directories", err)
+			}
+		})
+	}
+}
+
+func TestConfigCanonicalLogRootAndOverlap(t *testing.T) {
+	c := testConfig(t)
+	link := filepath.Join(testDirectory(t), "logs-layout")
+	if err := os.Symlink(testDirectory(t), link); err != nil {
+		t.Fatal(err)
+	}
+	canonical, err := filepath.EvalSymlinks(link)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := readFixture(t, "config/base.yaml") + "logs:\n  root: " + link + "\n"
+	parsed, err := ParseConfig(c.Path, []byte(content))
+	if err != nil || parsed.Logs.Root != canonical {
+		t.Fatal("explicit log base was not canonicalized", parsed, err)
+	}
+	if err := fshelper.EnsureDirectory(c.Runner.WorkRoot, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(link); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(c.Runner.WorkRoot, link); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ParseConfig(c.Path, []byte(content)); err == nil || !strings.Contains(err.Error(), "overlap") {
+		t.Fatal("symlink alias bypassed storage overlap validation", err)
+	}
+}
+
+func TestConfigDoesNotResolveManagedStorageChildren(t *testing.T) {
+	for _, child := range []string{"runs", "runners", "logs"} {
+		t.Run(child, func(t *testing.T) {
+			base := testDirectory(t)
+			t.Setenv("STATE_DIRECTORY", base)
+			t.Setenv("CACHE_DIRECTORY", base)
+			path := filepath.Join(base, child)
+			outside := testDirectory(t)
+			if err := os.Symlink(outside, path); err != nil {
+				t.Fatal(err)
+			}
+			c, err := ParseConfig(writeConfig(t, ""), []byte(readFixture(t, "config/base.yaml")))
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := map[string]string{"runs": c.Runner.WorkRoot, "runners": c.Runner.CacheRoot, "logs": c.Logs.Root}[child]
+			if got != path {
+				t.Fatal("managed child was treated as a trusted base", got)
+			}
+			if err := fshelper.EnsureDirectory(got, 0700); err == nil {
+				t.Fatal("symlinked managed child was accepted")
+			}
+		})
+	}
+}
 
 func TestConfigStateDirectories(t *testing.T) {
 	t.Setenv("STATE_DIRECTORY", "")

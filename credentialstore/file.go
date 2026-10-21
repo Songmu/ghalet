@@ -132,7 +132,7 @@ func setFileWithWriter(ctx context.Context, directory string, options Options, i
 	var config credentialFile
 	var configData []byte
 	if !options.NoDefault {
-		config, err = snapshotCredentialFile(options.Config)
+		config, err = snapshotConfigFile(options.Config)
 		if err != nil {
 			return Result{}, err
 		}
@@ -196,12 +196,12 @@ func setFileWithWriter(ctx context.Context, directory string, options Options, i
 		return cause
 	}
 	if !options.NoDefault {
-		configLock, err := fshelper.LockFile(options.Config + ".lock")
+		configLock, err := fshelper.LockFile(config.path + ".lock")
 		if err != nil {
 			return Result{}, err
 		}
 		defer configLock.Close()
-		current, err := os.ReadFile(options.Config)
+		current, err := os.ReadFile(config.path)
 		if err != nil || !bytes.Equal(current, config.data) {
 			return Result{}, errors.New("configuration changed during credential input; existing credentials unchanged")
 		}

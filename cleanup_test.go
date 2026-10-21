@@ -157,6 +157,51 @@ func TestLogRetentionOnlyExpiresCompletedArchives(t *testing.T) {
 	}
 }
 
+func TestLogRetentionThroughTrustedBaseAlias(t *testing.T) {
+	c := testConfig(t)
+	base := testDirectory(t)
+	link := filepath.Join(testDirectory(t), "archive-layout")
+	if err := os.Symlink(base, link); err != nil {
+		t.Fatal(err)
+	}
+	c, err := ParseConfig(c.Path, []byte(readFixture(t, "config/base.yaml")+"logs:\n  root: "+link+"\n"))
+	if err != nil || c.Logs.Root != base {
+		t.Fatal("log base was not canonicalized", c, err)
+	}
+	state := testState(t, c)
+	if err := archiveLogs(c, state, &logreduct.Redactor{}); err != nil {
+		t.Fatal(err)
+	}
+	archive := filepath.Join(base, "runs", state.RunID)
+	metadata, err := json.Marshal(archivedRun{
+		RunID: state.RunID, TargetID: state.TargetID, ArchivedAt: time.Now().Add(-30 * 24 * time.Hour),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(archive, "metadata.json"), metadata, 0600); err != nil {
+		t.Fatal(err)
+	}
+	outside := testDirectory(t)
+	sentinel := filepath.Join(outside, "keep")
+	if err := os.WriteFile(sentinel, []byte("outside"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(archive, "outside")); err != nil {
+		t.Fatal(err)
+	}
+	results, err := expireLogs(t.Context(), c, false)
+	if err != nil || len(results) != 1 || results[0].Error != "" {
+		t.Fatal("retention could not remove an owned archive", results, err)
+	}
+	if _, err := os.Stat(archive); !os.IsNotExist(err) {
+		t.Fatal("owned archive was retained", err)
+	}
+	if data, err := os.ReadFile(sentinel); err != nil || string(data) != "outside" {
+		t.Fatal("retention followed a symlink outside the archive", err)
+	}
+}
+
 func TestLogRetentionRejectsSymlinkedDirectoryAncestry(t *testing.T) {
 	for _, location := range []string{"runs", "logs.root", "ancestor"} {
 		t.Run(location, func(t *testing.T) {

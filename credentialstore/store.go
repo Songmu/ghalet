@@ -92,7 +92,11 @@ func Set(ctx context.Context, options Options, input io.Reader) (Result, error) 
 			return Result{}, fmt.Errorf("--prompt requires systemd-ask-password: %w", err)
 		}
 	}
-	return systemdStore().set(ctx, options, input)
+	store, err := systemdStore()
+	if err != nil {
+		return Result{}, err
+	}
+	return store.set(ctx, options, input)
 }
 
 func checkSystemd() error {
@@ -110,12 +114,20 @@ func checkSystemd() error {
 	return nil
 }
 
-func systemdStore() credentialStore {
-	return credentialStore{
-		directory: "/etc/ghalet/credentials",
-		dropIns:   "/etc/systemd/system/ghalet.service.d",
-		run:       runCredentialCommand,
+func systemdStore() (credentialStore, error) {
+	directory, err := fshelper.ResolveParent("/etc/ghalet/credentials")
+	if err != nil {
+		return credentialStore{}, err
 	}
+	dropIns, err := fshelper.ResolveParent("/etc/systemd/system/ghalet.service.d")
+	if err != nil {
+		return credentialStore{}, err
+	}
+	return credentialStore{
+		directory: directory,
+		dropIns:   dropIns,
+		run:       runCredentialCommand,
+	}, nil
 }
 
 // PrepareSystemd checks systemd support and prepares its private credential store.
@@ -123,7 +135,10 @@ func PrepareSystemd(ctx context.Context) (string, error) {
 	if err := checkSystemd(); err != nil {
 		return "", err
 	}
-	store := systemdStore()
+	store, err := systemdStore()
+	if err != nil {
+		return "", err
+	}
 	if err := store.prepare(ctx); err != nil {
 		return "", err
 	}
@@ -138,7 +153,11 @@ func ReadSystemdAppKey(ctx context.Context, name string) ([]byte, error) {
 	if err := checkSystemd(); err != nil {
 		return nil, err
 	}
-	return systemdStore().read(ctx, name)
+	store, err := systemdStore()
+	if err != nil {
+		return nil, err
+	}
+	return store.read(ctx, name)
 }
 
 // SaveSystemdAppKey exclusively persists a new encrypted App key without
@@ -153,7 +172,11 @@ func SaveSystemdAppKey(ctx context.Context, options Options, input io.Reader) (R
 	if err := checkSystemd(); err != nil {
 		return Result{}, err
 	}
-	return systemdStore().saveAppKey(ctx, options, input)
+	store, err := systemdStore()
+	if err != nil {
+		return Result{}, err
+	}
+	return store.saveAppKey(ctx, options, input)
 }
 
 // ProvisionSystemdAppKey loads an already saved key into the service definition.
@@ -165,7 +188,11 @@ func ProvisionSystemdAppKey(ctx context.Context, name string) error {
 	if err := checkSystemd(); err != nil {
 		return err
 	}
-	return systemdStore().provisionAppKey(ctx, name)
+	store, err := systemdStore()
+	if err != nil {
+		return err
+	}
+	return store.provisionAppKey(ctx, name)
 }
 
 func (s credentialStore) read(ctx context.Context, name string) ([]byte, error) {
@@ -356,7 +383,7 @@ func (s credentialStore) set(ctx context.Context, options Options, input io.Read
 	var config credentialFile
 	var configData []byte
 	if !options.NoDefault {
-		config, err = snapshotCredentialFile(options.Config)
+		config, err = snapshotConfigFile(options.Config)
 		if err != nil {
 			return result, err
 		}
@@ -413,7 +440,7 @@ func (s credentialStore) set(ctx context.Context, options Options, input io.Read
 		return cause
 	}
 	if !options.NoDefault {
-		configLock, err := fshelper.LockFile(options.Config + ".lock")
+		configLock, err := fshelper.LockFile(config.path + ".lock")
 		if err != nil {
 			return result, err
 		}
@@ -438,7 +465,7 @@ func (s credentialStore) set(ctx context.Context, options Options, input io.Read
 		return result, rollback(err)
 	}
 	if !options.NoDefault {
-		current, err := os.ReadFile(options.Config)
+		current, err := os.ReadFile(config.path)
 		if err != nil || !bytes.Equal(current, config.data) {
 			return result, rollback(errors.New("configuration changed during credential input; refusing to overwrite it"))
 		}
@@ -560,6 +587,14 @@ type credentialFile struct {
 	data   []byte
 	mode   os.FileMode
 	exists bool
+}
+
+func snapshotConfigFile(path string) (credentialFile, error) {
+	path, err := fshelper.ResolveParent(path)
+	if err != nil {
+		return credentialFile{}, err
+	}
+	return snapshotCredentialFile(path)
 }
 
 func snapshotCredentialFile(path string) (credentialFile, error) {

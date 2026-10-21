@@ -4,8 +4,79 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
+
+func TestResolveTrustedDirectory(t *testing.T) {
+	base := testDirectory(t)
+	link := filepath.Join(testDirectory(t), "administrator-layout")
+	if err := os.Symlink(base, link); err != nil {
+		t.Fatal(err)
+	}
+	for _, suffix := range []string{"", "missing/nested"} {
+		got, err := ResolveDirectory(filepath.Join(link, suffix))
+		want := filepath.Join(base, suffix)
+		if err != nil || got != want {
+			t.Fatalf("resolved %q, want %q: %v", got, want, err)
+		}
+	}
+	missing := filepath.Join(base, "missing")
+	if _, err := os.Stat(missing); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("resolution created a directory", err)
+	}
+	resolved, err := ResolveDirectory(link)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(testDirectory(t), filepath.Join(base, "child")); err != nil {
+		t.Fatal(err)
+	}
+	if err := EnsureDirectory(filepath.Join(resolved, "child", "nested"), 0700); err == nil {
+		t.Fatal("resolving a trusted base allowed a managed child symlink")
+	}
+	leaf, err := ResolveParent(filepath.Join(link, "child"))
+	if err != nil || leaf != filepath.Join(base, "child") {
+		t.Fatal("parent resolution followed the final component", leaf, err)
+	}
+	if err := CheckDirectory(leaf); err == nil {
+		t.Fatal("resolved parent bypassed final-component validation")
+	}
+}
+
+func TestResolveDirectoryRejectsInvalidBases(t *testing.T) {
+	base := testDirectory(t)
+	file := filepath.Join(base, "file")
+	if err := os.WriteFile(file, nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(base, "dangling")
+	if err := os.Symlink(filepath.Join(base, "absent"), link); err != nil {
+		t.Fatal(err)
+	}
+	loop := filepath.Join(base, "loop")
+	if err := os.Symlink(loop, loop); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"relative", file, filepath.Join(file, "child"), link, filepath.Join(link, "child"), loop} {
+		if _, err := ResolveDirectory(path); err == nil {
+			t.Fatalf("invalid trusted directory accepted: %s", path)
+		}
+	}
+}
+
+func TestResolveMacOSVar(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("macOS system layout")
+	}
+	path, err := ResolveDirectory("/var")
+	if err != nil || path != "/private/var" {
+		t.Fatal("macOS /var was not canonicalized", path, err)
+	}
+	if err := CheckDirectory(path); err != nil {
+		t.Fatal("canonical macOS base was rejected", err)
+	}
+}
 
 func testDirectory(t *testing.T) string {
 	t.Helper()
@@ -65,6 +136,7 @@ func TestDirectoriesRejectUnsafePaths(t *testing.T) {
 	for name, path := range map[string]string{
 		"relative":         "relative",
 		"root":             "/",
+		"cleaned root":     "/../",
 		"file":             file,
 		"file ancestor":    filepath.Join(file, "child"),
 		"symlink":          link,
