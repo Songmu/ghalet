@@ -17,6 +17,7 @@ import (
 	"github.com/Songmu/ghalet/fshelper"
 	"github.com/Songmu/ghalet/procgroup"
 	"github.com/Songmu/ghalet/runnerdist"
+	"github.com/Songmu/ghalet/runnerlog"
 	"github.com/actions/scaleset"
 )
 
@@ -218,16 +219,16 @@ func (d *daemon) launch(ctx context.Context, run *activeRun, jit string) (retErr
 		return err
 	}
 	collected := &runOutputState{done: make(chan struct{})}
-	writer := &runnerOutput{file: logFile, secrets: d.secrets, ready: func() {
+	writer := runnerlog.NewOutput(logFile, d.secrets, func() {
 		collected.ready = true
 		select {
 		case d.events <- runEvent{id: state.RunID, kind: "ready"}:
 		case <-d.ctx.Done():
 		}
-	}}
+	})
 	logInput, logOutput, err := os.Pipe()
 	if err != nil {
-		writer.close()
+		writer.Close()
 		return err
 	}
 	defer logOutput.Close()
@@ -243,7 +244,7 @@ func (d *daemon) launch(ctx context.Context, run *activeRun, jit string) (retErr
 	command.Dir, command.Env, command.SysProcAttr = state.RunnerDir, runnerEnvironment(config, d.user, jit), processAttributes(d.user)
 	command.Stdout, command.Stderr = logOutput, logOutput
 	if err := command.Start(); err != nil {
-		writer.close()
+		writer.Close()
 		return err
 	}
 	spawned = true
@@ -264,7 +265,7 @@ func (d *daemon) launch(ctx context.Context, run *activeRun, jit string) (retErr
 	if err != nil {
 		output.Close()
 		command.Wait()
-		writer.close()
+		writer.Close()
 		if ctx.Err() != nil {
 			state.Phase = "registered"
 		} else {
@@ -283,13 +284,13 @@ func (d *daemon) launch(ctx context.Context, run *activeRun, jit string) (retErr
 	if err != nil {
 		output.Close()
 		command.Wait()
-		writer.close()
+		writer.Close()
 		return err
 	}
 	run.output = collected
 	go func() {
 		_, err := io.Copy(writer, logInput)
-		collected.err = errors.Join(err, logInput.Close(), writer.close())
+		collected.err = errors.Join(err, logInput.Close(), writer.Close())
 		close(collected.done)
 	}()
 	// Reaping and output collection remain independent so shutdown can
@@ -445,8 +446,14 @@ func (d *daemon) cleanup(run *activeRun) error {
 	if config == nil {
 		config = d.config
 	}
-	if err := archiveLogs(config, run.State, d.secrets); err != nil {
-		return fail(err, cleanupRetryable(err))
+	if config.Logs.Preserve {
+		state := run.State
+		err := runnerlog.Archive(config.Logs.Root, runnerlog.Run{
+			RunID: state.RunID, TargetID: state.TargetID, Scope: state.ScopeURL, RunnerDir: state.RunnerDir,
+		}, d.secrets)
+		if err != nil {
+			return fail(err, cleanupRetryable(err))
+		}
 	}
 	if err := d.store.removeFiles(run.State); err != nil {
 		return fail(err, cleanupRetryable(err))
