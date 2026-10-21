@@ -228,8 +228,9 @@ GitHub から見えなくなることはありません。ジョブの取得は�
 `apply` または通常停止・再起動が必要です。他の target は継続します。
 準備開始は target ごとに毎秒 1 回までです。drain は登録の復旧待ちを中止し、
 apply と通常停止は古い listener をキャンセルします。
-準備に失敗した実行の cleanup が未解決の場合、cleanup の成功（または `gc`・再起動による
-解決）まで、その target の新規起動を停止し、失敗の繰り返しによる runner ファイルの
+準備に失敗した実行や異常終了した runner の cleanup が未解決の場合、cleanup の成功
+（または `gc`・再起動による解決）まで、その target の新規起動を停止し、
+失敗の繰り返しによる runner ファイルの
 蓄積を防ぎます。cleanup 自体の再試行ポリシーは変更しません。
 listener と準備・起動の一時的な失敗は、対応する listener または runner の起動が
 復旧するまで `status` と `doctor` に表示します。

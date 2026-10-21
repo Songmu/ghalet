@@ -428,3 +428,35 @@ func TestRecoveredRegistrationRemovesOnlyAdoptedRetiredIdentity(t *testing.T) {
 		}
 	})
 }
+
+func TestReadyRunnerCleanupFailureBoundsAbnormalReplacements(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		err  error
+		busy bool
+	}{
+		{name: "abnormal idle", err: errTestAPI},
+		{name: "abnormal busy", err: errTestAPI, busy: true},
+		{name: "successful completion"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d, api := testDaemon(t)
+			target := d.targets["build"]
+			other := *target
+			state := testState(t, d.config)
+			state.Ready, state.Busy, state.ProcessDone = true, tc.busy, true
+			run := &activeRun{State: state}
+			d.runs[state.RunID] = run
+			d.processEvent(runEvent{id: state.RunID, kind: "exit", err: tc.err})
+			api.getErr = errTestAPI
+			if err := d.cleanup(run); err == nil {
+				t.Fatal("simulated cleanup failure was not retained")
+			}
+			target.RetryAt = time.Time{}
+			if d.canStart(target) != (tc.err == nil) || !d.canStart(&other) ||
+				d.runs[state.RunID] == nil || target.Fault != "" {
+				t.Fatal("abnormal replacements were unbounded or successful completions were blocked")
+			}
+		})
+	}
+}

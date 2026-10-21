@@ -889,10 +889,10 @@ func (d *daemon) reconcileIdle(target *targetRuntime, realDemand bool) {
 
 func (d *daemon) canStart(target *targetRuntime) bool {
 	for _, run := range d.runs {
-		// Do not accumulate failed preparation trees while their cleanup is
+		// Do not accumulate failed runner trees while their cleanup is
 		// unresolved, even though a stopped process releases runner capacity.
-		if d.runTarget(run) == target && run.State.ProcessDone && !run.State.Ready &&
-			!run.State.Busy && run.CleanupTried && run.State.Error != "" {
+		if d.runTarget(run) == target && run.State.ProcessDone && (!run.State.Ready || run.ExitError != "") &&
+			run.CleanupTried && run.State.Error != "" {
 			return false
 		}
 	}
