@@ -263,6 +263,11 @@ func (d *daemon) reconcileRun(run *activeRun, table map[int]procgroup.Entry) {
 		}
 		return
 	}
+	d.reconcileRunProcess(run, table)
+}
+
+func (d *daemon) reconcileRunProcess(run *activeRun, table map[int]procgroup.Entry) {
+	state := run.State
 	alive, members, err := procgroup.Inspect(state.processGroup(), table)
 	if err != nil {
 		run.InspectFailures++
@@ -295,6 +300,11 @@ func (d *daemon) reconcileRun(run *activeRun, table map[int]procgroup.Entry) {
 		}
 		return
 	}
+	d.enforceStartupTimeout(run)
+}
+
+func (d *daemon) enforceStartupTimeout(run *activeRun) {
+	state := run.State
 	config := run.Config
 	if config == nil {
 		config = d.config
