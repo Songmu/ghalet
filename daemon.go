@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -406,6 +407,13 @@ func (d *daemon) startListener(target *targetRuntime) {
 				if err == nil {
 					target.Client, target.Set, target.Assigned = candidate.Client, candidate.Set, candidate.Assigned
 					target.RetryError = ""
+					d.retired = slices.DeleteFunc(d.retired, func(old *targetRuntime) bool {
+						if old.Set == nil {
+							return false
+						}
+						_, adopted := d.scaleSetReference(d.config, old)
+						return adopted
+					})
 				} else if ctx.Err() == nil {
 					target.RetryError = d.secrets.Redact(err.Error())
 				}
@@ -1239,8 +1247,13 @@ func (d *daemon) retireIdle(run *activeRun) error {
 	// Never stop the process if GitHub refuses deletion or cannot be queried.
 	if err := d.unregister(run); err != nil {
 		if errors.Is(err, scaleset.JobStillRunningError) {
+			newlyReady := !run.State.Ready
 			run.State.Busy, run.State.Ready, run.State.Phase = true, true, "busy"
-			d.save(run)
+			if d.save(run) == nil && newlyReady {
+				if target := d.runTarget(run); target != nil {
+					target.StartError, target.Failures = "", 0
+				}
+			}
 		}
 		return err
 	}

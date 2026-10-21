@@ -3,6 +3,7 @@ package ghalet
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -375,4 +376,55 @@ func TestPreparationRetryDiagnosticSurvivesUntilStartupRecovers(t *testing.T) {
 	if target.StartError != "" {
 		t.Fatal("canceled preparation created a false diagnostic")
 	}
+}
+
+func TestAssignmentArbitrationClearsOnlyNewStartupRecovery(t *testing.T) {
+	for _, ready := range []bool{false, true} {
+		t.Run(fmt.Sprint(ready), func(t *testing.T) {
+			d, api := testDaemon(t)
+			target := d.targets["build"]
+			d.startFailure(target, errTestAPI)
+			state := testState(t, d.config)
+			state.RunnerID, state.Ready = 101, ready
+			api.runners[101] = &scaleset.RunnerReference{ID: 101, Name: state.RunnerName, RunnerScaleSetID: state.ScaleSetID}
+			api.removeErr = scaleset.JobStillRunningError
+			run := &activeRun{State: state}
+			d.runs[state.RunID] = run
+			if err := d.retireIdle(run); !errors.Is(err, scaleset.JobStillRunningError) {
+				t.Fatal(err)
+			}
+			if !state.Ready || !state.Busy || (target.StartError != "") != ready {
+				t.Fatal("assignment readiness transition did not preserve the correct diagnostic", target)
+			}
+			if !ready && target.Failures != 0 {
+				t.Fatal("new startup readiness did not reset failure backoff")
+			}
+		})
+	}
+}
+
+func TestRecoveredRegistrationRemovesOnlyAdoptedRetiredIdentity(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		d, api := testDaemon(t)
+		target := d.targets["build"]
+		old := *target
+		otherScope := old
+		otherScope.Config.URL = "https://github.com/another/repository"
+		otherID := old
+		set := *old.Set
+		set.ID++
+		otherID.Set = &set
+		unregistered := &targetRuntime{Config: target.Config}
+		d.retired = []*targetRuntime{&old, &otherScope, &otherID, unregistered}
+		target.Client, target.Set = nil, nil
+		d.clientFactory = func(context.Context, Target) (scaleAPI, error) {
+			return &cancelRegistrationAPI{fakeScaleAPI: api, cancel: target.Cancel}, nil
+		}
+		d.startListener(target)
+		d.workers.Wait()
+		if target.Set == nil || len(d.retired) != 3 || d.retired[0] != &otherScope ||
+			d.retired[1] != &otherID || d.retired[2] != unregistered || api.deleteCalls != 0 {
+			t.Fatal("recovery retained an adopted identity or removed another retirement", d.retired)
+		}
+	})
 }
