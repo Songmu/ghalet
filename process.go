@@ -91,9 +91,7 @@ func runnerEnvironment(c *settings.Config, account executionUser, jit string) []
 	return result
 }
 
-type workLock struct{ file *os.File }
-
-func lockWorkRoot(path string) (*workLock, error) {
+func lockWorkRoot(path string) (*os.File, error) {
 	if err := ensureExecutionDirectory(path); err != nil {
 		return nil, err
 	}
@@ -106,9 +104,5 @@ func lockWorkRoot(path string) (*workLock, error) {
 		file.Close()
 		return nil, fmt.Errorf("workRoot is locked by another daemon or management operation: %w", err)
 	}
-	return &workLock{file}, nil
-}
-
-func (l *workLock) close() error {
-	return l.file.Close()
+	return file, nil
 }

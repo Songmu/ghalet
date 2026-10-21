@@ -89,12 +89,12 @@ func offlineDaemon(ctx context.Context, path string, connectionErr error) (*daem
 	}
 	controlLock, err := lockControl(path)
 	if err != nil {
-		lock.close()
+		lock.Close()
 		return nil, nil, fmt.Errorf("refusing direct operation while the config's control address is owned: %w", err)
 	}
 	close := func() {
 		controlLock.Close()
-		lock.close()
+		lock.Close()
 	}
 	// A socket failure alone is never evidence that a daemon is absent.
 	if _, err := controlCall(ctx, path, controlRequest{Command: "status"}); err == nil {
@@ -124,7 +124,7 @@ func RunDaemon(ctx context.Context, config *settings.Config) error {
 	if err != nil {
 		return err
 	}
-	defer lock.close()
+	defer lock.Close()
 	server, err := listenControl(config.Path)
 	if err != nil {
 		return err
