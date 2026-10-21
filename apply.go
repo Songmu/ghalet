@@ -59,10 +59,23 @@ func (d *daemon) apply(ctx context.Context) controlResponse {
 		return controlResponse{Error: d.secrets.Redact(err.Error())}
 	}
 
+	response, old := d.drainForApply(ctx)
+	if response.Error != "" {
+		return response
+	}
+	if !d.replaceApplyConfig(ctx, next, old) {
+		return controlResponse{Error: "apply interrupted by shutdown"}
+	}
+	d.registerApplyTargets(ctx, next, &response)
+	retained := d.retireApplyRegistrations(ctx, next, &response)
+	return d.resumeAfterApply(ctx, next, retained, response)
+}
+
+func (d *daemon) drainForApply(ctx context.Context) (controlResponse, []*targetRuntime) {
 	response := d.drain(ctx, "")
 	if ctx.Err() != nil {
 		response.Error = "apply interrupted: " + ctx.Err().Error()
-		return response
+		return response, nil
 	}
 	response.Error = ""
 	d.mu.Lock()
@@ -92,18 +105,21 @@ func (d *daemon) apply(ctx context.Context) controlResponse {
 	d.mu.Unlock()
 	if err := d.waitListeners(ctx, old); err != nil {
 		response.Error = "apply interrupted: " + err.Error()
-		return response
+		return response, old
 	}
 	for _, target := range old {
 		if target.CloseError != "" {
 			response.Results = append(response.Results, OperationResult{TargetID: target.Config.ID, Error: target.CloseError})
 		}
 	}
+	return response, old
+}
 
+func (d *daemon) replaceApplyConfig(ctx context.Context, next *Config, old []*targetRuntime) bool {
 	d.mu.Lock()
+	defer d.mu.Unlock()
 	if ctx.Err() != nil || d.stopping {
-		d.mu.Unlock()
-		return controlResponse{Error: "apply interrupted by shutdown"}
+		return false
 	}
 	// Retained executions keep their old credentials and log policy, not the
 	// new target that may reuse the same local ID.
@@ -125,8 +141,10 @@ func (d *daemon) apply(ctx context.Context) controlResponse {
 		d.order = append(d.order, config.ID)
 	}
 	d.nextRetention = time.Time{}
-	d.mu.Unlock()
+	return true
+}
 
+func (d *daemon) registerApplyTargets(ctx context.Context, next *Config, response *controlResponse) {
 	for _, config := range next.Targets {
 		if ctx.Err() != nil {
 			break
@@ -143,7 +161,9 @@ func (d *daemon) apply(ctx context.Context) controlResponse {
 			break
 		}
 	}
+}
 
+func (d *daemon) retireApplyRegistrations(ctx context.Context, next *Config, response *controlResponse) []*targetRuntime {
 	d.mu.Lock()
 	var retained, pending []*targetRuntime
 	seen := map[string]bool{}
@@ -175,7 +195,10 @@ func (d *daemon) apply(ctx context.Context) controlResponse {
 		}
 		response.Results = append(response.Results, result)
 	}
+	return retained
+}
 
+func (d *daemon) resumeAfterApply(ctx context.Context, next *Config, retained []*targetRuntime, response controlResponse) controlResponse {
 	d.mu.Lock()
 	d.retired = retained
 	var started []*targetRuntime

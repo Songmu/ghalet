@@ -364,7 +364,7 @@ func (d *daemon) gcRun(ctx context.Context, run *activeRun, dryRun bool, table m
 			result.Error = err.Error()
 		} else if alive {
 			result.Action = "retain active execution"
-		} else if !work.outputCollected() || (work.WaitDone != nil && !work.Exited && !work.Stopping) {
+		} else if !work.outputCollected() || (work.output != nil && !work.Exited && !work.Stopping) {
 			result.Action = "retain execution awaiting output collection or exit observation"
 		} else if !dryRun {
 			work.GroupStopped = true
