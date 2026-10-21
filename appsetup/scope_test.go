@@ -16,25 +16,43 @@ import (
 	"github.com/Songmu/ghalet/fshelper"
 )
 
-func TestSetupCreatesConfigAndResumes(t *testing.T) {
+func TestSetupLeavesNewConfigToUserAndResumes(t *testing.T) {
 	for _, scope := range []string{"owner/repo", "owner"} {
 		t.Run(scope, func(t *testing.T) {
 			f := setupFixture(t, scope, "Organization")
 			f.options.ID = ""
 			f.options.Config = filepath.Join(filepath.Dir(f.options.Config), "new", "config.yaml")
-			result, err := f.run(t.Context(), f.options, nil, io.Discard)
+			var output bytes.Buffer
+			result, err := f.run(t.Context(), f.options, nil, &output)
 			if err != nil {
 				t.Fatal(err)
 			}
 			want := strings.ReplaceAll(scope, "/", "-")
+			if _, err := os.Stat(f.options.Config); !errors.Is(err, os.ErrNotExist) {
+				t.Fatal("setup created static configuration", err)
+			}
+			if !strings.Contains(output.String(), "Suggested static configuration:") ||
+				!strings.Contains(output.String(), "id: \""+want+"\"") {
+				t.Fatal("setup did not print the required static configuration", output.String())
+			}
+			if err := os.MkdirAll(filepath.Dir(f.options.Config), 0700); err != nil {
+				t.Fatal(err)
+			}
+			_, suggestion, found := strings.Cut(output.String(), "Suggested static configuration:\n")
+			if !found {
+				t.Fatal("missing suggested configuration")
+			}
+			if err := os.WriteFile(f.options.Config, []byte(suggestion), 0444); err != nil {
+				t.Fatal(err)
+			}
 			config, err := settings.LoadConfig(f.options.Config)
 			if err != nil || len(config.Targets) != 1 || config.Targets[0].ID != want ||
 				config.Targets[0].InstallationID != 123 || result.Target != want {
 				t.Fatal("new configuration did not use the derived ID", config, err)
 			}
 			info, err := os.Stat(f.options.Config)
-			if err != nil || info.Mode().Perm() != 0600 {
-				t.Fatal("new configuration is not private", err)
+			if err != nil || info.Mode().Perm() != 0444 {
+				t.Fatal("static configuration permissions changed", err)
 			}
 			second, err := f.run(t.Context(), f.options, nil, io.Discard)
 			if err != nil || second.KeyPath != result.KeyPath || f.conversions.Load() != 1 {
@@ -45,6 +63,32 @@ func TestSetupCreatesConfigAndResumes(t *testing.T) {
 				t.Fatal("repeated scope setup duplicated the target", err)
 			}
 		})
+	}
+}
+
+func TestSetupPrintsQuotedTargetForExistingConfig(t *testing.T) {
+	f := setupFixture(t, "owner/repo", "User")
+	f.options.ID = "null"
+	before, err := os.ReadFile(f.options.Config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	if _, err := f.run(t.Context(), f.options, nil, &output); err != nil {
+		t.Fatal(err)
+	}
+	_, suggestion, found := strings.Cut(output.String(), "before starting or applying:\n")
+	if !found {
+		t.Fatal("missing suggested target", output.String())
+	}
+	config, err := settings.ParseConfig(f.options.Config, append(before, suggestion...))
+	if err != nil {
+		t.Fatal("suggested target is not valid configuration", err)
+	}
+	target := config.Targets[len(config.Targets)-1]
+	if len(config.Targets) != 3 || target.ID != "null" ||
+		target.Credential.Type != "github-app" || target.InstallationID != 123 {
+		t.Fatal("suggested target did not activate its managed authentication", config.Targets)
 	}
 }
 
@@ -126,6 +170,16 @@ func TestSystemdAppSetupResumesAfterProvisionFailure(t *testing.T) {
 	second, err := f.run(t.Context(), f.options, nil, &output)
 	if err != nil || saves != 1 || reads != 4 || provisions != 2 || first.KeyPath != second.KeyPath || f.conversions.Load() != 1 {
 		t.Fatal("systemd setup did not reuse the encrypted key", saves, reads, err)
+	}
+	if _, err := os.Stat(f.options.Config); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("systemd setup created static configuration", err)
+	}
+	if !strings.Contains(output.String(), "user: ghalet-runner") ||
+		!strings.Contains(output.String(), "root: /var/log/ghalet/runners") {
+		t.Fatal("missing suggested package service settings", output.String())
+	}
+	if err := os.WriteFile(f.options.Config, []byte("runner:\n  user: ghalet-runner\nlogs:\n  root: /var/log/ghalet/runners\ntargets:\n  - id: build\n    scope: owner/repo\n"), 0444); err != nil {
+		t.Fatal(err)
 	}
 	logRoot, err := fshelper.ResolveDirectory("/var/log/ghalet/runners")
 	if err != nil {

@@ -1,9 +1,7 @@
 # yaml-language-server: $schema=https://raw.githubusercontent.com/Songmu/ghalet/main/schema.yaml
 
-defaults:
-  credential:
-    type: pat
-    tokenFile: /run/credentials/ghalet.service/default # Register with ghalet systemd credential set default --prompt.
+# Register authentication with ghalet systemd credential set default --prompt.
+# Generated references are stored in /var/lib/ghalet/managed.yaml.
 
 targets:
   - id: project

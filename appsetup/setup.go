@@ -15,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	settings "github.com/Songmu/ghalet/config"
 	"github.com/Songmu/ghalet/credentialstore"
 	"github.com/Songmu/ghalet/fshelper"
 )
@@ -86,12 +87,22 @@ func (s service) run(ctx context.Context, options Options, input *os.File, outpu
 	if err != nil {
 		return Result{}, err
 	}
+	files := setupPaths(directory, options)
+	reserved := []string{
+		files.key, files.diskKey, files.diskKey + ".previous", files.metadata,
+		filepath.Join(directory, options.ID+".setup.lock"), filepath.Join(directory, ".lock"),
+	}
+	if options.Systemd {
+		reserved = append(reserved, filepath.Join(credentialstore.SystemdDropInDirectory, "credential-"+options.ID+".conf"))
+	}
+	if err := settings.CheckManagedPaths(prepared.managedPath, options.Config, reserved...); err != nil {
+		return Result{}, err
+	}
 	lock, err := lockSetup(directory, options.ID)
 	if err != nil {
 		return Result{}, err
 	}
 	defer lock.Close()
-	files := setupPaths(directory, options)
 	state, err := loadApp(files.metadata)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return Result{}, err

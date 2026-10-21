@@ -38,15 +38,17 @@ Files are placed in `<StateDir>/credentials/NAME.pat` or `NAME.pem`, with mode
 daemon. Credential files are separate from `runs/` and `logs/` and are not
 removed by `ghalet gc`.
 
-The command replaces `defaults.credential` in the selected configuration with
+The command writes `defaults.credential` to the selected configuration's
+[managed file](operations.md#managed-setup-information) with
 `type: pat` / `tokenFile`, or `type: github-app` / `clientId` / `privateKeyFile`.
 The paths are absolute. The default configuration is
 `~/.config/ghalet/config.yaml`; override it with `--config PATH`.
 An existing App default's client ID is reused if `--client-id` is omitted.
 Each App target still needs its own `installationId`.
-Explicit target credentials are not changed.
+The static configuration is never changed. Explicit static defaults and target
+credentials remain authoritative.
 
-Use `--no-default` to save a credential without modifying the configuration,
+Use `--no-default` to save a credential without modifying managed defaults,
 then reference its reported path in the desired target. Names follow the same
 rules as [systemd credential names](credentials.md#github-apps-and-additional-credentials).
 Existing unsafe permissions or symlinks are rejected rather than silently fixed.

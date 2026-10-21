@@ -55,21 +55,19 @@ YAML の値、環境変数には書かないでください。入力キャンセ
 LoadCredentialEncrypted=default:/etc/ghalet/credentials/default.cred
 ```
 
-さらに `/etc/ghalet/config.yaml` の `defaults.credential` を置き換えます。
-他の設定やコメントは保持しますが、YAML の書式は正規化される場合があります。
-別の設定は `--config PATH` で指定できます。ただし unit は引き続き
-`/etc/ghalet/config.yaml` を使い、`ExecStart` は変更しません。
-target に明示された認証設定も書き換えません。
+さらに `/var/lib/ghalet/managed.yaml` の `defaults.credential` に保存し、
+`/etc/ghalet/config.yaml` は書き換えません。静的な共通設定と target の明示的な認証を優先します。
+別の設定は `--config PATH` で指定できますが、unit の `ExecStart` は変更しません。
+保存先の変更、独自の systemd 設定、優先順位は
+[セットアップで管理する情報](operations.ja.md#セットアップで管理する情報)を参照してください。
 
 ```yaml
+# /var/lib/ghalet/managed.yaml
+version: 1
 defaults:
   credential:
     type: pat
     tokenFile: /run/credentials/ghalet.service/default
-
-targets:
-  - id: project
-    scope: OWNER/REPO
 ```
 
 `credential` を省略した target だけが共通設定を継承し、`credential: {}` は `gh` を
@@ -96,13 +94,13 @@ sudo ghalet systemd credential set app-work-key --type github-app \
   --client-id APP_CLIENT_ID --file /secure/app.pem
 ```
 
-共通設定を `type: github-app`、`clientId`、
+managed の共通設定を `type: github-app`、`clientId`、
 `privateKeyFile: /run/credentials/ghalet.service/app-work-key` に置き換えます。
 `--client-id` を省略した場合、既存の App 共通設定の client ID を再利用します。
 この設定を使う各 target には `installationId` が必要で、自動推測はしません。
 installation token は既存の SDK が取得するため、手入力は不要です。
 
-YAML を変更せずに追加登録するには `--no-default` を指定します。
+managed の共通設定を変更せずに追加登録するには `--no-default` を指定します。
 
 ```sh
 sudo ghalet systemd credential set secondary --prompt --no-default

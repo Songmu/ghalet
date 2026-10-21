@@ -26,7 +26,11 @@ ghalet app setup --scope OWNER/REPO --config ./config.yaml --id build
 Select another configuration with `--config PATH`. The default is
 `~/.config/ghalet/config.yaml`. `--scope` is always required; it also accepts
 an HTTPS GitHub.com organization or repository URL.
-The wizard creates the configuration or adds the target only after confirmation.
+The wizard saves authentication in a separate
+[managed file](operations.md#managed-setup-information) after confirmation.
+It never creates or rewrites the static configuration. For a new target, add
+the printed YAML to your configuration; if no configuration exists, setup also
+prints a complete suggested configuration.
 Existing targets with the same scope are reused; use `--id` to select one when
 multiple targets match, or to create another target for that scope.
 Without a match or explicit ID, the ID is the lowercase scope with `/` and `.`
@@ -49,7 +53,7 @@ the wizard does not broaden an existing App's permissions.
    target, choose **Only select repositories** and select that repository.
    Wait for any required approval.
 5. The CLI discovers the installation, verifies its App, account and required
-   write permission, then displays the target-specific configuration changes.
+   write permission, then displays the target-specific managed information.
    Answer `y` to save, or decline and resume later. `--yes` skips only this
    final configuration confirmation, not GitHub's approvals.
 
@@ -59,8 +63,10 @@ The browser pages below use example data:
 
 ![GitHub App installation link](images/app-setup-install.png)
 
-Other targets and `defaults.credential` are not changed. The selected or added target
-gets `type: github-app`, `clientId`, `privateKeyFile` and `installationId`.
+Other targets and `defaults.credential` are not changed. The managed target entry
+gets its scope, `type: github-app`, `clientId`, `privateKeyFile` and `installationId`.
+Only targets present in the static configuration become active. Explicit target
+authentication in that configuration takes precedence over the managed entry.
 No user OAuth authorization or webhook events are requested; webhook delivery
 is disabled. The generated App is private to its owning account.
 
@@ -72,7 +78,7 @@ It checks the callback's random `state` and Host and does not expose the key in
 browser pages, URLs or command output. Installation discovery uses App JWTs,
 not a user token or an installation ID supplied by the browser.
 
-After reviewing the saved configuration:
+After reviewing the managed information and adding any printed static configuration:
 
 ```sh
 ghalet config validate
@@ -113,9 +119,13 @@ sudo systemctl enable --now ghalet
 
 The default configuration is `/etc/ghalet/config.yaml`; `--config PATH` selects
 another file but does not change the service unit's `ExecStart` or its config path.
-When creating a configuration, setup includes `runner.user: ghalet-runner` and
-`logs.root: /var/log/ghalet/runners` for the package service. Existing runner/log
-settings are preserved. Review the configuration before starting the service.
+When no configuration exists, setup prints a suggestion including
+`runner.user: ghalet-runner` and `logs.root: /var/log/ghalet/runners` for the
+package service. Save it to the selected config path before validation/start;
+setup does not write it. Managed information defaults to
+`/var/lib/ghalet/managed.yaml` for `/etc/ghalet/config.yaml`.
+For another config path, explicitly set `managedFile` or use the service's
+`STATE_DIRECTORY` consistently. Review the configuration before starting.
 
 Browser URLs are printed by default so the browser need not run as root.
 For SSH, use the port forwarding above and add `--listen 127.0.0.1:8765`
@@ -157,14 +167,14 @@ If a key was saved but metadata could not be written, the error reports the
 retained key path; use the existing App's settings and manual credential import
 rather than blindly creating another App.
 
-The wizard writes only configurations owned by the current user and not
-writable by others. It preserves comments, although YAML formatting and aliases
-may be normalized. Installation permission checks do not change runner group
-access policy.
+The static configuration may be read-only or symlinked; its contents, formatting
+and permissions are unchanged. The managed file must be owned by the current
+user and not writable by others. Concurrent managed updates are rejected.
+Installation permission checks do not change runner group access policy.
 
 For an existing App key, use
 [`ghalet systemd credential set`](credentials.md#github-apps-and-additional-credentials)
-instead of creating another App. It updates the shared default unless
+instead of creating another App. It updates the managed shared default unless
 `--no-default` is set; explicit target credentials still take precedence.
 
 App private keys do not expire. Installation-token renewal is automatic;

@@ -1,6 +1,7 @@
 package appsetup
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/json"
@@ -184,8 +185,22 @@ func (prepared preparedConfig) confirm(ctx context.Context, state savedApp, inst
 	if _, err := settings.ParseConfig(options.Config, after); err != nil {
 		return nil, fmt.Errorf("validate proposed configuration: %w", err)
 	}
-	if _, err := fmt.Fprintf(output, "Configure target %s in %s:\n  scope: %s\n  credential.type: github-app\n  credential.clientId: %s\n  credential.privateKeyFile: %s\n  installationId: %d\n", prepared.target.ID, options.Config, options.Scope, state.ClientID, state.KeyPath, installationID); err != nil {
+	if _, err := fmt.Fprintf(output, "Save target %s in managed file %s:\n  scope: %s\n  credential.type: github-app\n  credential.clientId: %s\n  credential.privateKeyFile: %s\n  installationId: %d\nStatic configuration %s is not changed; explicit target authentication takes precedence.\n", prepared.target.ID, prepared.managedPath, options.Scope, state.ClientID, state.KeyPath, installationID, options.Config); err != nil {
 		return nil, err
+	}
+	if !prepared.targetExists {
+		if _, err := fmt.Fprintf(output, "Add this target to %s before starting or applying:\n  - id: %q\n    scope: %q\n", options.Config, prepared.target.ID, options.Scope); err != nil {
+			return nil, err
+		}
+		if prepared.before == nil {
+			suggestion := fmt.Sprintf("targets:\n  - id: %q\n    scope: %q\n", prepared.target.ID, options.Scope)
+			if options.Systemd {
+				suggestion += "runner:\n  user: ghalet-runner\nlogs:\n  root: /var/log/ghalet/runners\n"
+			}
+			if _, err := fmt.Fprintf(output, "Suggested static configuration:\n%s", suggestion); err != nil {
+				return nil, err
+			}
+		}
 	}
 	if !options.Yes {
 		if _, err := fmt.Fprint(output, "Write these configuration changes? [y/N] "); err != nil {
@@ -199,7 +214,12 @@ func (prepared preparedConfig) confirm(ctx context.Context, state savedApp, inst
 			return nil, errors.New("configuration not changed; App/key retained, rerun setup to resume")
 		}
 	}
-	return after, nil
+	prepared.managed.SetTarget(settings.ManagedTarget{
+		ID: prepared.target.ID, Scope: prepared.target.URL,
+		Credential:     settings.Credential{Type: "github-app", ClientID: state.ClientID, PrivateKeyFile: state.KeyPath},
+		InstallationID: installationID,
+	})
+	return prepared.managed.Marshal()
 }
 
 func (s service) commitSetup(ctx context.Context, prepared preparedConfig, directory, keyPath string, verifiedKey [sha256.Size]byte, after []byte) error {
@@ -225,5 +245,12 @@ func (s service) commitSetup(ctx context.Context, prepared preparedConfig, direc
 			return fmt.Errorf("provision systemd App key: %w; App/key and setup metadata retained, rerun setup to resume", err)
 		}
 	}
-	return writeConfig(prepared.options.Config, prepared.before, after)
+	current, err := os.ReadFile(prepared.options.Config)
+	if err != nil && !(prepared.before == nil && errors.Is(err, os.ErrNotExist)) {
+		return err
+	}
+	if (prepared.before == nil && err == nil) || !bytes.Equal(current, prepared.before) {
+		return errors.New("configuration changed during setup; saved App is retained, rerun setup")
+	}
+	return settings.WriteManaged(prepared.managedPath, prepared.managedBefore, after)
 }

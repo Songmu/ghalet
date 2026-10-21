@@ -44,8 +44,9 @@ sudo ghalet config validate --config /etc/ghalet/config.yaml
 sudo systemctl enable --now ghalet
 ```
 
-Organization では `--scope ORG` を使います。設定がなければパッケージ用の runner ユーザーと
-ログパスを含めて作成し、既存の設定には target の追加・更新を行います。
+Organization では `--scope ORG` を使います。静的設定は変更せず、認証情報を managed ファイルに
+保存します。表示された target の YAML を設定に追加し、設定がなければパッケージ用の runner
+ユーザーとログパスを含む設定全体の案を、検証・起動前に保存してください。
 表示された URL をブラウザで開いてください。SSH では
 [App セットアップ](app-setup.ja.md#ssh-とブラウザの手動操作)のポート転送を使います。
 
@@ -61,8 +62,10 @@ sudo systemctl enable --now ghalet
 ```
 
 設定の `OWNER/REPO` を置き換え、runner の管理に必要な権限を持つ PAT を用意してください。
-登録コマンドは参照先を `defaults.credential` に書き込み、`credential` を省略した
-target 間で共有します。パッケージのインストール・更新時にシークレットを要求せず、
+登録コマンドは参照先を managed ファイルの `defaults.credential` に書き込み、
+他の認証設定がない target 間で共有します。静的な認証設定が引き続き優先します。
+[セットアップで管理する情報](operations.ja.md#セットアップで管理する情報)も参照してください。
+パッケージのインストール・更新時にシークレットを要求せず、
 登録は明示的な別コマンドで行います。App キー、複数の認証情報、自動構築、
 ローテーションは[暗号化した認証情報](credentials.ja.md)を参照してください。
 認証情報を YAML の値やシェルのコマンド引数に直接書かないでください。

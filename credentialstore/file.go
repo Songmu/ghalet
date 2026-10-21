@@ -123,7 +123,8 @@ func setFileWithWriter(ctx context.Context, directory string, options Options, i
 		return Result{}, err
 	}
 	defer clear(previous.data)
-	config, err := prepareCredentialConfig(options, path, "configuration does not exist; create it first or use --no-default")
+	config, err := prepareCredentialConfig(options, path, "configuration does not exist; create it first or use --no-default",
+		path, previousPath, filepath.Join(directory, ".lock"))
 	if err != nil {
 		return Result{}, err
 	}
@@ -174,6 +175,9 @@ func setFileWithWriter(ctx context.Context, directory string, options Options, i
 		}
 	}
 	result := Result{RuntimePath: path}
+	if !options.NoDefault {
+		result.ManagedPath = config.original.path
+	}
 	if original.exists {
 		result.PreviousPath = previousPath
 	}

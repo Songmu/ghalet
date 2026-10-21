@@ -17,11 +17,12 @@ import (
 	"syscall"
 	"time"
 
-	settings "github.com/Songmu/ghalet/config"
 	"github.com/Songmu/ghalet/fshelper"
 )
 
 var credentialName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$`)
+
+const SystemdDropInDirectory = "/etc/systemd/system/ghalet.service.d"
 
 // Options selects a credential and its explicit secret input source.
 type Options struct {
@@ -34,6 +35,7 @@ type Options struct {
 // Result describes the files installed by a successful registration.
 type Result struct {
 	EncryptedPath, DropInPath, RuntimePath, PreviousPath string
+	ManagedPath                                          string
 }
 
 // Validate checks the credential identity and input source selection.
@@ -107,7 +109,7 @@ func checkSystemd() error {
 }
 
 func systemdStore() (credentialStore, error) {
-	return newSystemdStore("/etc/ghalet/credentials", "/etc/systemd/system/ghalet.service.d")
+	return newSystemdStore("/etc/ghalet/credentials", SystemdDropInDirectory)
 }
 
 func newSystemdStore(directory, dropIns string) (credentialStore, error) {
@@ -379,7 +381,8 @@ func (s credentialStore) set(ctx context.Context, options Options, input io.Read
 		return result, err
 	}
 	config, err := prepareCredentialConfig(options, "/run/credentials/ghalet.service/"+options.Name,
-		fmt.Sprintf("configuration %s does not exist; copy the package example first, or use --no-default", options.Config))
+		fmt.Sprintf("configuration %s does not exist; copy the package example first, or use --no-default", options.Config),
+		cipherPath, previousPath, dropInPath, filepath.Join(s.directory, ".lock"))
 	if err != nil {
 		return result, err
 	}
@@ -446,6 +449,9 @@ func (s credentialStore) set(ctx context.Context, options Options, input io.Read
 		DropInPath:    dropInPath,
 		RuntimePath:   "/run/credentials/ghalet.service/" + options.Name,
 	}
+	if !options.NoDefault {
+		result.ManagedPath = config.original.path
+	}
 	if cipher.exists {
 		result.PreviousPath = previousPath
 	}
@@ -491,14 +497,6 @@ type credentialFile struct {
 	exists bool
 }
 
-func snapshotConfigFile(path string) (credentialFile, error) {
-	path, err := fshelper.ResolveParent(path)
-	if err != nil {
-		return credentialFile{}, err
-	}
-	return snapshotCredentialFile(path)
-}
-
 func snapshotCredentialFile(path string) (credentialFile, error) {
 	file := credentialFile{path: path}
 	if err := fshelper.CheckDirectory(filepath.Dir(path)); err != nil {
@@ -517,23 +515,4 @@ func snapshotCredentialFile(path string) (credentialFile, error) {
 	file.data, err = os.ReadFile(path)
 	file.mode, file.exists = info.Mode().Perm(), true
 	return file, err
-}
-
-func credentialConfig(data []byte, options Options, path string) ([]byte, error) {
-	var config settings.Config
-	editor, err := settings.NewEditor(data, &config)
-	if err != nil {
-		return nil, err
-	}
-	clientID := options.ClientID
-	if options.Type != "pat" {
-		if clientID == "" && config.Defaults.Credential != nil && config.Defaults.Credential.Type == "github-app" {
-			clientID = config.Defaults.Credential.ClientID
-		}
-		if clientID == "" {
-			return nil, errors.New("GitHub App defaults require --client-id or an existing defaults.credential.clientId")
-		}
-	}
-	editor.SetDefaultCredential(options.Type, clientID, path)
-	return editor.Marshal()
 }

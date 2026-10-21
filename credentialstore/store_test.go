@@ -39,80 +39,78 @@ func TestSetRejectsInvalidOptionsBeforeInput(t *testing.T) {
 	}
 }
 
-func TestDefaultCredentialConfig(t *testing.T) {
-	for _, prefix := range []string{
-		"",
-		"defaults: {}\n",
-		"defaults:\n  credential:\n    type: pat\n    tokenEnv: OLD_TOKEN\n",
-	} {
-		data := []byte("# Keep this comment.\n" + prefix + "targets:\n  - id: build # Keep this too.\n    scope: owner/repository\n")
-		updated, err := credentialConfig(data, Options{Name: "new-token", Type: "pat"}, "/run/credentials/ghalet.service/new-token")
-		if err != nil {
-			t.Fatal(err)
-		}
-		if !bytes.Contains(updated, []byte("# Keep this comment.")) || !bytes.Contains(updated, []byte("# Keep this too.")) {
-			t.Fatal("comments lost", string(updated))
-		}
-		if bytes.Contains(updated, []byte("OLD_TOKEN")) || bytes.Contains(updated, []byte("tokenEnv")) {
-			t.Fatal("credential was partially merged instead of replaced", string(updated))
-		}
-		path := filepath.Join(testDirectory(t), "config.yaml")
-		if err := os.WriteFile(path, updated, 0600); err != nil {
-			t.Fatal(err)
-		}
-		config, err := settings.LoadConfig(path)
-		if err != nil {
-			t.Fatal(err, string(updated))
-		}
-		if config.Targets[0].Credential.TokenFile != "/run/credentials/ghalet.service/new-token" {
-			t.Fatal("generated default was not inherited", string(updated))
-		}
+func TestManagedDefaultsPreserveStaticConfiguration(t *testing.T) {
+	for _, encrypted := range []bool{false, true} {
+		t.Run(fmt.Sprint(encrypted), func(t *testing.T) {
+			store, options, _ := testCredentialStore(t)
+			data := []byte("# Keep this comment.\nmanagedFile: state/managed.yaml\ndefaults:\n  credential: &shared\n    type: pat\n    tokenEnv: STATIC_PAT\ntargets:\n  - id: build\n    scope: owner/repository\n    credential: *shared\n")
+			if err := os.WriteFile(options.Config, data, 0444); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Chmod(options.Config, 0444); err != nil {
+				t.Fatal(err)
+			}
+			var result Result
+			var err error
+			if encrypted {
+				result, err = store.set(t.Context(), options, strings.NewReader("synthetic-secret"))
+			} else {
+				result, err = setFile(t.Context(), store.directory, options, strings.NewReader("synthetic-secret"))
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			current, err := os.ReadFile(options.Config)
+			if err != nil || !bytes.Equal(current, data) {
+				t.Fatal("static configuration was rewritten", err)
+			}
+			config, err := settings.LoadConfig(options.Config)
+			if err != nil || config.Defaults.Credential.TokenEnv != "STATIC_PAT" || config.Targets[0].Credential.TokenEnv != "STATIC_PAT" {
+				t.Fatal("managed defaults replaced handwritten authentication", err)
+			}
+			managed, _, err := settings.ReadManaged(result.ManagedPath)
+			if err != nil || managed.Defaults.Credential.TokenFile != result.RuntimePath {
+				t.Fatal("generated default was not saved separately", err)
+			}
+		})
 	}
 }
 
-func TestDefaultAppCredentialConfig(t *testing.T) {
-	data := []byte("defaults:\n  credential:\n    type: github-app\n    clientId: existing-client\n    privateKeyFile: old.pem\ntargets:\n  - id: build\n    scope: owner/repository\n    installationId: 123\n")
-	for _, clientID := range []string{"", "new-client"} {
-		updated, err := credentialConfig(data, Options{Name: "app-key", Type: "github-app", ClientID: clientID}, "/run/credentials/ghalet.service/app-key")
-		if err != nil {
-			t.Fatal(err)
-		}
-		want := clientID
-		if want == "" {
-			want = "existing-client"
-		}
-		if !bytes.Contains(updated, []byte(want)) || bytes.Contains(updated, []byte("old.pem")) {
-			t.Fatal("App metadata was lost or partially merged", string(updated))
-		}
+func TestManagedAppDefaultClientID(t *testing.T) {
+	_, options, _ := testCredentialStore(t)
+	options.Type = "github-app"
+	if _, err := prepareCredentialConfig(options, "/runtime/app.pem", "missing"); err == nil {
+		t.Fatal("App default without a client ID accepted")
 	}
-	for _, data := range []string{
-		"targets: []\n",
-		"defaults: not-a-mapping\ntargets: []\n",
-		"unknown: value\ntargets: []\n",
-		"targets: []\n---\ntargets: []\n",
-	} {
-		if _, err := credentialConfig([]byte(data), Options{Name: "app", Type: "github-app"}, "/run/credentials/ghalet.service/app"); err == nil {
-			t.Fatal("invalid App config accepted", data)
-		}
-	}
-}
-
-func TestDefaultCredentialConfigPreservesExplicitAliases(t *testing.T) {
-	input := []byte("defaults:\n  credential: &shared\n    type: pat\n    tokenEnv: OLD_TOKEN # Keep credential override.\ntargets:\n  - id: build\n    scope: owner/repository\n    credential: *shared\n")
-	updated, err := credentialConfig(input, Options{Name: "new", Type: "pat"}, "/run/credentials/ghalet.service/new")
+	options.ClientID = "existing"
+	prepared, err := prepareCredentialConfig(options, "/runtime/app.pem", "missing")
 	if err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(testDirectory(t), "config.yaml")
-	if err := os.WriteFile(path, updated, 0600); err != nil {
+	if err := settings.WriteManaged(prepared.original.path, nil, prepared.data); err != nil {
 		t.Fatal(err)
 	}
-	config, err := settings.LoadConfig(path)
+	options.ClientID = ""
+	prepared, err = prepareCredentialConfig(options, "/runtime/new.pem", "missing")
 	if err != nil {
-		t.Fatal(err, string(updated))
+		t.Fatal(err)
 	}
-	if config.Targets[0].Credential.TokenEnv != "OLD_TOKEN" || config.Defaults.Credential.TokenEnv != "" {
-		t.Fatal("editing defaults modified an explicit aliased target", string(updated))
+	managed, err := settings.ParseManaged(prepared.data)
+	if err != nil || managed.Defaults.Credential.ClientID != "existing" ||
+		managed.Defaults.Credential.PrivateKeyFile != "/runtime/new.pem" {
+		t.Fatal("App client ID was not retained as a complete credential", err)
+	}
+	static := []byte("managedFile: managed.yaml\ndefaults:\n  credential:\n    type: github-app\n    clientId: static\n    privateKeyFile: static.pem\ntargets: []\n")
+	if err := os.WriteFile(options.Config, static, 0600); err != nil {
+		t.Fatal(err)
+	}
+	prepared, err = prepareCredentialConfig(options, "/runtime/new.pem", "missing")
+	if err != nil {
+		t.Fatal(err)
+	}
+	managed, err = settings.ParseManaged(prepared.data)
+	if err != nil || managed.Defaults.Credential.ClientID != "static" {
+		t.Fatal("static App identity did not take precedence", err)
 	}
 }
 
@@ -318,8 +316,9 @@ func TestAppKeyProvisioningFailureKeepsSavedCredential(t *testing.T) {
 func testCredentialStore(t *testing.T) (credentialStore, Options, *credentialTestTools) {
 	t.Helper()
 	root := testDirectory(t)
+	t.Setenv("STATE_DIRECTORY", filepath.Join(root, "state"))
 	config := filepath.Join(root, "config.yaml")
-	if err := os.WriteFile(config, []byte("# retained\ntargets:\n  - id: build\n    scope: owner/repository\n"), 0600); err != nil {
+	if err := os.WriteFile(config, []byte("# retained\nmanagedFile: managed.yaml\ntargets:\n  - id: build\n    scope: owner/repository\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	tools := &credentialTestTools{}
@@ -426,6 +425,7 @@ func TestCredentialRegistrationAndRotation(t *testing.T) {
 		EncryptedPath: cipherPath,
 		DropInPath:    filepath.Join(store.dropIns, "credential-default.conf"),
 		RuntimePath:   "/run/credentials/ghalet.service/default",
+		ManagedPath:   filepath.Join(filepath.Dir(options.Config), "managed.yaml"),
 	}) {
 		t.Fatal("incorrect registration result", result)
 	}

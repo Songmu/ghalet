@@ -2,12 +2,15 @@ package appsetup
 
 import (
 	"bytes"
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	settings "github.com/Songmu/ghalet/config"
+	"github.com/Songmu/ghalet/credentialstore"
 	"github.com/Songmu/ghalet/fshelper"
 )
 
@@ -82,30 +85,14 @@ func TestAppendTargetDoesNotInheritAppInstallation(t *testing.T) {
 	}
 }
 
-func TestWriteNewConfigRejectsConcurrentCreation(t *testing.T) {
-	f := setupFixture(t, "owner/repo", "User")
-	path := filepath.Join(filepath.Dir(f.options.Config), "new.yaml")
-	for _, content := range []string{"", "targets: []\n"} {
-		if err := os.WriteFile(path, []byte(content), 0600); err != nil {
-			t.Fatal(err)
-		}
-		if err := writeConfig(path, nil, []byte("targets: []\n")); err == nil {
-			t.Fatal("new configuration overwrote a concurrently created file")
-		}
-		data, err := os.ReadFile(path)
-		if err != nil || string(data) != content {
-			t.Fatal("concurrent configuration changed", err)
-		}
-	}
-}
-
-func TestWriteConfigCoordinatesWriters(t *testing.T) {
+func TestWriteManagedCoordinatesWriters(t *testing.T) {
 	directory, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(directory, "config.yaml")
-	before := []byte("targets: []\n")
+
+	path := filepath.Join(directory, "managed.yaml")
+	before := []byte("version: 1\n")
 	if err := os.WriteFile(path, before, 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -113,19 +100,22 @@ func TestWriteConfigCoordinatesWriters(t *testing.T) {
 	if err := os.Symlink(directory, link); err != nil {
 		t.Fatal(err)
 	}
-	alias := filepath.Join(link, "config.yaml")
+	alias, err := settings.ManagedPath(filepath.Join(directory, "config.yaml"), filepath.Join(link, "managed.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	after := append(bytes.Clone(before), []byte("# updated\n")...)
 	lock, err := fshelper.LockFile(path + ".lock")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer lock.Close()
-	if err := writeConfig(alias, before, after); err == nil {
-		t.Fatal("setup ignored another configuration writer's lock")
+	if err := settings.WriteManaged(alias, before, after); err == nil {
+		t.Fatal("setup ignored another managed writer's lock")
 	}
 	actual, err := os.ReadFile(path)
 	if err != nil || !bytes.Equal(actual, before) {
-		t.Fatal("locked configuration was modified", err)
+		t.Fatal("locked managed file was modified", err)
 	}
 	lock.Close()
 	start := make(chan struct{})
@@ -133,7 +123,7 @@ func TestWriteConfigCoordinatesWriters(t *testing.T) {
 	for range 2 {
 		go func() {
 			<-start
-			results <- writeConfig(alias, before, after)
+			results <- settings.WriteManaged(alias, before, after)
 		}()
 	}
 	close(start)
@@ -145,5 +135,63 @@ func TestWriteConfigCoordinatesWriters(t *testing.T) {
 	}
 	if successes != 1 {
 		t.Fatalf("concurrent writers reported %d successes; want one", successes)
+	}
+}
+
+func TestSetupRejectsManagedPersistenceCollisionsBeforeAppCreation(t *testing.T) {
+	for _, systemd := range []bool{false, true} {
+		names := []string{"key", "key-child", "key-parent", "config-symlink", "backup", "metadata", "setup-lock", "managed-lock"}
+		if systemd {
+			names = append(names, "drop-in")
+		}
+		for _, name := range names {
+			t.Run(fmt.Sprintf("%t/%s", systemd, name), func(t *testing.T) {
+				f := setupFixture(t, "owner/repo", "User")
+				f.options.Systemd = systemd
+				directory, err := settings.StateDirectory()
+				if err != nil {
+					t.Fatal(err)
+				}
+				directory = filepath.Join(directory, "credentials")
+				files := setupPaths(directory, f.options)
+				path := files.diskKey
+				switch name {
+				case "key-child":
+					path = filepath.Join(path, "managed.yaml")
+				case "key-parent":
+					path = filepath.Dir(path)
+				case "backup":
+					path += ".previous"
+				case "metadata":
+					path = files.metadata
+				case "setup-lock":
+					path = filepath.Join(directory, "build.setup.lock")
+				case "managed-lock":
+					path = filepath.Join(directory, "build.setup")
+				case "drop-in":
+					path = filepath.Join(credentialstore.SystemdDropInDirectory, "credential-build.conf")
+				}
+				static := []byte(fmt.Sprintf("managedFile: %s\ntargets:\n  - id: build\n    scope: owner/repo\n", path))
+				if name == "config-symlink" {
+					if err := os.Remove(f.options.Config); err != nil {
+						t.Fatal(err)
+					}
+					if err := os.Symlink(files.diskKey, f.options.Config); err != nil {
+						t.Fatal(err)
+					}
+				} else if err := os.WriteFile(f.options.Config, static, 0600); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := f.run(t.Context(), f.options, nil, io.Discard); err == nil {
+					t.Fatal("managed persistence collision accepted")
+				}
+				if f.ownerCalls.Load() != 0 || f.conversions.Load() != 0 {
+					t.Fatal("collision was detected only after contacting GitHub")
+				}
+				if _, err := os.Stat(files.diskKey); !os.IsNotExist(err) {
+					t.Fatal("collision preflight created an App key", err)
+				}
+			})
+		}
 	}
 }
