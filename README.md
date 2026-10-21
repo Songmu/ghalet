@@ -4,7 +4,7 @@
 [![Coverage Status](https://codecov.io/gh/Songmu/ghalet/branch/main/graph/badge.svg)][codecov]
 [![MIT License](https://img.shields.io/github/license/Songmu/ghalet)][license]
 [![PkgGoDev](https://pkg.go.dev/badge/github.com/Songmu/ghalet)][PkgGoDev]
-[![Ask DeepWiki](https://deepwiki.com/badge.svg)][deepwiki]
+[![Ask DeepWiki](https://img.shields.io/badge/Ask-DeepWiki-blue)][deepwiki]
 
 [actions]: https://github.com/Songmu/ghalet/actions?workflow=test
 [codecov]: https://codecov.io/gh/Songmu/ghalet
