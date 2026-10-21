@@ -65,11 +65,7 @@ type activeRun struct {
 	ioDone          chan struct{}
 	generation      uint64
 	events          []runEvent
-	detached        bool
-	removed         bool
-	persistError    string
-	startError      error
-	readySaved      bool
+	ioResult        *runIOResult
 	forceStop       bool
 	output          *runOutputState
 	State           *RunState
@@ -84,9 +80,6 @@ type activeRun struct {
 	CleanupTried    bool
 	CleanupFailures int
 	CleanupRetryAt  time.Time
-	WaitDone        chan struct{}
-	OutputError     error
-	OutputReady     bool
 	Stopping        bool
 	Retiring        bool
 	Target          *targetRuntime
@@ -95,9 +88,18 @@ type activeRun struct {
 }
 
 type runOutputState struct {
+	// ready and err may only be read after done closes.
 	ready bool
 	err   error
 	done  chan struct{}
+}
+
+// runIOResult holds worker-only publication metadata, never live execution state.
+type runIOResult struct {
+	removed      bool
+	persistError string
+	startError   error
+	readySaved   bool
 }
 
 type runExit struct {
@@ -106,19 +108,11 @@ type runExit struct {
 }
 
 func (r *activeRun) outputCollected() bool {
-	if r.output != nil {
-		select {
-		case <-r.output.done:
-			return true
-		default:
-			return false
-		}
-	}
-	if r.WaitDone == nil {
+	if r.output == nil {
 		return true
 	}
 	select {
-	case <-r.WaitDone:
+	case <-r.output.done:
 		return true
 	default:
 		return false
@@ -132,7 +126,7 @@ func (r *activeRun) canRetireIdle() bool {
 
 func (r *activeRun) occupiesCapacity() bool {
 	if r.Uncertain {
-		return !r.GroupStopped || !r.outputCollected() || (r.WaitDone != nil && !r.Exited)
+		return !r.GroupStopped || !r.outputCollected() || (r.output != nil && !r.Exited)
 	}
 	return !r.State.ProcessDone
 }
@@ -397,8 +391,8 @@ func (d *daemon) save(run *activeRun) error {
 	if err := d.store.save(run.State); err != nil {
 		run.Uncertain = true
 		run.State.Error = fmt.Sprintf("persist state: %v", err)
-		if run.detached {
-			run.persistError = run.State.Error
+		if run.ioResult != nil {
+			run.ioResult.persistError = run.State.Error
 		} else if target := d.runTarget(run); target != nil {
 			target.Fault = run.State.Error
 		}
@@ -420,9 +414,8 @@ func (d *daemon) runIO(run *activeRun, operation func(*activeRun) error) <-chan 
 	work := *run
 	state := *run.State
 	state.Members = append([]ProcessIdentity(nil), state.Members...)
-	work.State, work.detached = &state, true
-	work.startError, work.persistError = nil, ""
-	work.readySaved = false
+	result := &runIOResult{}
+	work.State, work.ioResult = &state, result
 	work.Target, work.Config = d.runTarget(run), run.Config
 	if work.Target != nil {
 		work.forceStop = work.Target.Forced
@@ -439,21 +432,21 @@ func (d *daemon) runIO(run *activeRun, operation func(*activeRun) error) <-chan 
 		*run.State = *work.State
 		state := run.State
 		*run = work
-		run.State, run.detached, run.ioDone, run.events = state, false, nil, nil
+		run.State, run.ioResult, run.ioDone, run.events = state, nil, nil, nil
 		run.generation++
-		if work.persistError != "" && work.Target != nil {
-			work.Target.Fault = work.persistError
+		if result.persistError != "" && work.Target != nil {
+			work.Target.Fault = result.persistError
 		}
-		if work.readySaved && work.Target != nil {
+		if result.readySaved && work.Target != nil {
 			work.Target.StartError, work.Target.Failures = "", 0
 		}
-		if work.startError != nil && work.Target != nil {
-			d.startFailure(work.Target, work.startError)
+		if result.startError != nil && work.Target != nil {
+			d.startFailure(work.Target, result.startError)
 		}
 		if err != nil {
 			run.State.Error = d.secrets.Redact(err.Error())
 		}
-		if work.removed {
+		if result.removed {
 			for _, event := range events {
 				if event.kind == "exit" {
 					d.processEvent(event)
@@ -509,7 +502,7 @@ func (d *daemon) jobEvent(ctx context.Context, target *targetRuntime, runnerID i
 	var err error
 	done := d.runIO(run, func(work *activeRun) error {
 		err = d.save(work)
-		work.readySaved = err == nil && newlyReady
+		work.ioResult.readySaved = err == nil && newlyReady
 		return err
 	})
 	d.mu.Unlock()
@@ -643,7 +636,7 @@ func (d *daemon) processEvent(event runEvent) {
 		}
 		d.runIO(run, func(work *activeRun) error {
 			err := d.save(work)
-			work.readySaved = err == nil && newlyReady
+			work.ioResult.readySaved = err == nil && newlyReady
 			return err
 		})
 	case "exit":
@@ -660,16 +653,13 @@ func (d *daemon) processEvent(event runEvent) {
 }
 
 func (d *daemon) finishExit(run *activeRun) {
-	if run.detached || run.ioDone != nil || run.ExitResult == nil || !run.outputCollected() {
+	if run.ioResult != nil || run.ioDone != nil || run.ExitResult == nil || !run.outputCollected() {
 		return
-	}
-	if run.output != nil {
-		run.OutputReady, run.OutputError = run.output.ready, run.output.err
 	}
 	result := run.ExitResult
 	run.ExitResult = nil
-	newlyReady := run.OutputReady && !run.State.Ready
-	if run.OutputReady {
+	newlyReady := run.output != nil && run.output.ready && !run.State.Ready
+	if newlyReady {
 		run.State.Ready = true
 	}
 	if !result.stopping && ((!run.State.Ready && !run.State.Busy) || result.err != nil) {
@@ -827,7 +817,7 @@ func (d *daemon) reconcileRun(run *activeRun, table map[int]processEntry) {
 		}
 	}
 	if !alive || run.Exited {
-		if run.WaitDone != nil && !run.Exited {
+		if run.output != nil && !run.Exited {
 			return
 		}
 		if !alive {
@@ -846,7 +836,7 @@ func (d *daemon) reconcileRun(run *activeRun, table map[int]processEntry) {
 		if err := d.retireIdle(run); err != nil {
 			state.Error = d.secrets.Redact(err.Error())
 		} else {
-			run.startError = errors.New("runner startup timeout before readiness")
+			run.ioResult.startError = errors.New("runner startup timeout before readiness")
 		}
 	}
 }
@@ -1016,7 +1006,7 @@ func (d *daemon) reserve(target *targetRuntime) error {
 		err := d.makeRunDirectory(dir)
 		directoryMu.Unlock()
 		if err != nil {
-			work.Preparing, work.removed, work.startError = false, true, err
+			work.Preparing, work.ioResult.removed, work.ioResult.startError = false, true, err
 			return err
 		}
 		err = d.save(work)
@@ -1252,7 +1242,7 @@ func (d *daemon) launch(ctx context.Context, run *activeRun, jit string) (retErr
 		writer.close()
 		return err
 	}
-	run.output, run.WaitDone = collected, collected.done
+	run.output = collected
 	go func() {
 		_, err := io.Copy(writer, logInput)
 		collected.err = errors.Join(err, logInput.Close(), writer.close())
@@ -1333,8 +1323,8 @@ func (d *daemon) retireIdle(run *activeRun) error {
 			newlyReady := !run.State.Ready
 			run.State.Busy, run.State.Ready, run.State.Phase = true, true, "busy"
 			if d.save(run) == nil && newlyReady {
-				if run.detached {
-					run.readySaved = true
+				if run.ioResult != nil {
+					run.ioResult.readySaved = true
 				} else if target := d.runTarget(run); target != nil {
 					target.StartError, target.Failures = "", 0
 				}
@@ -1359,9 +1349,9 @@ func (d *daemon) stop(run *activeRun, forced bool) error {
 	if err != nil {
 		return err
 	}
-	if run.WaitDone != nil {
+	if run.output != nil {
 		select {
-		case <-run.WaitDone:
+		case <-run.output.done:
 		case <-ctx.Done():
 			return errors.New("process stopped but runner output collection has not completed")
 		}
@@ -1382,13 +1372,10 @@ func (d *daemon) cleanup(run *activeRun) error {
 	if !run.outputCollected() {
 		return errors.New("runner output collection has not completed")
 	}
-	if run.WaitDone != nil && !run.Exited && !run.Stopping {
+	if run.output != nil && !run.Exited && !run.Stopping {
 		return errors.New("runner exit observation has not completed")
 	}
 	d.finishExit(run)
-	if run.output != nil {
-		run.OutputReady, run.OutputError = run.output.ready, run.output.err
-	}
 	run.CleanupTried = true
 	fail := func(err error, retryable bool) error {
 		run.CleanupRetryAt = time.Time{}
@@ -1401,8 +1388,8 @@ func (d *daemon) cleanup(run *activeRun) error {
 		slog.Error("Cleanup incomplete; state and files retained", "event", "cleanup.failed", "runId", d.secrets.Redact(run.State.RunID), "targetId", d.secrets.Redact(run.State.TargetID), "error", d.secrets.Redact(err.Error()), "retryAt", run.CleanupRetryAt)
 		return err
 	}
-	if run.OutputError != nil {
-		return fail(fmt.Errorf("collect runner output: %w", run.OutputError), false)
+	if run.output != nil && run.output.err != nil {
+		return fail(fmt.Errorf("collect runner output: %w", run.output.err), false)
 	}
 	if err := d.unregister(run); err != nil {
 		return fail(err, cleanupRetryable(err))
@@ -1417,8 +1404,8 @@ func (d *daemon) cleanup(run *activeRun) error {
 	if err := d.store.removeFiles(run.State); err != nil {
 		return fail(err, cleanupRetryable(err))
 	}
-	if run.detached {
-		run.removed = true
+	if run.ioResult != nil {
+		run.ioResult.removed = true
 	} else {
 		delete(d.runs, run.State.RunID)
 		d.secrets.Release(run.JITSecrets)

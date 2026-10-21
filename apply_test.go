@@ -406,12 +406,12 @@ func TestRetiredDeletionWaitsForPendingObservers(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	run := &activeRun{State: state, WaitDone: make(chan struct{})}
+	run := &activeRun{State: state, output: &runOutputState{done: make(chan struct{})}}
 	d.runs[state.RunID] = run
 	if err := d.deleteRetiredScaleSet(t.Context(), target); err == nil || api.deleteCalls != 0 {
 		t.Fatal("pending execution observers allowed deletion")
 	}
-	close(run.WaitDone)
+	close(run.output.done)
 	run.Exited, state.ProcessDone = true, true
 	if err := d.cleanup(run); err != nil {
 		t.Fatal(err)
