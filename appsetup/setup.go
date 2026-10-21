@@ -7,18 +7,14 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
-	"net"
 	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
 
-	"github.com/Songmu/ghalet"
 	"github.com/Songmu/ghalet/credentialstore"
 	"github.com/Songmu/ghalet/fshelper"
 )
@@ -75,27 +71,12 @@ func Setup(ctx context.Context, options Options, input *os.File, output io.Write
 }
 
 func (s service) run(ctx context.Context, options Options, input *os.File, output io.Writer) (Result, error) {
-	if err := options.Validate(); err != nil {
-		return Result{}, err
-	}
-	scope, err := normalizeScope(options.Scope)
+	prepared, err := prepareSetup(options)
 	if err != nil {
 		return Result{}, err
 	}
-	options.Scope = scope
-	if options.Listen == "" {
-		options.Listen = "127.0.0.1:0"
-	}
-	host, _, err := net.SplitHostPort(options.Listen)
-	if err != nil || net.ParseIP(host) == nil || !net.ParseIP(host).IsLoopback() {
-		return Result{}, errors.New("--listen must use a loopback IP address and port")
-	}
-	options, before, proposed, target, err := setupConfig(options)
-	if err != nil {
-		return Result{}, err
-	}
-	options.ID = target.ID
-	parts := strings.Split(scope, "/")
+	options = prepared.options
+	parts := strings.Split(options.Scope, "/")
 	owner := parts[0]
 	permission := "administration"
 	if len(parts) == 1 {
@@ -105,26 +86,13 @@ func (s service) run(ctx context.Context, options Options, input *os.File, outpu
 	if err != nil {
 		return Result{}, err
 	}
-	lockPath := filepath.Join(directory, options.ID+".setup.lock")
-	lock, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR|syscall.O_NOFOLLOW, 0600)
+	lock, err := lockSetup(directory, options.ID)
 	if err != nil {
 		return Result{}, err
 	}
 	defer lock.Close()
-	if err := credentialstore.CheckPrivatePath(lockPath, false); err != nil {
-		return Result{}, err
-	}
-	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
-		return Result{}, fmt.Errorf("another setup for this credential is in progress: %w", err)
-	}
-	metadataPath := filepath.Join(directory, options.ID+".app.json")
-	keyPath := filepath.Join(directory, options.ID+".pem")
-	diskKeyPath := keyPath
-	if options.Systemd {
-		diskKeyPath = filepath.Join(directory, options.ID+".cred")
-		keyPath = "/run/credentials/ghalet.service/" + options.ID
-	}
-	state, err := loadApp(metadataPath)
+	files := setupPaths(directory, options)
+	state, err := loadApp(files.metadata)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return Result{}, err
 	}
@@ -132,146 +100,24 @@ func (s service) run(ctx context.Context, options Options, input *os.File, outpu
 	defer cancel()
 	newApp := errors.Is(err, os.ErrNotExist)
 	if newApp {
-		for _, path := range []string{diskKeyPath, diskKeyPath + ".previous"} {
-			if _, err := os.Lstat(path); !errors.Is(err, os.ErrNotExist) {
-				return Result{}, errors.New("credential already exists without setup metadata; use a different --id or import the existing App")
-			}
-		}
-		var account account
-		if err := s.api.request(ctx, http.MethodGet, "/users/"+url.PathEscape(owner), "", &account); err != nil {
-			return Result{}, fmt.Errorf("identify App owner: %w", err)
-		}
-		if !strings.EqualFold(account.Login, owner) || (account.Type != "User" && account.Type != "Organization") ||
-			(len(parts) == 1 && account.Type != "Organization") {
-			return Result{}, errors.New("target owner is not an eligible user or organization")
-		}
-		if _, err := fmt.Fprintf(output, "Target: %s (%s)\nApp owner: %s\nRequested permission: %s (write)\n", target.ID, scope, owner, permission); err != nil {
-			return Result{}, err
-		}
-		err := s.create(ctx, options, scope, account.Type, permission, output, func(created app) error {
-			if created.ID <= 0 || created.ClientID == "" || !identifier.MatchString(created.Slug) || created.PEM == "" {
-				return errors.New("GitHub returned incomplete App credentials; inspect the created App before retrying")
-			}
-			// The consumed Manifest code cannot recover the key; don't abandon it
-			// on cancellation or while another credential operation holds the lock.
-			storeContext := context.WithoutCancel(ctx)
-			storeOptions := credentialstore.Options{
-				Name: options.ID, Type: "github-app", Stdin: true, NoDefault: true, NoReplace: true,
-			}
-			var stored credentialstore.Result
-			var err error
-			for {
-				stored, err = s.saveKey(storeContext, storeOptions, strings.NewReader(created.PEM))
-				if !errors.Is(err, syscall.EWOULDBLOCK) {
-					break
-				}
-				time.Sleep(100 * time.Millisecond)
-			}
-			created.PEM = ""
-			if err != nil {
-				return fmt.Errorf("save created App key: %w; inspect App %s in GitHub before retrying", err, created.Slug)
-			}
-			state = savedApp{ID: created.ID, ClientID: created.ClientID, Slug: created.Slug, Owner: created.Owner.Login, Scope: scope, KeyPath: stored.RuntimePath}
-			data, err := json.MarshalIndent(state, "", "  ")
-			if err != nil {
-				return err
-			}
-			if err := fshelper.WriteFileAtomic(metadataPath, data, 0600); err != nil {
-				return fmt.Errorf("save setup metadata: %w; key retained at %s for App %s", err, diskKeyPath, state.Slug)
-			}
-			if !strings.EqualFold(state.Owner, owner) {
-				return errors.New("created App owner does not match this target; App/key retained, inspect the App before retrying")
-			}
-			return nil
-		})
+		var partial Result
+		state, partial, err = s.registerApp(ctx, options, files, owner, permission, output)
 		if err != nil {
-			return Result{ClientID: state.ClientID, KeyPath: state.KeyPath, MetadataPath: metadataPath, Target: target.ID}, err
+			return partial, err
 		}
 	}
-	if !options.Systemd && state.KeyPath != keyPath {
-		// Reconcile only the storage base, never the managed credential directory or key.
-		recordedBase := filepath.Dir(filepath.Dir(state.KeyPath))
-		if state.KeyPath == filepath.Join(recordedBase, "credentials", options.ID+".pem") {
-			base, err := fshelper.ResolveDirectory(recordedBase)
-			if err == nil && filepath.Join(base, "credentials", options.ID+".pem") == keyPath {
-				state.KeyPath = keyPath
-			}
-		}
-	}
-	result := Result{ClientID: state.ClientID, KeyPath: state.KeyPath, MetadataPath: metadataPath, Target: target.ID}
-	if !strings.EqualFold(state.Scope, scope) || !strings.EqualFold(state.Owner, owner) ||
-		state.KeyPath != keyPath {
-		return result, fmt.Errorf("saved App does not match this target/owner or credential path; inspect %s and App https://github.com/apps/%s; no configuration was changed", metadataPath, state.Slug)
-	}
-	storage := "Key (unencrypted, owner-only)"
-	if options.Systemd {
-		storage = "Encrypted key"
-	}
-	if _, err := fmt.Fprintf(output, "Saved App: https://github.com/apps/%s\n%s: %s\nSetup metadata: %s\n", state.Slug, storage, diskKeyPath, metadataPath); err != nil {
-		return result, err
-	}
-	if err := ctx.Err(); err != nil {
-		return result, fmt.Errorf("setup interrupted: %w; App/key retained, rerun setup to resume", err)
-	}
-	if err := s.browse(ctx, options.NoBrowser || newApp, installationURL(state.Slug), output); err != nil {
-		return result, err
-	}
-	if _, err := fmt.Fprintln(output, "Waiting for installation on the target; rerun the same command to resume if interrupted."); err != nil {
-		return result, err
-	}
-	installed, verifiedKey, err := s.waitInstallation(ctx, state, permission)
+	state.reconcileKeyPath(options, files.key)
+	result := Result{ClientID: state.ClientID, KeyPath: state.KeyPath, MetadataPath: files.metadata, Target: options.ID}
+	installed, verifiedKey, err := s.installApp(ctx, options, files, state, owner, permission, newApp, output)
 	if err != nil {
-		return result, fmt.Errorf("installation not configured: %w; App/key retained, rerun the same command to resume", err)
+		return result, err
 	}
 	result.InstallationID = installed.ID
-	after, err := targetConfig(proposed, target.ID, state, installed.ID)
+	after, err := prepared.confirm(ctx, state, installed.ID, input, output)
 	if err != nil {
 		return result, err
 	}
-	if _, err := ghalet.ParseConfig(options.Config, after); err != nil {
-		return result, fmt.Errorf("validate proposed configuration: %w", err)
-	}
-	if _, err := fmt.Fprintf(output, "Configure target %s in %s:\n  scope: %s\n  credential.type: github-app\n  credential.clientId: %s\n  credential.privateKeyFile: %s\n  installationId: %d\n", target.ID, options.Config, scope, state.ClientID, state.KeyPath, installed.ID); err != nil {
-		return result, err
-	}
-	if !options.Yes {
-		if _, err := fmt.Fprint(output, "Write these configuration changes? [y/N] "); err != nil {
-			return result, err
-		}
-		answer, err := readConfirmation(ctx, input)
-		if err != nil {
-			return result, fmt.Errorf("cannot read setup confirmation: %w; App/key retained, rerun setup to resume", err)
-		}
-		if !strings.EqualFold(strings.TrimSpace(answer), "y") && !strings.EqualFold(strings.TrimSpace(answer), "yes") {
-			return result, errors.New("configuration not changed; App/key retained, rerun setup to resume")
-		}
-	}
-	if err := ctx.Err(); err != nil {
-		return result, err
-	}
-	credentialLock, err := credentialstore.LockDirectory(directory)
-	if err != nil {
-		return result, err
-	}
-	defer credentialLock.Close()
-	key, err := s.readKey(ctx, state.KeyPath)
-	if err != nil {
-		return result, err
-	}
-	matches := sha256.Sum256(key) == verifiedKey
-	clear(key)
-	if !matches {
-		return result, errors.New("saved App key changed during setup; configuration not changed; restore the matching App key before retrying")
-	}
-	if s.provision != nil {
-		if err := s.provision(ctx, options.ID); err != nil {
-			return result, fmt.Errorf("provision systemd App key: %w; App/key and setup metadata retained, rerun setup to resume", err)
-		}
-	}
-	if err := writeConfig(options.Config, before, after); err != nil {
-		return result, err
-	}
-	return result, nil
+	return result, s.commitSetup(ctx, prepared, directory, state.KeyPath, verifiedKey, after)
 }
 
 func loadApp(path string) (savedApp, error) {

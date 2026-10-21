@@ -45,74 +45,94 @@ func discoverDaemons(ctx context.Context, root, config string) ([]DaemonInfo, er
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		owner := strings.TrimPrefix(filepath.Base(directory), "ghalet-")
-		uid, err := strconv.Atoi(owner)
-		if err != nil || uid < 0 || strconv.Itoa(uid) != owner {
-			continue
-		}
-		info, err := os.Lstat(directory)
-		if errors.Is(err, os.ErrNotExist) || errors.Is(err, os.ErrPermission) {
-			continue
-		}
+		found, err := discoverDirectory(ctx, directory, config)
 		if err != nil {
-			return nil, fmt.Errorf("inspect control directory: %w", err)
+			return nil, err
 		}
-		if !info.IsDir() || !ownedPrivate(info, uid) {
-			continue
-		}
-		entries, err := os.ReadDir(directory)
-		if errors.Is(err, os.ErrNotExist) || errors.Is(err, os.ErrPermission) {
-			continue
-		}
-		if err != nil {
-			return nil, fmt.Errorf("read control directory: %w", err)
-		}
-		for _, entry := range entries {
-			hash, ok := strings.CutSuffix(entry.Name(), ".sock")
-			if !ok || len(hash) != 24 || (config != "" && entry.Name() != socketName(config)) {
-				continue
-			}
-			if _, err := hex.DecodeString(hash); err != nil {
-				continue
-			}
-			socket := filepath.Join(directory, entry.Name())
-			info, err := os.Lstat(socket)
-			if errors.Is(err, os.ErrNotExist) || errors.Is(err, os.ErrPermission) {
-				continue
-			}
-			if err != nil {
-				return nil, fmt.Errorf("inspect control socket: %w", err)
-			}
-			if info.Mode()&os.ModeSocket == 0 || !ownedPrivate(info, uid) {
-				continue
-			}
-			probeCtx, cancel := context.WithTimeout(ctx, time.Second)
-			response, err := controlCallSocket(probeCtx, socket, uid, controlRequest{Command: "status"})
-			cancel()
-			if ctx.Err() != nil {
-				return nil, ctx.Err()
-			}
-			// The socket deadline can fire before the context's timer runs.
-			if deadline, ok := ctx.Deadline(); ok && !time.Now().Before(deadline) {
-				return nil, context.DeadlineExceeded
-			}
-			// A filesystem entry alone is not a running daemon. Ignore stale,
-			// unresponsive and unrelated sockets without removing anything.
-			if err != nil || response.Error != "" || response.Status == nil {
-				continue
-			}
-			path := response.Status.Config
-			if !filepath.IsAbs(path) || filepath.Clean(path) != path || socketName(path) != entry.Name() ||
-				(config != "" && config != path) {
-				continue
-			}
-			daemons = append(daemons, DaemonInfo{UID: uid, Socket: socket, Status: *response.Status})
-		}
+		daemons = append(daemons, found...)
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	return daemons, nil
+}
+
+func discoverDirectory(ctx context.Context, directory, config string) ([]DaemonInfo, error) {
+	owner := strings.TrimPrefix(filepath.Base(directory), "ghalet-")
+	uid, err := strconv.Atoi(owner)
+	if err != nil || uid < 0 || strconv.Itoa(uid) != owner {
+		return nil, nil
+	}
+	info, err := os.Lstat(directory)
+	if errors.Is(err, os.ErrNotExist) || errors.Is(err, os.ErrPermission) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("inspect control directory: %w", err)
+	}
+	if !info.IsDir() || !ownedPrivate(info, uid) {
+		return nil, nil
+	}
+	entries, err := os.ReadDir(directory)
+	if errors.Is(err, os.ErrNotExist) || errors.Is(err, os.ErrPermission) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read control directory: %w", err)
+	}
+	var daemons []DaemonInfo
+	for _, entry := range entries {
+		daemon, err := probeDaemon(ctx, directory, entry.Name(), uid, config)
+		if err != nil {
+			return nil, err
+		}
+		if daemon != nil {
+			daemons = append(daemons, *daemon)
+		}
+	}
+	return daemons, nil
+}
+
+func probeDaemon(ctx context.Context, directory, name string, uid int, config string) (*DaemonInfo, error) {
+	hash, ok := strings.CutSuffix(name, ".sock")
+	if !ok || len(hash) != 24 || (config != "" && name != socketName(config)) {
+		return nil, nil
+	}
+	if _, err := hex.DecodeString(hash); err != nil {
+		return nil, nil
+	}
+	socket := filepath.Join(directory, name)
+	info, err := os.Lstat(socket)
+	if errors.Is(err, os.ErrNotExist) || errors.Is(err, os.ErrPermission) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("inspect control socket: %w", err)
+	}
+	if info.Mode()&os.ModeSocket == 0 || !ownedPrivate(info, uid) {
+		return nil, nil
+	}
+	probeCtx, cancel := context.WithTimeout(ctx, time.Second)
+	response, err := controlCallSocket(probeCtx, socket, uid, controlRequest{Command: "status"})
+	cancel()
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+	// The socket deadline can fire before the context's timer runs.
+	if deadline, ok := ctx.Deadline(); ok && !time.Now().Before(deadline) {
+		return nil, context.DeadlineExceeded
+	}
+	// A filesystem entry alone is not a running daemon. Ignore stale,
+	// unresponsive and unrelated sockets without removing anything.
+	if err != nil || response.Error != "" || response.Status == nil {
+		return nil, nil
+	}
+	path := response.Status.Config
+	if !filepath.IsAbs(path) || filepath.Clean(path) != path || socketName(path) != name ||
+		(config != "" && config != path) {
+		return nil, nil
+	}
+	return &DaemonInfo{UID: uid, Socket: socket, Status: *response.Status}, nil
 }
 
 func ownedPrivate(info os.FileInfo, uid int) bool {
