@@ -2,6 +2,8 @@ package appsetup
 
 import (
 	"bytes"
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -87,6 +89,7 @@ func TestWriteManagedCoordinatesWriters(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	path := filepath.Join(directory, "managed.yaml")
 	before := []byte("version: 1\n")
 	if err := os.WriteFile(path, before, 0600); err != nil {
@@ -131,5 +134,46 @@ func TestWriteManagedCoordinatesWriters(t *testing.T) {
 	}
 	if successes != 1 {
 		t.Fatalf("concurrent writers reported %d successes; want one", successes)
+	}
+}
+
+func TestSetupRejectsManagedPersistenceCollisionsBeforeAppCreation(t *testing.T) {
+	for _, systemd := range []bool{false, true} {
+		for _, name := range []string{"key", "backup", "metadata", "setup-lock", "managed-lock"} {
+			t.Run(fmt.Sprintf("%t/%s", systemd, name), func(t *testing.T) {
+				f := setupFixture(t, "owner/repo", "User")
+				f.options.Systemd = systemd
+				directory, err := settings.StateDirectory()
+				if err != nil {
+					t.Fatal(err)
+				}
+				directory = filepath.Join(directory, "credentials")
+				files := setupPaths(directory, f.options)
+				path := files.diskKey
+				switch name {
+				case "backup":
+					path += ".previous"
+				case "metadata":
+					path = files.metadata
+				case "setup-lock":
+					path = filepath.Join(directory, "build.setup.lock")
+				case "managed-lock":
+					path = filepath.Join(directory, "build.setup")
+				}
+				static := []byte(fmt.Sprintf("managedFile: %s\ntargets:\n  - id: build\n    scope: owner/repo\n", path))
+				if err := os.WriteFile(f.options.Config, static, 0600); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := f.run(t.Context(), f.options, nil, io.Discard); err == nil {
+					t.Fatal("managed persistence collision accepted")
+				}
+				if f.ownerCalls.Load() != 0 || f.conversions.Load() != 0 {
+					t.Fatal("collision was detected only after contacting GitHub")
+				}
+				if _, err := os.Stat(files.diskKey); !os.IsNotExist(err) {
+					t.Fatal("collision preflight created an App key", err)
+				}
+			})
+		}
 	}
 }

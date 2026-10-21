@@ -14,7 +14,7 @@ import (
 
 func TestManagedCredentialUpdatesRejectConflicts(t *testing.T) {
 	for _, backend := range []string{"file", "systemd"} {
-		for _, kind := range []string{"concurrent", "credential", "backup", "lock"} {
+		for _, kind := range []string{"concurrent", "credential", "backup", "lock", "config-symlink"} {
 			t.Run(backend+"/"+kind, func(t *testing.T) {
 				store, options, tools := testCredentialStore(t)
 				set := store.set
@@ -67,6 +67,30 @@ func TestManagedCredentialUpdatesRejectConflicts(t *testing.T) {
 					dest += ".previous"
 				} else if kind == "lock" {
 					dest = filepath.Join(store.directory, ".lock")
+				}
+				if kind == "config-symlink" {
+					if err := os.MkdirAll(store.directory, 0700); err != nil {
+						t.Fatal(err)
+					}
+					if err := os.Rename(options.Config, dest); err != nil {
+						t.Fatal(err)
+					}
+					if err := os.Symlink(dest, options.Config); err != nil {
+						t.Fatal(err)
+					}
+					before, err := os.ReadFile(dest)
+					if err != nil {
+						t.Fatal(err)
+					}
+					input := strings.NewReader("synthetic-secret")
+					if _, err := set(t.Context(), options, input); err == nil || input.Len() != len("synthetic-secret") {
+						t.Fatal("final configuration symlink collision accepted", err)
+					}
+					after, err := os.ReadFile(dest)
+					if err != nil || !bytes.Equal(before, after) {
+						t.Fatal("credential registration destroyed static configuration", err)
+					}
+					return
 				}
 				static := []byte("managedFile: " + dest + "\ntargets: []\n")
 				if err := os.WriteFile(options.Config, static, 0600); err != nil {

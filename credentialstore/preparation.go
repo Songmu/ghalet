@@ -59,22 +59,9 @@ func prepareCredentialConfig(options Options, runtimePath, missingMessage string
 	if err != nil {
 		return credentialConfigUpdate{}, err
 	}
-	if managedPath == runtimePath || managedPath == runtimePath+".previous" ||
-		managedPath+".lock" == runtimePath {
-		return credentialConfigUpdate{}, errors.New("managedFile must not overlap credential files")
-	}
-	staticPath, err := fshelper.ResolveParent(options.Config)
-	if err != nil {
+	if err := settings.CheckManagedPaths(managedPath, options.Config,
+		append(reserved, runtimePath, runtimePath+".previous")...); err != nil {
 		return credentialConfigUpdate{}, err
-	}
-	for _, path := range reserved {
-		path, err = fshelper.ResolveParent(path)
-		if err != nil {
-			return credentialConfigUpdate{}, err
-		}
-		if managedPath == path || managedPath+".lock" == path || managedPath == path+".lock" || staticPath == path {
-			return credentialConfigUpdate{}, errors.New("static and managed configuration must not overlap credential or service files")
-		}
 	}
 	managed, before, err := settings.ReadManaged(managedPath)
 	if err != nil {

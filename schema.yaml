@@ -157,41 +157,6 @@ properties:
           Log directory. Defaults to $STATE_DIRECTORY/logs when set,
           otherwise $XDG_STATE_HOME/ghalet/logs when XDG_STATE_HOME is
           absolute, or ~/.local/state/ghalet/logs.
-allOf:
-  - if:
-      required: [defaults]
-      properties:
-        defaults:
-          required: [credential]
-          properties:
-            credential:
-              required: [type]
-              properties:
-                type:
-                  const: github-app
-    then:
-      properties:
-        targets:
-          items:
-            if:
-              not:
-                required: [credential]
-            then:
-              required: [installationId]
-              properties:
-                installationId:
-                  minimum: 1
-    else:
-      properties:
-        targets:
-          items:
-            if:
-              not:
-                required: [credential]
-            then:
-              properties:
-                installationId:
-                  const: 0
 $defs:
   runnerLimit:
     type: integer

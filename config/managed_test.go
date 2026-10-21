@@ -137,6 +137,7 @@ func TestManagedFilesRejectUnsafeOrInvalidData(t *testing.T) {
 		if _, err := ParseManaged([]byte(data)); err == nil {
 			t.Fatal("invalid managed document accepted", data)
 		}
+
 	}
 	for _, kind := range []string{"symlink", "directory", "writable", "oversized"} {
 		t.Run(kind, func(t *testing.T) {
@@ -175,5 +176,48 @@ func TestManagedFilesRejectUnsafeOrInvalidData(t *testing.T) {
 	}
 	if _, err := ParseConfig(path, []byte("managedFile: state/ghalet/logs/managed.yaml\ntargets: []\n")); err == nil {
 		t.Fatal("managed file within cleaned log directory accepted")
+	}
+}
+
+func TestManagedSizeLimitIncludesGeneratedHeader(t *testing.T) {
+	root, _ := managedFixture(t)
+	managed := &Managed{Version: 1, Defaults: DefaultsConfig{
+		Credential: &Credential{Type: "pat", TokenFile: "x"},
+	}}
+	baseline, err := managed.Marshal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	managed.Defaults.Credential.TokenFile = strings.Repeat("x", maxManagedBytes-len(baseline)+2)
+	if _, err := managed.Marshal(); err == nil {
+		t.Fatal("serialized managed document exceeded reader size limit")
+	}
+	path := filepath.Join(root, "managed.yaml")
+	before := []byte("version: 1\n")
+	if err := os.WriteFile(path, before, 0600); err != nil {
+		t.Fatal(err)
+	}
+	oversized := append(bytes.Clone(before), []byte("#"+strings.Repeat("x", maxManagedBytes))...)
+	if err := WriteManaged(path, before, oversized); err == nil {
+		t.Fatal("oversized managed update accepted")
+	}
+	current, err := os.ReadFile(path)
+	if err != nil || !bytes.Equal(current, before) {
+		t.Fatal("oversized update changed existing managed document", err)
+	}
+}
+
+func TestManagedPathRejectsFinalConfigSymlinkCollision(t *testing.T) {
+	root, _ := managedFixture(t)
+	actual := filepath.Join(root, "actual.yaml")
+	if err := os.WriteFile(actual, []byte("targets: []\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(root, "config.yaml")
+	if err := os.Symlink(actual, link); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ManagedPath(link, actual); err == nil {
+		t.Fatal("managed path aliases the final configuration symlink target")
 	}
 }

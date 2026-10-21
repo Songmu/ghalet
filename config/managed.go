@@ -16,7 +16,10 @@ import (
 	"github.com/goccy/go-yaml/parser"
 )
 
-const SystemConfigPath = "/etc/ghalet/config.yaml"
+const (
+	SystemConfigPath = "/etc/ghalet/config.yaml"
+	maxManagedBytes  = 1024 * 1024
+)
 
 // Managed contains persistent setup information, not runnable target definitions
 // or secret values. Targets become active only through the static configuration.
@@ -69,14 +72,51 @@ func ManagedPath(configPath, selected string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	static, err := fshelper.ResolveParent(configPath)
-	if err != nil {
+	if err := CheckManagedPaths(path, configPath); err != nil {
 		return "", err
 	}
-	if path == static || path == static+".lock" || path+".lock" == static {
-		return "", errors.New("managedFile must be separate from the configuration and its lock")
-	}
 	return path, nil
+}
+
+// CheckManagedPaths rejects collisions with static configuration and other
+// persistence files, including aliases through a final configuration symlink.
+func CheckManagedPaths(managedPath, configPath string, reserved ...string) error {
+	identity := func(path string) (string, error) {
+		path, err := filepath.Abs(path)
+		if err != nil {
+			return "", err
+		}
+		resolved, err := filepath.EvalSymlinks(path)
+		if err == nil {
+			return resolved, nil
+		}
+		if !errors.Is(err, os.ErrNotExist) {
+			return "", err
+		}
+		return fshelper.ResolveParent(path)
+	}
+	managed, err := identity(managedPath)
+	if err != nil {
+		return err
+	}
+	lock, err := identity(managedPath + ".lock")
+	if err != nil {
+		return err
+	}
+	static, err := identity(configPath)
+	if err != nil {
+		return err
+	}
+	for i, path := range append([]string{configPath, configPath + ".lock"}, reserved...) {
+		protected, err := identity(path)
+		if err != nil {
+			return err
+		}
+		if managed == protected || lock == protected || (i >= 2 && static == protected) {
+			return errors.New("static and managed configuration must not overlap credential, setup or service files")
+		}
+	}
+	return nil
 }
 
 // ReadManaged returns an empty document when the file does not exist.
@@ -104,8 +144,8 @@ func ReadManaged(path string) (*Managed, []byte, error) {
 	if !info.Mode().IsRegular() || !ok || int(stat.Uid) != os.Geteuid() || info.Mode().Perm()&0022 != 0 {
 		return nil, nil, errors.New("managed file must be a regular file owned by the current user and not writable by others")
 	}
-	data, err := io.ReadAll(io.LimitReader(file, 1024*1024+1))
-	if err != nil || len(data) > 1024*1024 {
+	data, err := io.ReadAll(io.LimitReader(file, maxManagedBytes+1))
+	if err != nil || len(data) > maxManagedBytes {
 		return nil, nil, errors.New("cannot read managed file (limit 1 MiB)")
 	}
 	managed, err := ParseManaged(data)
@@ -113,6 +153,9 @@ func ReadManaged(path string) (*Managed, []byte, error) {
 }
 
 func ParseManaged(data []byte) (*Managed, error) {
+	if len(data) > maxManagedBytes {
+		return nil, errors.New("managed file exceeds 1 MiB")
+	}
 	file, err := parser.ParseBytes(data, 0)
 	if err != nil || len(file.Docs) != 1 || file.Docs[0].Body == nil {
 		return nil, errors.New("managed file must contain exactly one YAML mapping")
@@ -157,7 +200,11 @@ func (managed *Managed) Marshal() ([]byte, error) {
 	if _, err := ParseManaged(data); err != nil {
 		return nil, err
 	}
-	return append([]byte("# Managed by ghalet; static configuration takes precedence.\n"), data...), nil
+	data = append([]byte("# Managed by ghalet; static configuration takes precedence.\n"), data...)
+	if len(data) > maxManagedBytes {
+		return nil, errors.New("managed file exceeds 1 MiB")
+	}
+	return data, nil
 }
 
 func (managed *Managed) SetTarget(target ManagedTarget) {

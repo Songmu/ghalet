@@ -58,7 +58,10 @@ STATE_DIRECTORY=/var/lib/ghalet CACHE_DIRECTORY=/var/cache/ghalet \
 grep -qx '  user: ghalet-runner' /etc/ghalet/config.yaml
 grep -qx 'logs:' /etc/ghalet/config.yaml
 grep -qx '  root: /var/log/ghalet/runners' /etc/ghalet/config.yaml
-! grep -q '^defaults:' /etc/ghalet/config.yaml
+if grep -q '^defaults:' /etc/ghalet/config.yaml; then
+  echo "Package configuration must not pin managed authentication." >&2
+  exit 1
+fi
 touch /var/lib/ghalet/retained-state /etc/ghalet/credentials/retained-credential \
   /var/log/ghalet/retained-log
 chmod 0600 /var/lib/ghalet/retained-state /etc/ghalet/credentials/retained-credential
