@@ -124,24 +124,7 @@ func (s stateStore) save(state *RunState) error {
 	if len(data)+1 > maxStateBytes {
 		return fmt.Errorf("state exceeds %d byte limit", maxStateBytes)
 	}
-	file, err := os.CreateTemp(dir, ".state-*")
-	if err != nil {
-		return err
-	}
-	name := file.Name()
-	defer os.Remove(name)
-	if _, err := file.Write(append(data, '\n')); err != nil {
-		file.Close()
-		return err
-	}
-	if err := file.Sync(); err != nil {
-		file.Close()
-		return err
-	}
-	if err := file.Close(); err != nil {
-		return err
-	}
-	if err := os.Rename(name, filepath.Join(dir, "state.json")); err != nil {
+	if err := fshelper.WriteFileAtomic(filepath.Join(dir, "state.json"), append(data, '\n'), 0600); err != nil {
 		return err
 	}
 	return fshelper.SyncDirectory(dir)
