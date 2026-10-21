@@ -227,7 +227,10 @@ func targetError(target *targetRuntime) string {
 	if target.Fault != "" {
 		return target.Fault
 	}
-	return target.RetryError
+	if target.RetryError != "" {
+		return target.RetryError
+	}
+	return target.StartError
 }
 
 func (d *daemon) validateApply(next *Config) error {

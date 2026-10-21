@@ -335,3 +335,44 @@ func TestCancellationDuringTargetSetupHasNoDiagnostic(t *testing.T) {
 		})
 	}
 }
+
+func TestPreparationRetryDiagnosticSurvivesUntilStartupRecovers(t *testing.T) {
+	d, _ := testDaemon(t)
+	target := d.targets["build"]
+	d.secrets.Add("preparation-secret")
+	for range 10 {
+		d.startFailure(target, fmt.Errorf("reserve: preparation-secret"))
+	}
+	if target.StartError == "" || strings.Contains(target.StartError, "preparation-secret") ||
+		target.Fault != "" || len(d.runs) != 0 {
+		t.Fatal("recordless preparation failure was hidden or leaked a secret", target)
+	}
+	response := d.handle(t.Context(), controlRequest{Command: "doctor"})
+	if response.Error == "" || len(response.Status.Problems) != 1 {
+		t.Fatal("doctor missed the preparation retry diagnostic", response)
+	}
+	state := testState(t, d.config)
+	state.Ready, state.Phase = true, "idle"
+	run := &activeRun{State: state}
+	d.runs[state.RunID] = run
+	d.processEvent(runEvent{id: state.RunID, kind: "ready"})
+	run.ExitResult = &runExit{}
+	d.finishExit(run)
+	if target.StartError == "" {
+		t.Fatal("an older healthy runner hid the new preparation failure")
+	}
+	state.Ready = false
+	target.RetryError = "listener unavailable"
+	d.processEvent(runEvent{id: state.RunID, kind: "ready"})
+	if target.StartError != "" || target.RetryError == "" || target.Failures != 0 {
+		t.Fatal("startup recovery cleared the wrong diagnostic", target)
+	}
+	target.RetryError = ""
+	if response := d.handle(t.Context(), controlRequest{Command: "doctor"}); response.Error != "" {
+		t.Fatal("doctor did not recover after successful startup", response)
+	}
+	d.startFailure(target, context.Canceled)
+	if target.StartError != "" {
+		t.Fatal("canceled preparation created a false diagnostic")
+	}
+}

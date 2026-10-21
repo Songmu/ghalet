@@ -244,6 +244,8 @@ pending registration recovery; apply and shutdown cancel the old listeners.
 An unresolved cleanup of a failed preparation suspends new starts for that target
 until cleanup succeeds (or is resolved with `gc`/restart), preventing repeated
 failures from accumulating runner trees. Cleanup retry policy is unchanged.
+Transient listener and preparation/start failures remain visible in `status` and
+`doctor` until the corresponding listener or runner startup recovers.
 Workflow results are not retried by ghalet.
 
 SIGINT/SIGTERM starts drain for all targets during normal shutdown.

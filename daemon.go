@@ -43,6 +43,7 @@ type targetRuntime struct {
 	ListenerReady chan struct{}
 	CloseError    string
 	RetryError    string
+	StartError    string
 }
 
 const maxTargetRetryWait = time.Minute
@@ -512,9 +513,13 @@ func (s *targetScaler) Scale(ctx context.Context, message *scaleset.RunnerScaleS
 	for _, event := range message.JobStartedMessages {
 		for _, run := range d.runs {
 			if d.runTargetID(run) == target.Config.ID && run.State.RunnerID == event.RunnerID && run.State.RunnerName == event.RunnerName {
+				newlyReady := !run.State.Ready
 				run.State.Busy, run.State.Ready, run.State.Phase = true, true, "busy"
 				if err := d.save(run); err != nil {
 					return err
+				}
+				if newlyReady {
+					target.StartError, target.Failures = "", 0
 				}
 			}
 		}
@@ -654,11 +659,16 @@ func (d *daemon) processEvent(event runEvent) {
 		if run.State.ProcessDone || run.Stopping || run.Uncertain {
 			return
 		}
+		newlyReady := !run.State.Ready
 		run.State.Ready = true
 		if !run.State.Busy {
 			run.State.Phase = "idle"
 		}
-		d.save(run)
+		if d.save(run) == nil && newlyReady {
+			if target := d.runTarget(run); target != nil {
+				target.StartError, target.Failures = "", 0
+			}
+		}
 	case "exit":
 		run.Exited = true
 		run.ExitResult = &runExit{err: event.err, stopping: run.Stopping}
@@ -678,6 +688,7 @@ func (d *daemon) finishExit(run *activeRun) {
 	}
 	result := run.ExitResult
 	run.ExitResult = nil
+	newlyReady := run.OutputReady && !run.State.Ready
 	if run.OutputReady {
 		run.State.Ready = true
 	}
@@ -692,6 +703,9 @@ func (d *daemon) finishExit(run *activeRun) {
 	} else if !result.stopping && result.err == nil && run.State.Ready {
 		if target := d.runTarget(run); target != nil {
 			target.Failures = 0
+			if newlyReady {
+				target.StartError = ""
+			}
 		}
 	}
 }
@@ -1168,6 +1182,10 @@ func (d *daemon) launch(run *activeRun, jit string) (retErr error) {
 }
 
 func (d *daemon) startFailure(target *targetRuntime, err error) {
+	if errors.Is(err, context.Canceled) {
+		return
+	}
+	target.StartError = d.secrets.Redact(err.Error())
 	target.Failures = min(target.Failures+1, 7)
 	target.RetryAt = time.Now().Add(targetRetryWait(target.Failures))
 	if permanentTargetFailure(err) {
@@ -1341,6 +1359,9 @@ func (d *daemon) statusLocked() Status {
 			status.Problems = append(status.Problems, Problem{TargetID: id, Reason: target.Fault})
 		} else if target.RetryError != "" {
 			status.Problems = append(status.Problems, Problem{TargetID: id, Reason: target.RetryError})
+		}
+		if target.Fault == "" && target.StartError != "" {
+			status.Problems = append(status.Problems, Problem{TargetID: id, Reason: target.StartError})
 		}
 		if target.Forced {
 			status.Problems = append(status.Problems, Problem{TargetID: id, Reason: "drain deadline exceeded; jobs may be unfinished"})
