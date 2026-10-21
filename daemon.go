@@ -86,6 +86,13 @@ func (r *activeRun) canRetireIdle() bool {
 		!r.Preparing && r.InspectFailures == 0 && r.State.Phase != "exiting"
 }
 
+func (r *activeRun) occupiesCapacity() bool {
+	if r.Uncertain {
+		return !r.GroupStopped || !r.outputCollected() || (r.WaitDone != nil && !r.Exited)
+	}
+	return !r.State.ProcessDone
+}
+
 type Problem struct {
 	Path     string `json:"path,omitempty"`
 	TargetID string `json:"targetId,omitempty"`
@@ -260,6 +267,11 @@ func (d *daemon) recover(ctx context.Context) error {
 		state := record.State
 		run := &activeRun{State: state}
 		d.runs[state.RunID] = run
+		alive, members, inspectErr := inspectGroup(state, table)
+		if inspectErr == nil && !alive {
+			state.ProcessDone, state.Phase = true, "cleaning"
+			run.Exited, run.GroupStopped = true, true
+		}
 		target := d.targets[state.TargetID]
 		reason := ""
 		switch {
@@ -274,11 +286,10 @@ func (d *daemon) recover(ctx context.Context) error {
 		case state.User != d.user.Name || state.UID != d.user.UID || state.Home != d.user.Home:
 			reason = "recorded execution user differs from the current execution user"
 		}
-		if reason == "" {
-			alive, members, inspectErr := inspectGroup(state, table)
-			if inspectErr != nil {
-				reason = inspectErr.Error()
-			} else if alive {
+		if inspectErr != nil {
+			reason = inspectErr.Error()
+		} else if reason == "" {
+			if alive {
 				callCtx, cancel := context.WithTimeout(ctx, apiTimeout)
 				runner, runnerErr := target.Client.GetRunner(callCtx, state.RunnerID)
 				cancel()
@@ -289,10 +300,6 @@ func (d *daemon) recover(ctx context.Context) error {
 					state.Members = members
 					run.Exited = false
 				}
-			} else {
-				state.ProcessDone = true
-				state.Phase = "cleaning"
-				run.Exited = true
 			}
 		}
 		if reason != "" {
@@ -318,7 +325,7 @@ func (d *daemon) save(run *activeRun) error {
 		if target := d.runTarget(run); target != nil {
 			target.Fault = run.State.Error
 		}
-		slog.Error("State update failed; retaining capacity", "event", "state.failed", "runId", d.secrets.Redact(run.State.RunID), "error", d.secrets.Redact(err.Error()))
+		slog.Error("State update failed; execution retained", "event", "state.failed", "runId", d.secrets.Redact(run.State.RunID), "error", d.secrets.Redact(err.Error()))
 		return err
 	}
 	return nil
@@ -446,7 +453,7 @@ func (s *targetScaler) Scale(ctx context.Context, message *scaleset.RunnerScaleS
 			available -= other.Assigned + other.Pending
 		}
 		for _, run := range d.runs {
-			if run.Uncertain {
+			if run.Uncertain && run.occupiesCapacity() {
 				available--
 			}
 		}
@@ -478,7 +485,7 @@ func (s *targetScaler) Scale(ctx context.Context, message *scaleset.RunnerScaleS
 func (d *daemon) occupied() int {
 	count := len(d.problems)
 	for _, run := range d.runs {
-		if !run.State.ProcessDone || run.Uncertain {
+		if run.occupiesCapacity() {
 			count++
 		}
 	}
@@ -488,7 +495,7 @@ func (d *daemon) occupied() int {
 func (d *daemon) active(targetID string) int {
 	count := 0
 	for _, run := range d.runs {
-		if d.runTargetID(run) == targetID && (!run.State.ProcessDone || run.Uncertain) {
+		if d.runTargetID(run) == targetID && run.occupiesCapacity() {
 			count++
 		}
 	}
@@ -654,6 +661,9 @@ func (d *daemon) reconcileRun(run *activeRun, table map[int]processEntry) {
 	if run.Uncertain {
 		alive, _, err := inspectGroup(state, table)
 		run.GroupStopped = err == nil && !alive
+		if !run.occupiesCapacity() {
+			state.ProcessDone, state.Phase = true, "cleaning"
+		}
 		return
 	}
 	target := d.runTarget(run)
@@ -679,6 +689,7 @@ func (d *daemon) reconcileRun(run *activeRun, table map[int]processEntry) {
 		return
 	}
 	run.InspectFailures = 0
+	run.GroupStopped = !alive
 	if !reflect.DeepEqual(members, state.Members) {
 		state.Members = members
 		if d.save(run) != nil {
@@ -1130,6 +1141,7 @@ func (d *daemon) stop(run *activeRun, forced bool) error {
 		}
 	}
 	d.finishExit(run)
+	run.GroupStopped = true
 	run.State.ProcessDone, run.State.Phase = true, "cleaning"
 	if err := d.save(run); err != nil {
 		return err
@@ -1194,7 +1206,7 @@ func (d *daemon) drained(id string) bool {
 			return false
 		}
 		if run.Uncertain {
-			if !run.GroupStopped || !run.outputCollected() || (run.WaitDone != nil && !run.Exited) {
+			if run.occupiesCapacity() {
 				return false
 			}
 			continue

@@ -277,7 +277,7 @@ func (d *daemon) gc(ctx context.Context, dryRun bool) controlResponse {
 		state := run.State
 		result := OperationResult{RunID: state.RunID, Path: filepath.Dir(state.RunnerDir), Action: "cleanup stopped execution"}
 		if run.Uncertain || run.Preparing {
-			result.Error = "execution is preparing or uncertain; inspect manually, never delete state to free capacity"
+			result.Error = "execution is preparing or unverified for cleanup; inspect manually, never delete state to free capacity"
 		} else {
 			alive, _, err := inspectGroup(state, table)
 			if err != nil {
@@ -287,6 +287,7 @@ func (d *daemon) gc(ctx context.Context, dryRun bool) controlResponse {
 			} else if !run.outputCollected() || (run.WaitDone != nil && !run.Exited && !run.Stopping) {
 				result.Action = "retain execution awaiting output collection or exit observation"
 			} else if !dryRun {
+				run.GroupStopped = true
 				state.ProcessDone, state.Phase = true, "cleaning"
 				if err := d.save(run); err != nil {
 					result.Error = err.Error()
