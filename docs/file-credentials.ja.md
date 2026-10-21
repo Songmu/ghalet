@@ -1,6 +1,6 @@
 # 通常ファイルへの認証情報の保存
 
-[English](file-credentials.md) | [日本語](file-credentials.ja.md)
+[English](file-credentials.md)
 
 `ghalet credential set` は Linux / macOS で名前付きの PAT または GitHub App 秘密鍵を
 登録します。systemd や root は不要です。保存先は**暗号化されていない所有者限定のファイル**で、
@@ -10,7 +10,7 @@
 
 ## 認証情報の登録
 
-先に[設定ファイル](../README.ja.md#クイックスタート)を作成し、
+先に[設定ファイル](getting-started.ja.md#クイックスタート)を作成し、
 デーモンを起動するユーザーで実行します。
 
 ```sh

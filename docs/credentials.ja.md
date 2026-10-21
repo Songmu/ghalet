@@ -1,6 +1,6 @@
 # systemd 用の暗号化した認証情報
 
-[English](credentials.md) | [日本語](credentials.ja.md)
+[English](credentials.md)
 
 PAT の作成、GitHub App の登録、GitHub の最小権限は
 [認証のセットアップ](authentication.ja.md)を参照してください。

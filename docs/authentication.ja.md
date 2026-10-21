@@ -1,6 +1,6 @@
 # 認証のセットアップと最小権限
 
-[English](authentication.md) | [日本語](authentication.ja.md)
+[English](authentication.md)
 
 GitHub.com のリポジトリ・Organization の target 用に認証情報を発行する手順です。
 常駐サービスには GitHub App、小規模な構成には fine-grained personal access token

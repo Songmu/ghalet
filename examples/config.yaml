@@ -30,7 +30,7 @@ targets:
     # installationId: 12345 # Required for github-app; per target.
 
     # runnerGroup: "" # Org only; empty uses default group.
-    scaleSet: project
+    scaleSet: ghalet-runner
     # GitHub name and runs-on label; scope/group/scaleSet identifies this target.
     # scaling:
     #   minRunners: 0 # Idle warm runners.

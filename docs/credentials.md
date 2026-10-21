@@ -1,6 +1,6 @@
 # Encrypted credentials for systemd
 
-[English](credentials.md) | [日本語](credentials.ja.md)
+[日本語](credentials.ja.md)
 
 For PAT creation, GitHub App registration and minimum GitHub permissions, start
 with [authentication setup](authentication.md). This guide covers storing those

@@ -1,9 +1,9 @@
 # 運用ガイド
 
-[English](operations.md) | [日本語](operations.ja.md)
+[English](operations.md)
 
 このガイドでは、信頼できる単一ホスト上での ghalet の設定・実行・保守を説明します。
-最初のセットアップは [README](../README.ja.md#クイックスタート)、
+最初のセットアップは[導入ガイド](getting-started.ja.md#クイックスタート)、
 各サブコマンドの用途は[コマンド一覧](../README.ja.md#コマンド)を参照してください。
 
 - [設定と認証情報](#設定と認証情報)

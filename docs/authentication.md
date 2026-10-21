@@ -1,6 +1,6 @@
 # Authentication setup and minimum permissions
 
-[English](authentication.md) | [日本語](authentication.ja.md)
+[日本語](authentication.ja.md)
 
 This guide covers issuing credentials for ghalet's repository and organization
 targets on GitHub.com. Prefer a GitHub App for a long-lived service, or a

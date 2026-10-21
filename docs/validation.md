@@ -1,9 +1,9 @@
 # Validation
 
-[English](validation.md) | [日本語](validation.ja.md)
+[日本語](validation.ja.md)
 
 How to run automated tests and opt-in checks against the official runner
-and GitHub. For setup and deployment, see the [README](../README.md) and
+and GitHub. For setup and deployment, see [getting started](getting-started.md) and
 [operations](operations.md).
 
 ## Automated tests

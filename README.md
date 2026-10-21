@@ -12,32 +12,32 @@
 [PkgGoDev]: https://pkg.go.dev/github.com/Songmu/ghalet
 [deepwiki]: https://deepwiki.com/Songmu/ghalet
 
-[English](README.md) | [日本語](README.ja.md)
+[日本語](README.ja.md)
 
-ghalet turns a Linux or macOS host into an automatically scaling
-self-hosted GitHub Actions runner environment. Put a spare Mac, a dedicated
-Linux machine, or an always-on VM to work for your trusted repositories,
-without setting up Kubernetes, Docker, or a VM for every job.
+**A lightweight, simple supervisor for GitHub Actions self-hosted runners**
 
-It is a Go daemon that manages GitHub Actions Runner Scale Sets and starts
-native runner processes as jobs arrive. Each runner handles one job, then
-exits; ghalet cleans up its runner directory and workspace. Several
-repositories or organizations can share the host with per-target and
-host-wide concurrency limits.
+- **Runs as a single Go daemon with a configuration file**
+  - No dependencies on components such as Kubernetes or databases
+  - A small footprint and minimal stored state make setup and rebuilding easy
+- **Scales runners on demand**
+  - Runners run as lightweight native processes on the host
+  - A configurable execution user provides basic privilege separation
+- **Manages multiple repositories and organizations together**
+  - Share one host across multiple projects
+  - Fine-grained concurrency control through global and per-target scaling settings
 
-## Use cases
+![One ghalet daemon starts native runners on demand within host-wide and per-target limits](docs/images/ghalet-overview.png)
 
-- **Use a spare Mac for macOS builds.** Run jobs directly on macOS with
-  tools already installed on the machine.
-- **Share a Linux host across trusted projects.** Register several
-  repository or organization targets and let ghalet start runners on
-  demand within a shared capacity limit.
-- **Keep the runner setup small and disposable.** Run one daemon on a
-  dedicated account or an always-on VM, including a Lima VM on macOS.
-  Configuration defines the setup; small local state files support recovery
-  without a separate database.
+By design, ghalet does not provide strict isolation between runners. It is
+intended for standalone, dedicated hosts, such as:
 
-ghalet scales **runner processes on one host**, not the hosts themselves.
+- High-performance dedicated build machines
+- Single-purpose VMs
+- Home servers, such as a Mac mini or a spare laptop
+
+ghalet manages GitHub Actions Runner Scale Sets on Linux and macOS.
+Each runner handles one job, then exits; ghalet cleans up its runner directory
+and workspace. It scales **runner processes on one host**, not the hosts themselves.
 It does not orchestrate multiple machines or provision per-job VMs or
 containers. **Ephemeral registration is not job isolation:** jobs share the
 execution user's HOME, tools, caches and privileges. Use only trusted
@@ -50,76 +50,27 @@ Linux `.deb`/`.rpm` packages with a systemd unit and a GHCR container image
 are also built for releases. See [packages and containers](docs/distribution.md)
 for installation, configuration, and updates.
 
-```console
-# Install the latest version into ./bin/ by default.
-% curl -sfL https://raw.githubusercontent.com/Songmu/ghalet/main/install.sh | sh -s
+Install with Homebrew:
 
-# Specify the installation directory and version.
-% curl -sfL https://raw.githubusercontent.com/Songmu/ghalet/main/install.sh | sh -s -- -b $(go env GOPATH)/bin [vX.Y.Z]
-
-# On Alpine Linux without curl.
-% wget -O - -q https://raw.githubusercontent.com/Songmu/ghalet/main/install.sh | sh -s [vX.Y.Z]
-
-# Or install with Go.
-% go install github.com/Songmu/ghalet/cmd/ghalet@latest
+```sh
+brew install Songmu/tap/ghalet
 ```
 
-Add the installation directory to your `PATH`. Install the build tools your
-workflows need and the official runner's OS prerequisites on the host.
-Run ghalet as a non-root user; root jobs are
-refused. See [operations](docs/operations.md#direct-execution-and-environment)
-for execution users and environment settings.
+Or install with Go:
+
+```sh
+go install github.com/Songmu/ghalet/cmd/ghalet@latest
+```
+
+See [getting started](docs/getting-started.md#installation) for host prerequisites
+and execution user requirements.
 
 ## Quick start
 
-Create a configuration and authenticate with GitHub CLI as the user who
-will run ghalet. Replace `OWNER/REPO` below with your repository
-(or `ORG` for an organization):
-
-```sh
-mkdir -p ~/.config/ghalet
-cat > ~/.config/ghalet/config.yaml <<'YAML'
-targets:
-  - scaleSet: project
-    scope: OWNER/REPO
-YAML
-gh auth login
-ghalet config validate
-ghalet run
-```
-
-The default configuration path is `~/.config/ghalet/config.yaml`; use
-`--config /path/to/config.yaml` to select another file. The default
-authentication uses your `gh` login; [PAT and GitHub App
-credentials](docs/operations.md#configuration-and-credentials) are also
-supported. See [authentication setup](docs/authentication.md) for the required
-permissions, PAT creation and GitHub App installation.
-For more settings, see the [commented example](examples/config.yaml).
-
-Use the configured scale set name (`scaleSet`, or `id` when omitted) in a
-trusted workflow:
-
-```yaml
-jobs:
-  build:
-    runs-on: project
-    steps:
-      - run: uname -a
-```
-
-In another terminal:
-
-```sh
-ghalet status
-ghalet doctor
-```
-
-To stop the daemon, press Ctrl-C in its terminal. Normal shutdown stops new
-job acceptance for all targets and waits for accepted work, using the
-configured drain deadline. After that deadline, remaining jobs may be
-forcibly stopped. After editing configuration, use `ghalet apply` (or
-`sudo systemctl reload ghalet` for the packaged service) to drain and
-reconfigure without exiting the daemon.
+Follow [getting started](docs/getting-started.md#quick-start) for authentication,
+configuration, a complete workflow, and your first job. It also covers
+[macOS service setup with Homebrew](docs/getting-started.md#homebrew-service-macos-only).
+For ongoing operation, use systemd on Linux or launchd on macOS.
 
 ## Commands
 
@@ -131,8 +82,8 @@ repository or organization registration, identified locally by its `id`.
 | `ghalet run` | Run the daemon in the foreground for all configured targets. |
 | `ghalet apply` | Drain targets, reload configuration, and reconcile registrations, attempting to delete unused scale sets. |
 | `ghalet config validate` | Validate configuration and local paths without contacting GitHub. |
-| `ghalet app setup --scope OWNER/REPO --scale-set project` | Create and install a private GitHub App, save managed authentication, and print any required static target configuration. See [App setup](docs/app-setup.md) for organization scopes, SSH and resumption. |
-| `ghalet systemd app setup --scope OWNER/REPO --scale-set project` | Set up an App with encrypted service credentials and the target's runtime key reference (Linux/root). See [App setup](docs/app-setup.md#packaged-systemd-service). |
+| `ghalet app setup --scope OWNER/REPO --scale-set ghalet-runner` | Create and install a private GitHub App, save managed authentication, and print any required static target configuration. See [App setup](docs/app-setup.md) for organization scopes, SSH and resumption. |
+| `ghalet systemd app setup --scope OWNER/REPO --scale-set ghalet-runner` | Set up an App with encrypted service credentials and the target's runtime key reference (Linux/root). See [App setup](docs/app-setup.md#packaged-systemd-service). |
 | `ghalet credential set NAME --prompt` | Save an owner-only credential file and update managed defaults without rewriting static config. See [ordinary credentials](docs/file-credentials.md) for App keys and replacement. |
 | `ghalet systemd credential set NAME --prompt` | Register an encrypted service PAT and update managed defaults (Linux/root). See [credentials](docs/credentials.md) for App keys, automation and rotation. |
 | `ghalet list` | List accessible daemons, management UIDs, sockets and running snapshots; filter with `--config PATH`. |
@@ -163,6 +114,12 @@ for retries, recovery and log policy.
 
 ## Documentation
 
+Start with the [documentation index](docs/index.md), readable directly in the
+repository or on the [documentation site](https://songmu.github.io/ghalet/).
+All guides are available in English and Japanese.
+
+- [Getting started](docs/getting-started.md): installation, authentication,
+  your first workflow, and service setup.
 - [Authentication setup](docs/authentication.md): method tradeoffs, minimum
   permissions, creation steps and credential rotation for PATs and GitHub Apps.
 - [Operations](docs/operations.md): authentication, configuration, execution
@@ -172,6 +129,9 @@ for retries, recovery and log policy.
 - [Example configuration](examples/config.yaml) and [configuration schema](schema.yaml).
 
 ## Development
+
+For local documentation builds and GitHub Pages deployment setup, see
+[the site guide](docs/site/README.md).
 
 ```sh
 go test -race ./...

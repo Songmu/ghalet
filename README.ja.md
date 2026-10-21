@@ -12,30 +12,33 @@
 [PkgGoDev]: https://pkg.go.dev/github.com/Songmu/ghalet
 [deepwiki]: https://deepwiki.com/Songmu/ghalet
 
-[English](README.md) | [日本語](README.ja.md)
+[English](README.md)
 
-ghalet は、Linux / macOS ホストを、ジョブ需要に応じて自動で増減する
-GitHub Actions のセルフホステッド runner 環境にするツールです。余っている Mac、
-専用の Linux マシン、常時起動する VM を、信頼できるリポジトリのために活用できます。
-Kubernetes や Docker、ジョブごとの VM を用意する必要はありません。
+**軽量でシンプルな、GitHub Actions Self-hosted runner スーパーバイザー**
 
-Go 製のデーモンが GitHub Actions Runner Scale Set を管理し、ジョブが届くと
-ネイティブの runner プロセスを起動します。各 runner は 1 ジョブを実行して終了し、
-ghalet が runner 専用ディレクトリと workspace を削除します。複数のリポジトリや
-Organization で 1 台のホストを共有し、target ごと・ホスト全体の並列実行数を制限できます。
+- **単一の Go デーモンと設定ファイルで動作**
+  - Kubernetes や DB などの依存コンポーネントは不要
+  - 構成が小さく、保持する状態も少ないため、導入も再構築も容易
+- **オンデマンドな runner のスケーリング**
+  - ホスト上のネイティブプロセスとして runner が軽量に動作
+  - 実行ユーザー指定による最低限の権限分離
+- **複数のリポジトリ・Organization をまとめて管理**
+  - 1台のホストを複数のプロジェクトで共有
+  - 全体と個別それぞれのスケーリング設定による細やかな同時実行数制御
 
-## 主なユースケース
+![ghalet が単一ホスト上で、全体と target ごとの上限に従い runner をオンデマンドに起動する構成図](docs/images/ghalet-overview.png)
 
-- **余っている Mac を macOS ビルドに使う。** マシンにインストール済みのツールを使い、
-  macOS 上で直接ジョブを実行できます。
-- **信頼できる複数のプロジェクトで Linux ホストを共有する。** リポジトリや
-  Organization の target を登録し、共通の同時実行上限の範囲で必要な runner を起動します。
-- **小さく、作り直しやすい runner 環境を持つ。** 専用アカウントや常設 VM 上で
-  デーモンを 1 つ動かす構成です。macOS 上の Lima VM も利用できます。
-  設定ファイルを構成の正とし、小さなローカルステートファイルで復旧するため、
-  別途データベースは不要です。
+runner の厳密な隔離は行わない割り切りなので、独立した専用ホスト、
+具体的には以下のような環境上での動作を想定しています。
 
-ghalet が増減するのは **単一ホスト上の runner プロセス** であり、ホスト自体ではありません。
+- 高性能な専用ビルドマシン
+- 単一用途の VM
+- Mac mini や余ったノート PC などの自宅サーバー
+
+ghalet は Linux / macOS 上で GitHub Actions Runner Scale Set を管理します。
+各 runner は1ジョブを実行して終了し、ghalet が runner 専用ディレクトリと
+workspace を削除します。増減するのは **単一ホスト上の runner プロセス** であり、
+ホスト自体ではありません。
 複数マシンのオーケストレーションや、ジョブごとの VM / コンテナの作成は行いません。
 **Ephemeral な登録はジョブの隔離を意味しません。** ジョブは実行ユーザーの HOME、
 ツール、キャッシュ、権限を共有します。信頼できる workflow のみに使用し、
@@ -48,74 +51,27 @@ systemd unit を含む Linux 向け `.deb` / `.rpm` パッケージと、
 GHCR のコンテナイメージもリリース時にビルドします。
 導入・設定・更新の手順は[パッケージとコンテナ](docs/distribution.ja.md)を参照してください。
 
-```console
-# 最新版をインストール。デフォルトの配置先は ./bin/。
-% curl -sfL https://raw.githubusercontent.com/Songmu/ghalet/main/install.sh | sh -s
+Homebrew でインストールできます。
 
-# 配置先ディレクトリとバージョンを指定。
-% curl -sfL https://raw.githubusercontent.com/Songmu/ghalet/main/install.sh | sh -s -- -b $(go env GOPATH)/bin [vX.Y.Z]
-
-# curl がない Alpine Linux では wget を使用。
-% wget -O - -q https://raw.githubusercontent.com/Songmu/ghalet/main/install.sh | sh -s [vX.Y.Z]
-
-# または Go でインストール。
-% go install github.com/Songmu/ghalet/cmd/ghalet@latest
+```sh
+brew install Songmu/tap/ghalet
 ```
 
-インストール先を `PATH` に追加してください。workflow で使うビルドツールと、
-公式 runner が要求する OS の依存パッケージを
-ホストに用意してください。ghalet は非 root ユーザーで起動します。root でのジョブ実行は
-拒否されます。実行ユーザーと環境の設定は[運用ガイド](docs/operations.ja.md#直接実行と環境)
-を参照してください。
+または Go でインストールできます。
+
+```sh
+go install github.com/Songmu/ghalet/cmd/ghalet@latest
+```
+
+ホストの前提条件と実行ユーザーの要件は
+[導入ガイド](docs/getting-started.ja.md#インストール)を参照してください。
 
 ## クイックスタート
 
-設定ファイルを作成し、ghalet を起動するユーザーで GitHub CLI にログインします。
-以下の `OWNER/REPO` を自分のリポジトリに置き換えてください。
-Organization の場合は `ORG` を指定します。
-
-```sh
-mkdir -p ~/.config/ghalet
-cat > ~/.config/ghalet/config.yaml <<'YAML'
-targets:
-  - scaleSet: project
-    scope: OWNER/REPO
-YAML
-gh auth login
-ghalet config validate
-ghalet run
-```
-
-設定ファイルのデフォルトは `~/.config/ghalet/config.yaml` です。
-別のファイルを使う場合は `--config /path/to/config.yaml` を指定してください。
-デフォルトの認証には `gh` のログインを使います。[PAT と GitHub App による認証](docs/operations.ja.md#設定と認証情報)
-にも対応しています。必要権限、PAT の作成、GitHub App のインストールは
-[認証のセットアップ](docs/authentication.ja.md)を参照してください。
-その他の設定は[コメント付きのサンプル](examples/config.yaml)を参照してください。
-
-信頼できる workflow の `runs-on` に、設定した Scale Set 名
-（`scaleSet`、省略時は `id`）を指定します。
-
-```yaml
-jobs:
-  build:
-    runs-on: project
-    steps:
-      - run: uname -a
-```
-
-別のターミナルから状態確認を実行できます。
-
-```sh
-ghalet status
-ghalet doctor
-```
-
-デーモンを停止するには、起動したターミナルで Ctrl-C を押してください。
-通常停止では全 target の新規ジョブ受付を止め、設定した drain の期限まで
-受付済みの処理を待ちます。期限を超えたジョブは強制停止される場合があります。
-設定を編集した後は `ghalet apply`（パッケージのサービスでは
-`sudo systemctl reload ghalet`）で、デーモンを終了せずに drain と再設定を行えます。
+[導入ガイド](docs/getting-started.ja.md#クイックスタート)に、認証、設定、workflow の作成、
+最初のジョブ実行までの手順をまとめています。
+[Homebrew による macOS の常駐化](docs/getting-started.ja.md#homebrew-での常駐化macos-のみ)
+も説明しています。継続運用では Linux は systemd、macOS は launchd を使用してください。
 
 ## コマンド
 
@@ -127,8 +83,8 @@ ghalet doctor
 | `ghalet run` | 全 target のデーモンをフォアグラウンドで起動します。 |
 | `ghalet apply` | 全 target を drain して設定と登録を反映し、未使用 Scale Set の削除を試みます。 |
 | `ghalet config validate` | GitHub に接続せず、設定とローカルパスを検証します。 |
-| `ghalet app setup --scope OWNER/REPO --scale-set project` | 非公開 GitHub App を作成・インストールし、managed 認証を保存して、必要な静的 target 設定を表示します。Organization、SSH、再開は [App セットアップ](docs/app-setup.ja.md)を参照してください。 |
-| `ghalet systemd app setup --scope OWNER/REPO --scale-set project` | App のセットアップ、サービス用の暗号化認証情報の保存、target の実行時の鍵の参照設定を行います（Linux/root）。[App セットアップ](docs/app-setup.ja.md#パッケージの-systemd-サービス)を参照してください。 |
+| `ghalet app setup --scope OWNER/REPO --scale-set ghalet-runner` | 非公開 GitHub App を作成・インストールし、managed 認証を保存して、必要な静的 target 設定を表示します。Organization、SSH、再開は [App セットアップ](docs/app-setup.ja.md)を参照してください。 |
+| `ghalet systemd app setup --scope OWNER/REPO --scale-set ghalet-runner` | App のセットアップ、サービス用の暗号化認証情報の保存、target の実行時の鍵の参照設定を行います（Linux/root）。[App セットアップ](docs/app-setup.ja.md#パッケージの-systemd-サービス)を参照してください。 |
 | `ghalet credential set NAME --prompt` | 静的設定を書き換えず、所有者限定の認証ファイルを保存して managed の共通認証を更新します。App キーや交換は[通常ファイルの認証情報](docs/file-credentials.ja.md)を参照してください。 |
 | `ghalet systemd credential set NAME --prompt` | サービス用 PAT を暗号化登録し、managed の共通認証を更新します（Linux・root 必須）。App キー、自動構築、ローテーションは[認証情報](docs/credentials.ja.md)を参照してください。 |
 | `ghalet list` | アクセス可能なデーモンの管理 UID、ソケット、稼働状態を一覧表示します。`--config PATH` で絞り込めます。 |
@@ -159,6 +115,12 @@ runner のアーカイブは固定バージョンを自動ダウンロードし�
 
 ## ドキュメント
 
+まずは[ドキュメントの目次](docs/index.ja.md)を参照してください。
+リポジトリ上でも[ドキュメントサイト](https://songmu.github.io/ghalet/)でも読めます。
+各ガイドは英語・日本語で用意しています。
+
+- [導入ガイド](docs/getting-started.ja.md): インストール、認証、最初の workflow、
+  サービスとしての常駐化。
 - [認証のセットアップ](docs/authentication.ja.md): 各方式のメリット・注意点、
   PAT と GitHub App の最小権限・作成手順・ローテーション。
 - [運用ガイド](docs/operations.ja.md): 認証、設定、実行環境、復旧、ログ、
@@ -168,6 +130,9 @@ runner のアーカイブは固定バージョンを自動ダウンロードし�
 - [設定サンプル](examples/config.yaml)と[設定スキーマ](schema.yaml)。
 
 ## 開発
+
+ドキュメントのローカルビルドと GitHub Pages の公開設定は
+[サイトガイド](docs/site/README.ja.md)を参照してください。
 
 ```sh
 go test -race ./...

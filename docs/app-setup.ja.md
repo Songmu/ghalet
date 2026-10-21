@@ -1,6 +1,6 @@
 # GitHub App のセットアップウィザード
 
-[English](app-setup.md) | [日本語](app-setup.ja.md)
+[English](app-setup.md)
 
 `ghalet app setup --scope OWNER/REPO --scale-set project` は [GitHub の Manifest フロー][manifest]で、
 個人または Organization が所有する非公開の GitHub App を作成します。
