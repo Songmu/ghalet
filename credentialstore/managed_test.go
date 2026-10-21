@@ -39,7 +39,7 @@ func TestManagedCredentialUpdatesRejectConflicts(t *testing.T) {
 						t.Fatal(err)
 					}
 					edit := func() {
-						if err := os.WriteFile(first.ManagedPath, []byte("version: 1\n# concurrent\n"), 0600); err != nil {
+						if err := os.WriteFile(first.ManagedPath, []byte("{}\n# concurrent\n"), 0600); err != nil {
 							t.Error(err)
 						}
 					}
@@ -57,7 +57,7 @@ func TestManagedCredentialUpdatesRejectConflicts(t *testing.T) {
 						t.Fatal("concurrent managed edit changed existing secret", err)
 					}
 					managed, err := os.ReadFile(first.ManagedPath)
-					if err != nil || string(managed) != "version: 1\n# concurrent\n" {
+					if err != nil || string(managed) != "{}\n# concurrent\n" {
 						t.Fatal("concurrent managed edit was not preserved", err)
 					}
 					return

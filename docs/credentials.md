@@ -67,7 +67,6 @@ path overrides, custom systemd configurations and precedence.
 
 ```yaml
 # /var/lib/ghalet/managed.yaml
-version: 1
 defaults:
   credential:
     type: pat

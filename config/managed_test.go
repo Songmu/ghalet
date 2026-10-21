@@ -66,7 +66,7 @@ func TestManagedCredentialPrecedence(t *testing.T) {
 	if err := os.Mkdir(filepath.Dir(managedPath), 0700); err != nil {
 		t.Fatal(err)
 	}
-	data := []byte("version: 1\ndefaults:\n  credential:\n    type: pat\n    tokenFile: managed.pat\ntargets:\n  - scaleSet: build\n    scope: https://github.com/owner/repo\n    credential:\n      type: github-app\n      clientId: generated\n      privateKeyFile: app.pem\n    installationId: 123\n  - scaleSet: removed\n    scope: https://github.com/owner/removed\n    credential: {}\n")
+	data := []byte("defaults:\n  credential:\n    type: pat\n    tokenFile: managed.pat\ntargets:\n  - scaleSet: build\n    scope: https://github.com/owner/repo\n    credential:\n      type: github-app\n      clientId: generated\n      privateKeyFile: app.pem\n    installationId: 123\n  - scaleSet: removed\n    scope: https://github.com/owner/removed\n    credential: {}\n")
 	if err := os.WriteFile(managedPath, data, 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -111,7 +111,7 @@ func TestManagedCredentialPrecedence(t *testing.T) {
 func TestManagedScopeAndAuthenticationIsolation(t *testing.T) {
 	_, path := managedFixture(t)
 	managedPath := filepath.Join(filepath.Dir(path), "managed.yaml")
-	managed := []byte("version: 1\ntargets:\n  - scaleSet: build\n    scope: https://github.com/owner/old\n    credential:\n      type: github-app\n      clientId: generated\n      privateKeyFile: app.pem\n    installationId: 123\n")
+	managed := []byte("targets:\n  - scaleSet: build\n    scope: https://github.com/owner/old\n    credential:\n      type: github-app\n      clientId: generated\n      privateKeyFile: app.pem\n    installationId: 123\n")
 	if err := os.WriteFile(managedPath, managed, 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -127,7 +127,7 @@ func TestManagedScopeAndAuthenticationIsolation(t *testing.T) {
 
 func TestManagedRegistrationMatching(t *testing.T) {
 	_, path := managedFixture(t)
-	managed := &Managed{Version: 1}
+	managed := &Managed{}
 	for i, target := range []ManagedTarget{
 		{Scope: "owner", ScaleSetName: "build"},
 		{Scope: "owner", RunnerGroup: "linux", ScaleSetName: "build"},
@@ -172,10 +172,10 @@ func TestManagedFilesRejectUnsafeOrInvalidData(t *testing.T) {
 	root, path := managedFixture(t)
 	managedPath := filepath.Join(root, "managed.yaml")
 	for _, data := range []string{
-		"", "version: 2\n", "version: 1\n---\nversion: 1\n",
-		"version: 1\nversion: 1\n",
-		"version: 1\ntargets:\n  - scope: owner/repo\n    scope: owner/other\n    scaleSet: build\n    credential: {}\n",
-		"version: 1\ntargets:\n  - scaleSet: build\n    scope: https://github.com/owner/repo\n    credential:\n      type: github-app\n      clientId: app\n      privateKeyFile: key.pem\n",
+		"", "{}\n---\n{}\n",
+		"targets: []\ntargets: []\n",
+		"targets:\n  - scope: owner/repo\n    scope: owner/other\n    scaleSet: build\n    credential: {}\n",
+		"targets:\n  - scaleSet: build\n    scope: https://github.com/owner/repo\n    credential:\n      type: github-app\n      clientId: app\n      privateKeyFile: key.pem\n",
 	} {
 		if _, err := ParseManaged([]byte(data)); err == nil {
 			t.Fatal("invalid managed document accepted", data)
@@ -195,7 +195,7 @@ func TestManagedFilesRejectUnsafeOrInvalidData(t *testing.T) {
 					t.Fatal(err)
 				}
 			default:
-				data, mode := []byte("version: 1\n"), os.FileMode(0666)
+				data, mode := []byte("{}\n"), os.FileMode(0666)
 				if kind == "oversized" {
 					data, mode = bytes.Repeat([]byte("a"), 1024*1024+1), 0600
 				}
@@ -211,10 +211,10 @@ func TestManagedFilesRejectUnsafeOrInvalidData(t *testing.T) {
 			}
 		})
 	}
-	if err := WriteManaged(managedPath, nil, []byte("version: 1\n")); err != nil {
+	if err := WriteManaged(managedPath, nil, []byte("{}\n")); err != nil {
 		t.Fatal(err)
 	}
-	if err := WriteManaged(managedPath, nil, []byte("version: 1\n")); err == nil {
+	if err := WriteManaged(managedPath, nil, []byte("{}\n")); err == nil {
 		t.Fatal("concurrent managed file creation was overwritten")
 	}
 	if _, err := ParseConfig(path, []byte("managedFile: state/ghalet/logs/managed.yaml\ntargets: []\n")); err == nil {
@@ -228,16 +228,34 @@ func TestManagedIgnoresUnknownProperties(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if managed.Version != 1 || managed.Defaults.Credential == nil || managed.Defaults.Credential.Type != "gh" ||
+	if managed.Defaults.Credential == nil || managed.Defaults.Credential.Type != "gh" ||
 		len(managed.Targets) != 1 || managed.Targets[0].Credential.Type != "gh" ||
 		managed.Targets[0].Scope != "owner/repo" || managed.Targets[0].ScaleSetName != "build" {
 		t.Fatalf("unknown properties changed managed configuration: %+v", managed)
 	}
 }
 
+func TestManagedEmptyDocumentRoundTrip(t *testing.T) {
+	managed := &Managed{}
+	data, err := managed.Marshal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(data, []byte("version:")) {
+		t.Fatal("managed document contains a version field")
+	}
+	parsed, err := ParseManaged(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed.Defaults.Credential != nil || len(parsed.Targets) != 0 {
+		t.Fatalf("empty managed document gained settings: %+v", parsed)
+	}
+}
+
 func TestManagedSizeLimitIncludesGeneratedHeader(t *testing.T) {
 	root, _ := managedFixture(t)
-	managed := &Managed{Version: 1, Defaults: DefaultsConfig{
+	managed := &Managed{Defaults: DefaultsConfig{
 		Credential: &Credential{Type: "pat", TokenFile: "x"},
 	}}
 	baseline, err := managed.Marshal()
@@ -249,7 +267,7 @@ func TestManagedSizeLimitIncludesGeneratedHeader(t *testing.T) {
 		t.Fatal("serialized managed document exceeded reader size limit")
 	}
 	path := filepath.Join(root, "managed.yaml")
-	before := []byte("version: 1\n")
+	before := []byte("{}\n")
 	if err := os.WriteFile(path, before, 0600); err != nil {
 		t.Fatal(err)
 	}

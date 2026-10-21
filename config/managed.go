@@ -23,7 +23,6 @@ const (
 // Managed contains persistent setup information, not runnable target definitions
 // or secret values. Targets become active only through the static configuration.
 type Managed struct {
-	Version  int             `yaml:"version"`
 	Defaults DefaultsConfig  `yaml:"defaults,omitempty"`
 	Targets  []ManagedTarget `yaml:"targets,omitempty"`
 }
@@ -130,7 +129,7 @@ func CheckManagedPaths(managedPath, configPath string, reserved ...string) error
 
 // ReadManaged returns an empty document when the file does not exist.
 func ReadManaged(path string) (*Managed, []byte, error) {
-	empty := &Managed{Version: 1}
+	empty := &Managed{}
 	if err := fshelper.CheckDirectory(filepath.Dir(path)); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return empty, nil, nil
@@ -172,9 +171,6 @@ func ParseManaged(data []byte) (*Managed, error) {
 	var managed Managed
 	if err := yaml.NodeToValue(file.Docs[0].Body, &managed); err != nil {
 		return nil, errors.New("managed file contains invalid fields")
-	}
-	if managed.Version != 1 {
-		return nil, errors.New("unsupported managed file version")
 	}
 	if managed.Defaults.Credential != nil {
 		if err := managed.Defaults.Credential.validate(); err != nil {
