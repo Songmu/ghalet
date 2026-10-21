@@ -353,15 +353,28 @@ Offline GC must use the same storage environment as the service to find its stat
 After a crash, records are matched to current explicit registrations, process
 UID/group/kernel start identity and, for live executions, GitHub runner IDs.
 Linux identity includes the boot ID and `/proc` start ticks; macOS uses the
-kernel process start time with microsecond precision. Unmatched, corrupt,
-incomplete or unverifiable records reserve conservative capacity and appear
-in diagnostics. Recovery of a surviving process does not recreate `Wait` or
+kernel process start time with microsecond precision. Process liveness is checked
+independently of registration and execution-user matching. Records whose processes
+are verified stopped do not reserve capacity, even if a target was removed,
+authentication fails, or registration/user matching prevents cleanup. Their
+records, files and diagnostics remain; stopping alone does not authorize deletion.
+Potentially live or unverifiable processes still reserve conservative capacity.
+Malformed records also reserve capacity because they provide no trusted identity
+with which to prove process absence; they are never used to authorize cleanup.
+Recovery of a surviving process does not recreate `Wait` or
 invent its exit code. Descendants observed in the original process group can
 be recovered; escaped descendants cannot be completely detected or isolated.
 
 Empty and zombie-only process-group snapshots require kernel revalidation.
-Linux checks a fresh `/proc` enumeration, retrying disappearing-PID races
-without silently skipping them; macOS queries `kern.proc.pgrp`. A group is
+Linux checks kernel group membership before reading each enumerated PID's
+`/proc` state, so a PID identified outside the group need not remain readable.
+Disappearance of a known group member still triggers bounded retries.
+If an unclassified PID disappears, a second enumeration must also find only
+previously identified, single-threaded zombies in the group, so a child forked
+before that disappearance can be discovered. This bounded check tolerates
+unrelated PID churn; it is not an atomic snapshot against deliberately timed,
+repeated fork/exit chains, consistent with the trusted-job model.
+macOS queries `kern.proc.pgrp`. A group is
 treated as stopped only when absent or when every fresh member was already
 observed as a zombie with the same kernel identity. Newly observed zombies
 cannot establish safety because they may have just forked. Failed
@@ -369,6 +382,11 @@ verification retains uncertainty and capacity. State
 files are limited to 1 MiB, including their final newline. Oversized saves fail
 without replacing the last readable record, including when a large descendant
 list cannot be persisted before signaling.
+
+State updates sync the file and its execution directory. Each newly created
+managed directory syncs its immediate parent before use, including missing
+storage ancestors and log directories. Unchanged ancestors are not recursively
+synced to the filesystem root.
 
 For manual recovery, inspect the named paths/processes, wait for or explicitly
 stop only the identified execution, then run `gc --dry-run` and `gc`. Correct

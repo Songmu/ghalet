@@ -90,6 +90,37 @@ func TestApplyReusesScaleSetAcrossTargetRename(t *testing.T) {
 	}
 }
 
+func TestApplyKeepsStoppedRecoveryDiagnosticsWithoutReservingNewCapacity(t *testing.T) {
+	d, api := testDaemon(t)
+	useFakeManagement(d, api)
+	state := testState(t, d.config)
+	state.ScopeURL = "https://github.com/old/repository"
+	state.ProcessDone, state.Phase = true, "cleaning"
+	if err := d.store.save(state); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.recover(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	next := nextConfig(d)
+	next.Targets[0].ID = "other"
+	writeApplyConfig(t, next)
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+	defer cancel()
+	response := d.apply(ctx)
+	if ctx.Err() != nil || response.Error == "" || response.Status == nil ||
+		response.Status.Occupied != 0 || len(response.Status.Problems) == 0 {
+		t.Fatal("apply blocked on stopped recovery or lost its diagnostics", response)
+	}
+	if !d.canStart(d.targets["other"]) || d.active("other") != 0 ||
+		d.runs[state.RunID] == nil || api.removeCalls != 0 {
+		t.Fatal("retained recovery state blocked the new target or authorized cleanup")
+	}
+	if err := d.cleanup(d.runs[state.RunID]); err == nil {
+		t.Fatal("apply authorized cleanup of an unverified old registration")
+	}
+}
+
 func TestApplyReplacesRegistrationAndUsesOldCredentialsForDeletion(t *testing.T) {
 	for _, change := range []string{"scope", "group", "scale set"} {
 		t.Run(change, func(t *testing.T) {

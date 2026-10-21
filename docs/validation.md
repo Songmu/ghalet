@@ -16,6 +16,13 @@ go vet ./...
 CI runs the suite on Linux and macOS without real GitHub registrations.
 Run as a non-root user: process tests skip under root.
 
+Linux fixtures cover unrelated PIDs disappearing after membership is established,
+bounded confirmation of unclassified PID churn and its late-forked descendants,
+ambiguous disappearance of known group members, omitted live descendants,
+zombie leaders with worker threads, newly observed zombies and reused PIDs.
+The incomplete-snapshot process tests exercise surviving forked descendants.
+Cross-compilation alone does not validate these Linux runtime checks.
+
 The `test-packaging.yaml` workflow builds amd64/arm64 test archives and deb/rpm packages,
 checks installation, reinstallation and removal on Ubuntu 26.04 hosts and
 in Rocky Linux 9 containers, and builds the Docker image without publishing it.

@@ -52,8 +52,17 @@ func TestArchiveBeforeDeletionAndIdempotentRetry(t *testing.T) {
 	if _, err := os.Stat(filepath.Dir(state.RunnerDir)); !os.IsNotExist(err) {
 		t.Fatal("execution directory survived successful archive and cleanup")
 	}
+	output := filepath.Join(archive, "output.log")
+	if err := os.Chmod(output, 0000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chmod(output, 0600); err != nil {
+			t.Error(err)
+		}
+	})
 	if err := archiveLogs(d.config, state, d.secrets); err != nil {
-		t.Fatal("completed archive could not be reused on cleanup retry", err)
+		t.Fatal("completed archive retry tried to reopen already synced logs", err)
 	}
 }
 
@@ -88,7 +97,7 @@ func TestArchiveFailurePreservesOriginalAndReleasesProcessCapacity(t *testing.T)
 	}
 }
 
-func TestArchiveRetryMustEstablishDurabilityBeforeDeletingOriginals(t *testing.T) {
+func TestArchiveRetryRejectsUnsafeEntriesBeforeDeletingOriginals(t *testing.T) {
 	d, _ := testDaemon(t)
 	state := testState(t, d.config)
 	state.ProcessDone, state.Phase = true, "cleaning"

@@ -109,7 +109,10 @@ func archiveLogs(c *Config, state *RunState, secret *logreduct.Redactor) error {
 		data, err := os.ReadFile(filepath.Join(final, "metadata.json"))
 		var archived archivedRun
 		if err == nil && json.Unmarshal(data, &archived) == nil && archived.RunID == state.RunID && archived.TargetID == state.TargetID {
-			return syncLogArchive(final)
+			if err := syncLogArchive(final); err != nil {
+				return err
+			}
+			return fshelper.SyncDirectory(base)
 		}
 		return errors.New("existing log archive is incomplete or belongs to another execution")
 	} else if !errors.Is(err, os.ErrNotExist) {
@@ -187,7 +190,7 @@ func archiveLogs(c *Config, state *RunState, secret *logreduct.Redactor) error {
 	if err := os.Rename(stage, final); err != nil {
 		return err
 	}
-	return syncLogArchive(final)
+	return fshelper.SyncDirectory(base)
 }
 
 func syncLogArchive(path string) error {
@@ -208,12 +211,15 @@ func syncLogArchive(path string) error {
 		if err != nil {
 			return err
 		}
-		entries = append(entries, relative)
+		if entry.IsDir() {
+			entries = append(entries, relative)
+		}
 		return nil
 	}); err != nil {
 		return err
 	}
-	// Persist files and child directories before their parent entries.
+	// Log contents are already synced when closed; persist directory entries
+	// from the leaves up before publishing the archive.
 	for i := len(entries) - 1; i >= 0; i-- {
 		file, err := root.Open(entries[i])
 		if err != nil {
@@ -223,7 +229,7 @@ func syncLogArchive(path string) error {
 			return err
 		}
 	}
-	return syncDirectoryChain(filepath.Dir(path))
+	return nil
 }
 
 func expireLogs(ctx context.Context, c *Config, dryRun bool) ([]OperationResult, error) {

@@ -77,21 +77,6 @@ func newID() (string, error) {
 	return hex.EncodeToString(bytes[:]), nil
 }
 
-func syncDirectoryChain(path string) error {
-	for dir := path; ; dir = filepath.Dir(dir) {
-		file, err := os.Open(dir)
-		if err != nil {
-			return err
-		}
-		if err := errors.Join(file.Sync(), file.Close()); err != nil {
-			return err
-		}
-		if dir == filepath.Dir(dir) {
-			return nil
-		}
-	}
-}
-
 func (s stateStore) directory(state *RunState) (string, error) {
 	if !safeID.MatchString(state.TargetID) || len(state.RunID) != 32 {
 		return "", errors.New("invalid state targetId or runId")
@@ -152,7 +137,7 @@ func (s stateStore) save(state *RunState) error {
 	if err := os.Rename(name, filepath.Join(dir, "state.json")); err != nil {
 		return err
 	}
-	return syncDirectoryChain(dir)
+	return fshelper.SyncDirectory(dir)
 }
 
 type recoveredState struct {
