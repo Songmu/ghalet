@@ -7,7 +7,7 @@
 既存のアーカイブ、`install.sh`、`go install` も引き続き利用できます。
 この配布設定には APT/DNF リポジトリは含みません。
 Homebrew でのインストールと macOS のサービス連携は
-[README](../README.ja.md#インストール)を参照してください。
+[導入ガイド](getting-started.ja.md#インストール)を参照してください。
 
 ## Debian / RPM パッケージ
 

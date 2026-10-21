@@ -2,11 +2,14 @@
 
 [English](README.md)
 
-Songmu/tagpr と同じ Hugo / Hextra 構成を使い、リポジトリの README をトップページ、
-`docs/` の Markdown をガイドとして公開します。元ファイルを日英で編集し、
-サイト専用の本文は重複管理しません。ビルド時に frontmatter の付与、翻訳ペアの確認、
-サイト向けの Markdown リンク変換を行います。設定例などのリポジトリ内ファイルへの
-リンクは GitHub に向けます。
+Songmu/tagpr と同じ Hugo / Hextra 構成を使い、リポジトリ上でも読める `docs/` の
+Markdown をドキュメントの正とします。`docs/index.md` と `docs/index.ja.md` を
+サイトのトップページにし、`docs/getting-started.md` と日本語版にインストールと
+クイックスタートをまとめます。`docs/` 内のディレクトリ構造がサイトの構造になります。
+元ファイルを日英で編集し、サイト専用の本文は重複管理しません。
+ビルド時に frontmatter の付与、翻訳ペアの確認、サイト向けの Markdown リンク変換を
+行います。リポジトリの README はプロジェクト紹介とドキュメントへの入口に使い、
+README や設定例などのリポジトリ内ファイルへのリンクは GitHub に向けます。
 
 ## ローカルビルド
 

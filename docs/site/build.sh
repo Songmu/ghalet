@@ -12,10 +12,10 @@ fi
 work_dir="$(mktemp -d)"
 trap 'rm -rf "$work_dir"' EXIT
 
-mkdir -p "$work_dir/content/docs" "$work_dir/static/docs"
+mkdir -p "$work_dir/content" "$work_dir/static"
 cp "$site_dir/hugo.yaml" "$site_dir/go.mod" "$site_dir/go.sum" "$work_dir/"
 cp -R "$site_dir/layouts" "$work_dir/layouts"
-cp -R "$docs_dir/images" "$work_dir/static/docs/images"
+cp -R "$docs_dir/images" "$work_dir/static/images"
 
 add_page() {
   local source="$1"
@@ -52,21 +52,23 @@ add_page() {
   } > "$target"
 }
 
-add_page "$repo_dir/README.md" _index.md 1
-add_page "$repo_dir/README.ja.md" _index.ja.md 1
+add_page "$docs_dir/index.md" _index.md 1
+add_page "$docs_dir/index.ja.md" _index.ja.md 1
 
 while IFS= read -r -d '' source; do
-  relative="${source#"$repo_dir/"}"
+  relative="${source#"$docs_dir/"}"
   logical="${relative%.ja.md}"
   logical="${logical%.md}"
   case "$logical" in
-    docs/authentication) weight=10 ;;
-    docs/app-setup) weight=20 ;;
-    docs/file-credentials) weight=30 ;;
-    docs/credentials) weight=40 ;;
-    docs/distribution) weight=50 ;;
-    docs/operations) weight=60 ;;
-    docs/validation) weight=70 ;;
+    index) continue ;;
+    getting-started) weight=10 ;;
+    distribution) weight=20 ;;
+    authentication) weight=30 ;;
+    app-setup) weight=40 ;;
+    file-credentials) weight=50 ;;
+    credentials) weight=60 ;;
+    operations) weight=70 ;;
+    validation) weight=80 ;;
     *) weight=100 ;;
   esac
   add_page "$source" "$relative" "$weight"
@@ -75,11 +77,6 @@ done < <(
     -path "$site_dir" -prune -o \
     -type f -name '*.md' ! -name AGENTS.md -print0
 )
-
-printf '%s\n' '---' 'title: Guides' 'weight: 10' '---' \
-  > "$work_dir/content/docs/_index.md"
-printf '%s\n' '---' 'title: ガイド' 'weight: 10' '---' \
-  > "$work_dir/content/docs/_index.ja.md"
 
 hugo \
   --source "$work_dir" \

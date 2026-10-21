@@ -10,7 +10,7 @@ encrypted storage, use [systemd credentials](credentials.md) instead.
 
 ## Register a credential
 
-Create the [configuration](../README.md#quick-start) first, then run as the
+Create the [configuration](getting-started.md#quick-start) first, then run as the
 user that runs the daemon:
 
 ```sh

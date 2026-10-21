@@ -7,7 +7,7 @@ and the multi-platform image `ghcr.io/songmu/ghalet:TAG`.
 Existing archives, `install.sh`, and `go install` remain available.
 APT/DNF repositories are not provided by this packaging configuration.
 For Homebrew installation and macOS service integration, see the
-[README](../README.md#installation).
+[getting started](getting-started.md#installation).
 
 ## Debian and RPM packages
 

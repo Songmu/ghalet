@@ -61,114 +61,15 @@ brew install Songmu/tap/ghalet
 go install github.com/Songmu/ghalet/cmd/ghalet@latest
 ```
 
-インストール先を `PATH` に追加してください。workflow で使うビルドツールと、
-公式 runner が要求する OS の依存パッケージを
-ホストに用意してください。ghalet は非 root ユーザーで起動します。root でのジョブ実行は
-拒否されます。実行ユーザーと環境の設定は[運用ガイド](docs/operations.ja.md#直接実行と環境)
-を参照してください。
+ホストの前提条件と実行ユーザーの要件は
+[導入ガイド](docs/getting-started.ja.md#インストール)を参照してください。
 
 ## クイックスタート
 
-以下は、1つのリポジトリで runner を動かす手順です。
-ghalet を起動する非 root ユーザーで実行してください。
-
-継続運用では、Linux は systemd、macOS は launchd（Homebrew では `brew services`）で
-サービスとして常駐させる構成を基本とします。
-以下ではまずフォアグラウンドで動作を確認し、その後に常駐化します。
-Linux は[パッケージのサービス設定](docs/distribution.ja.md#debian--rpm-パッケージ)、
-macOS は[Homebrew での常駐化](#homebrew-での常駐化macos-のみ)を参照してください。
-
-### 1. GitHub に認証する
-
-GitHub CLI（`gh`）を用意し、対象リポジトリの runner を管理できるアカウントでログインします。
-必要な権限は[認証のセットアップ](docs/authentication.ja.md)を参照してください。
-
-```sh
-gh auth login
-```
-
-この手順では `gh` のログインを使います。PAT や GitHub App を使う場合も、
-[認証のセットアップ](docs/authentication.ja.md)を参照してください。
-
-### 2. runner の設定を作成する
-
-`~/.config/ghalet/config.yaml` を作成します。
-`OWNER/REPO` は自分のリポジトリに置き換えてください。
-Organization 全体で使う場合は、代わりに `ORG` を指定します。
-
-```sh
-mkdir -p ~/.config/ghalet
-cat > ~/.config/ghalet/config.yaml <<'YAML'
-targets:
-  - scope: OWNER/REPO
-    scaleSet: ghalet-runner
-YAML
-ghalet config validate
-```
-
-`scope` は runner を登録するリポジトリまたは Organization、
-`scaleSet` は workflow の `runs-on` に指定する任意の名前です。
-この例では `ghalet-runner` に揃えます。リポジトリ名と同じにする必要はありません。
-別の設定ファイルを使う場合は、各コマンドに `--config /path/to/config.yaml` を指定してください。
-その他の設定は[コメント付きのサンプル](examples/config.yaml)を参照してください。
-
-### 3. workflow から runner を指定する
-
-対象リポジトリに `.github/workflows/runner-check.yaml` を作成します。
-`runs-on` を先ほどの `scaleSet` と同じ `ghalet-runner` にします。
-信頼できる workflow のみに使用してください。
-
-```yaml
-name: Runner check
-on: push
-
-jobs:
-  check:
-    runs-on: ghalet-runner
-    steps:
-      - run: uname -a
-```
-
-### 4. ghalet を起動してジョブを実行する
-
-ホストでデーモンを起動します。ジョブが届くと runner が自動で起動します。
-
-```sh
-ghalet run
-```
-
-workflow をコミットして対象リポジトリに push し、GitHub の Actions タブで
-`Runner check` が実行されることを確認してください。
-別のターミナルから、ホスト上の状態確認と診断も実行できます。
-
-```sh
-ghalet status
-ghalet doctor
-```
-
-デーモンを停止するには、起動したターミナルで Ctrl-C を押してください。
-通常停止では全 target の新規ジョブ受付を止め、設定した drain の期限まで
-受付済みの処理を待ちます。期限を超えたジョブは強制停止される場合があります。
-設定を編集した後は `ghalet apply`（パッケージのサービスでは
-`sudo systemctl reload ghalet`）で、デーモンを終了せずに drain と再設定を行えます。
-
-### Homebrew での常駐化（macOS のみ）
-
-Homebrew でインストールした場合、設定と認証を済ませた後、
-`ghalet run` の代わりに `brew services` でバックグラウンド実行できます。
-フォアグラウンドで起動済みの場合は、先に Ctrl-C で停止してください。
-設定と認証を用意したユーザーで、`sudo` を付けずに実行します。
-デフォルトの設定ファイル `~/.config/ghalet/config.yaml` を使用します。
-
-```sh
-# 起動し、ログイン時の自動起動を有効化
-brew services start ghalet
-
-# 停止し、ログイン時の自動起動を無効化
-brew services stop ghalet
-```
-
-ログイン前には起動せず、ホストのスリープも防ぎません。
+[導入ガイド](docs/getting-started.ja.md#クイックスタート)に、認証、設定、workflow の作成、
+最初のジョブ実行までの手順をまとめています。
+[Homebrew による macOS の常駐化](docs/getting-started.ja.md#homebrew-での常駐化macos-のみ)
+も説明しています。継続運用では Linux は systemd、macOS は launchd を使用してください。
 
 ## コマンド
 
@@ -212,9 +113,12 @@ runner のアーカイブは固定バージョンを自動ダウンロードし�
 
 ## ドキュメント
 
-[ドキュメントサイト](https://songmu.github.io/ghalet/)では、この README と以下のガイドを
-英語・日本語で公開します。
+まずは[ドキュメントの目次](docs/index.ja.md)を参照してください。
+リポジトリ上でも[ドキュメントサイト](https://songmu.github.io/ghalet/)でも読めます。
+各ガイドは英語・日本語で用意しています。
 
+- [導入ガイド](docs/getting-started.ja.md): インストール、認証、最初の workflow、
+  サービスとしての常駐化。
 - [認証のセットアップ](docs/authentication.ja.md): 各方式のメリット・注意点、
   PAT と GitHub App の最小権限・作成手順・ローテーション。
 - [運用ガイド](docs/operations.ja.md): 認証、設定、実行環境、復旧、ログ、

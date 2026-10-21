@@ -2,11 +2,15 @@
 
 [日本語](README.ja.md)
 
-The site follows the Hugo/Hextra setup in Songmu/tagpr. It renders the repository
-README as the home page and the Markdown pages under `docs/` as guides.
-Edit those source files in both languages; no separate site content is maintained.
+The site follows the Hugo/Hextra setup in Songmu/tagpr. The Markdown files under
+`docs/` are the documentation sources, readable directly in the repository.
+`docs/index.md` and `docs/index.ja.md` become the site home pages, and
+`docs/getting-started.md` and its Japanese counterpart contain the installation
+and quick-start guide. The directory structure under `docs/` becomes the site
+structure. Edit those source files in both languages; no separate site content is maintained.
 The build adds frontmatter, checks translation pairs, and rewrites Markdown links
-for the site. Links to examples and other repository files stay on GitHub.
+for the site. The repository README introduces the project and links to the
+documentation; links to it, examples, and other repository files stay on GitHub.
 
 ## Local build
 

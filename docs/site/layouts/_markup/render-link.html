@@ -2,15 +2,15 @@
 {{- $parsed := urls.Parse $destination -}}
 {{- $href := $destination -}}
 {{- if and (not $parsed.IsAbs) (not $parsed.Host) (not (strings.HasPrefix $destination "#")) -}}
-  {{- $relative := strings.TrimPrefix "/" (path.Clean (path.Join .Page.File.Dir $parsed.Path)) -}}
-  {{- if or (eq $relative "README.md") (eq $relative "README.ja.md") (and (strings.HasPrefix $relative "docs/") (not (strings.HasPrefix $relative "docs/site/")) (strings.HasSuffix $relative ".md")) -}}
+  {{- $relative := strings.TrimPrefix "/" (path.Clean (path.Join "docs" .Page.File.Dir $parsed.Path)) -}}
+  {{- if and (strings.HasPrefix $relative "docs/") (not (strings.HasPrefix $relative "docs/site/")) (strings.HasSuffix $relative ".md") -}}
     {{- $language := "en" -}}
-    {{- $pagePath := strings.TrimSuffix ".md" $relative -}}
+    {{- $pagePath := strings.TrimPrefix "docs/" (strings.TrimSuffix ".md" $relative) -}}
     {{- if strings.HasSuffix $relative ".ja.md" -}}
       {{- $language = "ja" -}}
       {{- $pagePath = strings.TrimSuffix ".ja" $pagePath -}}
     {{- end -}}
-    {{- if strings.HasPrefix $relative "README" -}}
+    {{- if eq $pagePath "index" -}}
       {{- $pagePath = "" -}}
     {{- end -}}
     {{- $targetSite := index (where hugo.Sites "Language.Lang" $language) 0 -}}
