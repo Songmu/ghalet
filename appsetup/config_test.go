@@ -91,7 +91,7 @@ func TestWriteManagedCoordinatesWriters(t *testing.T) {
 	}
 
 	path := filepath.Join(directory, "managed.yaml")
-	before := []byte("version: 1\n")
+	before := []byte("{}\n")
 	if err := os.WriteFile(path, before, 0600); err != nil {
 		t.Fatal(err)
 	}

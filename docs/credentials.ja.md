@@ -63,7 +63,6 @@ LoadCredentialEncrypted=default:/etc/ghalet/credentials/default.cred
 
 ```yaml
 # /var/lib/ghalet/managed.yaml
-version: 1
 defaults:
   credential:
     type: pat
