@@ -189,7 +189,7 @@ func (prepared preparedConfig) confirm(ctx context.Context, state savedApp, inst
 		return nil, err
 	}
 	if !prepared.targetExists {
-		if _, err := fmt.Fprintf(output, "Add this target to %s before starting or applying:\n  - id: %s\n    scope: %s\n", options.Config, prepared.target.ID, options.Scope); err != nil {
+		if _, err := fmt.Fprintf(output, "Add this target to %s before starting or applying:\n  - id: %q\n    scope: %q\n", options.Config, prepared.target.ID, options.Scope); err != nil {
 			return nil, err
 		}
 		if prepared.before == nil {

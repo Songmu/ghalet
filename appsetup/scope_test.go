@@ -32,7 +32,7 @@ func TestSetupLeavesNewConfigToUserAndResumes(t *testing.T) {
 				t.Fatal("setup created static configuration", err)
 			}
 			if !strings.Contains(output.String(), "Suggested static configuration:") ||
-				!strings.Contains(output.String(), "id: "+want) {
+				!strings.Contains(output.String(), "id: \""+want+"\"") {
 				t.Fatal("setup did not print the required static configuration", output.String())
 			}
 			if err := os.MkdirAll(filepath.Dir(f.options.Config), 0700); err != nil {
@@ -63,6 +63,32 @@ func TestSetupLeavesNewConfigToUserAndResumes(t *testing.T) {
 				t.Fatal("repeated scope setup duplicated the target", err)
 			}
 		})
+	}
+}
+
+func TestSetupPrintsQuotedTargetForExistingConfig(t *testing.T) {
+	f := setupFixture(t, "owner/repo", "User")
+	f.options.ID = "null"
+	before, err := os.ReadFile(f.options.Config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	if _, err := f.run(t.Context(), f.options, nil, &output); err != nil {
+		t.Fatal(err)
+	}
+	_, suggestion, found := strings.Cut(output.String(), "before starting or applying:\n")
+	if !found {
+		t.Fatal("missing suggested target", output.String())
+	}
+	config, err := settings.ParseConfig(f.options.Config, append(before, suggestion...))
+	if err != nil {
+		t.Fatal("suggested target is not valid configuration", err)
+	}
+	target := config.Targets[len(config.Targets)-1]
+	if len(config.Targets) != 3 || target.ID != "null" ||
+		target.Credential.Type != "github-app" || target.InstallationID != 123 {
+		t.Fatal("suggested target did not activate its managed authentication", config.Targets)
 	}
 }
 
