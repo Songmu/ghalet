@@ -130,7 +130,8 @@ func (s service) run(ctx context.Context, options Options, input *os.File, outpu
 	}
 	ctx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
-	if errors.Is(err, os.ErrNotExist) {
+	newApp := errors.Is(err, os.ErrNotExist)
+	if newApp {
 		for _, path := range []string{diskKeyPath, diskKeyPath + ".previous"} {
 			if _, err := os.Lstat(path); !errors.Is(err, os.ErrNotExist) {
 				return Result{}, errors.New("credential already exists without setup metadata; use a different --id or import the existing App")
@@ -147,38 +148,44 @@ func (s service) run(ctx context.Context, options Options, input *os.File, outpu
 		if _, err := fmt.Fprintf(output, "Target: %s (%s)\nApp owner: %s\nRequested permission: %s (write)\n", target.ID, scope, owner, permission); err != nil {
 			return Result{}, err
 		}
-		created, err := s.create(ctx, options, scope, account.Type, permission, output)
-		if err != nil {
-			return Result{}, err
-		}
-		if created.ID <= 0 || created.ClientID == "" || !identifier.MatchString(created.Slug) || created.PEM == "" {
-			return Result{}, errors.New("GitHub returned incomplete App credentials; inspect the created App before retrying")
-		}
-		// The consumed Manifest code cannot recover the key; don't abandon it
-		// on cancellation or while another credential operation holds the lock.
-		storeContext := context.WithoutCancel(ctx)
-		storeOptions := credentialstore.Options{
-			Name: options.ID, Type: "github-app", Stdin: true, NoDefault: true, NoReplace: true,
-		}
-		var stored credentialstore.Result
-		for {
-			stored, err = s.saveKey(storeContext, storeOptions, strings.NewReader(created.PEM))
-			if !errors.Is(err, syscall.EWOULDBLOCK) {
-				break
+		err := s.create(ctx, options, scope, account.Type, permission, output, func(created app) error {
+			if created.ID <= 0 || created.ClientID == "" || !identifier.MatchString(created.Slug) || created.PEM == "" {
+				return errors.New("GitHub returned incomplete App credentials; inspect the created App before retrying")
 			}
-			time.Sleep(100 * time.Millisecond)
-		}
-		created.PEM = ""
+			// The consumed Manifest code cannot recover the key; don't abandon it
+			// on cancellation or while another credential operation holds the lock.
+			storeContext := context.WithoutCancel(ctx)
+			storeOptions := credentialstore.Options{
+				Name: options.ID, Type: "github-app", Stdin: true, NoDefault: true, NoReplace: true,
+			}
+			var stored credentialstore.Result
+			var err error
+			for {
+				stored, err = s.saveKey(storeContext, storeOptions, strings.NewReader(created.PEM))
+				if !errors.Is(err, syscall.EWOULDBLOCK) {
+					break
+				}
+				time.Sleep(100 * time.Millisecond)
+			}
+			created.PEM = ""
+			if err != nil {
+				return fmt.Errorf("save created App key: %w; inspect App %s in GitHub before retrying", err, created.Slug)
+			}
+			state = savedApp{ID: created.ID, ClientID: created.ClientID, Slug: created.Slug, Owner: created.Owner.Login, Scope: scope, KeyPath: stored.RuntimePath}
+			data, err := json.MarshalIndent(state, "", "  ")
+			if err != nil {
+				return err
+			}
+			if err := fshelper.WriteFileAtomic(metadataPath, data, 0600); err != nil {
+				return fmt.Errorf("save setup metadata: %w; key retained at %s for App %s", err, diskKeyPath, state.Slug)
+			}
+			if !strings.EqualFold(state.Owner, owner) {
+				return errors.New("created App owner does not match this target; App/key retained, inspect the App before retrying")
+			}
+			return nil
+		})
 		if err != nil {
-			return Result{}, fmt.Errorf("save created App key: %w; inspect App %s in GitHub before retrying", err, created.Slug)
-		}
-		state = savedApp{ID: created.ID, ClientID: created.ClientID, Slug: created.Slug, Owner: created.Owner.Login, Scope: scope, KeyPath: stored.RuntimePath}
-		data, err := json.MarshalIndent(state, "", "  ")
-		if err != nil {
-			return Result{}, err
-		}
-		if err := fshelper.WriteFileAtomic(metadataPath, data, 0600); err != nil {
-			return Result{}, fmt.Errorf("save setup metadata: %w; key retained at %s for App %s", err, diskKeyPath, state.Slug)
+			return Result{ClientID: state.ClientID, KeyPath: state.KeyPath, MetadataPath: metadataPath, Target: target.ID}, err
 		}
 	}
 	if !options.Systemd && state.KeyPath != keyPath {
@@ -206,7 +213,7 @@ func (s service) run(ctx context.Context, options Options, input *os.File, outpu
 	if err := ctx.Err(); err != nil {
 		return result, fmt.Errorf("setup interrupted: %w; App/key retained, rerun setup to resume", err)
 	}
-	if err := s.browse(ctx, options.NoBrowser, "https://github.com/apps/"+state.Slug+"/installations/new", output); err != nil {
+	if err := s.browse(ctx, options.NoBrowser || newApp, installationURL(state.Slug), output); err != nil {
 		return result, err
 	}
 	if _, err := fmt.Fprintln(output, "Waiting for installation on the target; rerun the same command to resume if interrupted."); err != nil {

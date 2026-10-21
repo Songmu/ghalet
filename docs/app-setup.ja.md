@@ -42,19 +42,29 @@ ghalet app setup --scope OWNER/REPO --config ./config.yaml --id build
    意図したアカウントでログインし、提案された App 名を確認して作成してください。
    Organization のポリシーやアカウントの権限によっては owner の操作が必要です。
 3. GitHub がローカルのコールバックへ戻ります。CLI は一時コードを交換して鍵と
-   公開の App 情報を保存し、インストール画面を開きます。
-4. 対象アカウントにインストールします。リポジトリの target では
+   公開の App 情報を保存してから **Install GitHub App** を表示します。
+   ボタンを押すと同じブラウザタブで先に進めます。インストール URL は端末にも表示します。
+4. 対象アカウントにインストールしてから端末へ戻ります。リポジトリの target では
    **Only select repositories** でそのリポジトリだけを選び、必要な承認を待ちます。
 5. CLI はインストールを検出し、App・アカウント・必要な書き込み権限を検証して、
    target の設定変更を表示します。`y` で保存するか、辞退して後から再開します。
    `--yes` が省略するのは最後の設定保存の確認だけで、GitHub 側の承認は省略しません。
+
+以下のブラウザ画面はサンプルデータを使っています。
+
+![GitHub App の作成画面](images/app-setup-create.png)
+
+![GitHub App のインストールリンク](images/app-setup-install.png)
 
 他の target と `defaults.credential` は変更しません。選択・追加した target に
 `type: github-app`、`clientId`、`privateKeyFile`、`installationId` を設定します。
 ユーザーの OAuth 認可や Webhook イベントは要求せず、Webhook の配信は無効です。
 作成した App は所有アカウント内だけで利用できます。
 
-一時的な loopback サーバーは Manifest の交換完了後または失敗時に終了します。
+一時的な loopback サーバーは App の認証情報を保存し、コールバック画面を返してから、
+または失敗時に終了します。読み込み済みのインストールリンクはサーバー終了後も使えます。
+既存 App からの再開時はインストール URL を端末に表示し、
+`--no-browser` がなければブラウザでも開きます。
 コールバックのランダムな `state` と Host を検証し、鍵をブラウザの画面・URL・
 コマンド出力には含めません。インストールの検出には App JWT を使い、
 ユーザートークンやブラウザから渡された installation ID は使いません。

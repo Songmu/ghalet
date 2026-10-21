@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ghalet App setup</title>
+  <style nonce="{{.Nonce}}">
+    :root { color-scheme: light; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #172b4d; background: #f3f6fa; }
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 48px 24px; line-height: 1.6; }
+    main { max-width: 720px; margin: 0 auto; }
+    header { display: flex; align-items: baseline; gap: 16px; margin-bottom: 32px; }
+    .brand { font-size: 28px; font-weight: 750; letter-spacing: -1px; }
+    .subtitle, .hint, footer { color: #52657b; font-size: 14px; }
+    .steps { display: flex; padding: 0; margin: 0 0 28px; list-style: none; gap: 20px; }
+    .steps li { flex: 1; border-top: 3px solid #dbe5ee; padding-top: 10px; color: #52657b; font-size: 14px; }
+    .steps li[aria-current] { color: #1c638d; border-color: #1c638d; font-weight: 650; }
+    .steps span { margin-right: 6px; }
+    .panel { background: #fff; border: 1px solid #dbe5ee; border-radius: 12px; padding: 36px; }
+    h1 { font-size: clamp(25px, 4vw, 32px); line-height: 1.2; letter-spacing: -0.6px; margin: 0 0 16px; }
+    p { margin: 0 0 20px; }
+    dl { margin: 28px 0; border-block: 1px solid #dbe5ee; padding: 8px 0; }
+    dl div { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 16px; padding: 10px 0; }
+    dt { color: #52657b; }
+    dd { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
+    .guidance { border-left: 3px solid #1c638d; padding-left: 16px; margin: 24px 0; }
+    .button { display: inline-block; border: 0; border-radius: 6px; padding: 12px 22px; background: #1c638d; color: #fff; font: inherit; font-weight: 650; text-decoration: none; cursor: pointer; }
+    .button:hover { background: #164f71; }
+    .button:focus-visible { outline: 3px solid #172b4d; outline-offset: 4px; }
+    .hint { margin: 16px 0 0; }
+    footer { margin-top: 24px; }
+    @media (max-width: 520px) {
+      body { padding: 24px 16px; }
+      header { margin-bottom: 24px; }
+      .panel { padding: 24px; }
+      .steps { gap: 12px; }
+      dl div { grid-template-columns: 1fr; gap: 2px; }
+      .button { width: 100%; text-align: center; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header><span class="brand">ghalet</span><span class="subtitle">GitHub App setup</span></header>
+    {{if not .Failed}}
+    <ol class="steps" aria-label="Setup progress">
+      <li {{if not .InstallationURL}}aria-current="step"{{end}}><span>1</span> Create App</li>
+      <li {{if .InstallationURL}}aria-current="step"{{end}}><span>2</span> Install App</li>
+      <li><span>3</span> Confirm in terminal</li>
+    </ol>
+    {{end}}
+    <section class="panel" aria-labelledby="heading">
+      {{if .Failed}}
+      <h1 id="heading">App setup needs attention</h1>
+      <p>Setup could not finish preparing your App. Return to the terminal for details and recovery instructions.</p>
+      <p>An App may already exist on GitHub. Check the terminal before trying again to avoid creating a duplicate.</p>
+      {{else if .InstallationURL}}
+      <h1 id="heading">Your App is ready to install</h1>
+      <p>Your App credentials have been saved locally. Next, install the App on the target account to connect your runners.</p>
+      <dl>
+        <div><dt>GitHub App</dt><dd>{{.Slug}}</dd></div>
+        <div><dt>Target</dt><dd>{{.Scope}}</dd></div>
+      </dl>
+      <p class="guidance">{{if .Repository}}Choose <strong>Only select repositories</strong> on GitHub and select <strong>{{.Scope}}</strong>.{{else}}Install the App on <strong>{{.Scope}}</strong>.{{end}} Wait for any required organization approval.</p>
+      <a class="button" href="{{.InstallationURL}}">Install GitHub App</a>
+      <p class="hint">After installation, return to the terminal to review and confirm your configuration.</p>
+      {{else}}
+      <h1 id="heading">Create your GitHub App</h1>
+      <p>Connect your runners with a private App owned by the target account. Review its name on GitHub before creating it.</p>
+      <dl>
+        <div><dt>Target</dt><dd>{{.Scope}}</dd></div>
+        <div><dt>Permission</dt><dd>{{if .Repository}}Repository administration{{else}}Organization self-hosted runners{{end}} (write)</dd></div>
+      </dl>
+      <p class="guidance">Sign in to GitHub as the intended account.{{if .Repository}} You will select the target repository when installing the App.{{else}} Your organization's policies may require an owner to create or install the App.{{end}}</p>
+      <form action="{{.Action}}" method="post">
+        <input type="hidden" name="manifest" value="{{.Manifest}}">
+        <button class="button" type="submit">Continue to GitHub</button>
+      </form>
+      <p class="hint">No webhooks or user OAuth authorization. The daemon will not be started or reconfigured.</p>
+      {{end}}
+    </section>
+    <footer>This temporary page is served by ghalet on your loopback address.</footer>
+  </main>
+</body>
+</html>
