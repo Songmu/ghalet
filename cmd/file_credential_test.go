@@ -79,6 +79,35 @@ func TestFileCredentialWithoutHomeOrConfig(t *testing.T) {
 	}
 }
 
+func TestCredentialConfigPaths(t *testing.T) {
+	home := testDirectory(t)
+	relative, err := filepath.Abs("selected.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name, home, config, want string
+		encrypted, noDefault     bool
+	}{
+		{name: "user default", home: home, want: filepath.Join(home, ".config", "ghalet", "config.yaml")},
+		{name: "systemd default without HOME", encrypted: true, want: "/etc/ghalet/config.yaml"},
+		{name: "relative selection without HOME", config: "selected.yaml", want: relative},
+		{name: "explicit selection with no default", config: "selected.yaml", noDefault: true, want: relative},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("HOME", tc.home)
+			args := []string{"default", "--stdin"}
+			if tc.noDefault {
+				args = append(args, "--no-default")
+			}
+			options, err := parseCredentialOptionsFor(args, tc.config, io.Discard, tc.encrypted)
+			if err != nil || options.Config != tc.want {
+				t.Fatalf("config = %q, %v; want %q", options.Config, err, tc.want)
+			}
+		})
+	}
+}
+
 func TestPrintFileCredentialResult(t *testing.T) {
 	var out bytes.Buffer
 	options := credentialstore.Options{Name: "app", Type: "github-app", Config: "config.yaml"}
