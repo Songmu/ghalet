@@ -100,9 +100,9 @@ func cleanupProcesses(t *testing.T, d *daemon) {
 				}
 				cancel()
 			}
-			if run.WaitDone != nil {
+			if run.output != nil {
 				select {
-				case <-run.WaitDone:
+				case <-run.output.done:
 				case <-time.After(10 * time.Second):
 					t.Error("test runner output collection did not finish")
 				}
@@ -504,7 +504,7 @@ func TestDrainedRequiresUncertainGroupAndObserverConfirmation(t *testing.T) {
 	d, _ := testDaemon(t)
 	state := testState(t, d.config)
 	state.ProcessDone = true
-	run := &activeRun{State: state, Uncertain: true, Stopping: true, WaitDone: make(chan struct{})}
+	run := &activeRun{State: state, Uncertain: true, Stopping: true, output: &runOutputState{done: make(chan struct{})}}
 	d.runs[state.RunID] = run
 	if d.drained("") {
 		t.Fatal("persisted stopped state bypassed uncertain group verification")
@@ -516,7 +516,7 @@ func TestDrainedRequiresUncertainGroupAndObserverConfirmation(t *testing.T) {
 	if d.occupied() != 1 {
 		t.Fatal("group absence released capacity before exit/output observers")
 	}
-	close(run.WaitDone)
+	close(run.output.done)
 	if d.drained("") {
 		t.Fatal("collected output bypassed local exit observation")
 	}
@@ -527,7 +527,7 @@ func TestDrainedRequiresUncertainGroupAndObserverConfirmation(t *testing.T) {
 	if d.occupied() != 0 || d.active("build") != 0 {
 		t.Fatal("confirmed stopped execution retained capacity")
 	}
-	run.WaitDone = nil
+	run.output = nil
 	run.Exited = false
 	if !d.drained("") {
 		t.Fatal("recovered execution required a nonexistent local exit observer")
@@ -607,14 +607,14 @@ func TestExitClassificationWaitsForCollectedReadiness(t *testing.T) {
 			if err := d.store.save(state); err != nil {
 				t.Fatal(err)
 			}
-			run := &activeRun{State: state, WaitDone: make(chan struct{}), Stopping: tc.stopping}
+			run := &activeRun{State: state, output: &runOutputState{done: make(chan struct{})}, Stopping: tc.stopping}
 			d.runs[state.RunID] = run
 			d.processEvent(runEvent{id: state.RunID, kind: "exit", err: tc.exitErr})
 			if !run.Exited || run.ExitResult == nil || target.Failures != maxAttempts-1 || target.Fault != "" {
 				t.Fatal("direct exit was not observed or was classified before output collection")
 			}
-			run.OutputReady = tc.ready
-			close(run.WaitDone)
+			run.output.ready = tc.ready
+			close(run.output.done)
 			reconcileAndWait(d)
 			if d.runs[state.RunID] != nil || run.ExitResult != nil {
 				t.Fatal("collected exit did not finish classification and cleanup")
@@ -1035,7 +1035,7 @@ func testRecoveredRunner(t *testing.T, missingCompletion bool) {
 	}
 	cleanupProcesses(t, d)
 	run := d.runs[state.RunID]
-	if run == nil || run.Uncertain || run.State.ProcessDone || d.occupied() != 1 || run.WaitDone != nil {
+	if run == nil || run.Uncertain || run.State.ProcessDone || d.occupied() != 1 || run.output != nil {
 		t.Fatalf("reparented runner not safely adopted: %+v", run)
 	}
 	if missingCompletion {

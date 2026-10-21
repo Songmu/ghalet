@@ -133,12 +133,12 @@ func TestCleanupDoesNotCountPendingObserversAsAttempt(t *testing.T) {
 	d, _ := testDaemon(t)
 	state := testState(t, d.config)
 	state.ProcessDone = true
-	run := &activeRun{State: state, WaitDone: make(chan struct{})}
+	run := &activeRun{State: state, output: &runOutputState{done: make(chan struct{})}}
 	d.runs[state.RunID] = run
 	if err := d.cleanup(run); err == nil || run.CleanupTried || !run.CleanupRetryAt.IsZero() || d.drained("build") {
 		t.Fatal("pending output counted as a cleanup attempt", err)
 	}
-	close(run.WaitDone)
+	close(run.output.done)
 	if err := d.cleanup(run); err == nil || run.CleanupTried || !run.CleanupRetryAt.IsZero() || d.drained("build") {
 		t.Fatal("pending exit observation counted as a cleanup attempt", err)
 	}
@@ -271,7 +271,7 @@ func TestGCWaitsForOutputCollectionBeforeArchiving(t *testing.T) {
 	if err := os.WriteFile(source, []byte("partial output"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	run := &activeRun{State: state, WaitDone: make(chan struct{}), JITSecrets: d.secrets.AddJIT("test-jit-secret")}
+	run := &activeRun{State: state, output: &runOutputState{done: make(chan struct{})}, JITSecrets: d.secrets.AddJIT("test-jit-secret")}
 	d.runs[state.RunID] = run
 	for _, dryRun := range []bool{true, false} {
 		response := d.gc(t.Context(), dryRun)
@@ -288,8 +288,8 @@ func TestGCWaitsForOutputCollectionBeforeArchiving(t *testing.T) {
 	if err := os.WriteFile(source, []byte("complete output test-jit-secret\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	run.OutputReady = true
-	close(run.WaitDone)
+	run.output.ready = true
+	close(run.output.done)
 	if response := d.gc(t.Context(), false); response.Error != "" || d.runs[state.RunID] == nil || state.ProcessDone {
 		t.Fatal("gc cleaned output before observing the runner exit", response.Error)
 	}
@@ -317,8 +317,8 @@ func TestGCReportsOutputCollectionFailureWithoutDeletingLogs(t *testing.T) {
 	if err := os.WriteFile(source, []byte("retained output"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	run := &activeRun{State: state, WaitDone: make(chan struct{}), Exited: true, OutputError: errTestAPI}
-	close(run.WaitDone)
+	run := &activeRun{State: state, output: &runOutputState{done: make(chan struct{}), err: errTestAPI}, Exited: true}
+	close(run.output.done)
 	d.runs[state.RunID] = run
 	response := d.gc(t.Context(), false)
 	if response.Error == "" || d.runs[state.RunID] == nil || !strings.Contains(state.Error, "collect runner output") || !run.CleanupRetryAt.IsZero() {
