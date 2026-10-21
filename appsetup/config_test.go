@@ -82,30 +82,13 @@ func TestAppendTargetDoesNotInheritAppInstallation(t *testing.T) {
 	}
 }
 
-func TestWriteNewConfigRejectsConcurrentCreation(t *testing.T) {
-	f := setupFixture(t, "owner/repo", "User")
-	path := filepath.Join(filepath.Dir(f.options.Config), "new.yaml")
-	for _, content := range []string{"", "targets: []\n"} {
-		if err := os.WriteFile(path, []byte(content), 0600); err != nil {
-			t.Fatal(err)
-		}
-		if err := writeConfig(path, nil, []byte("targets: []\n")); err == nil {
-			t.Fatal("new configuration overwrote a concurrently created file")
-		}
-		data, err := os.ReadFile(path)
-		if err != nil || string(data) != content {
-			t.Fatal("concurrent configuration changed", err)
-		}
-	}
-}
-
-func TestWriteConfigCoordinatesWriters(t *testing.T) {
+func TestWriteManagedCoordinatesWriters(t *testing.T) {
 	directory, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(directory, "config.yaml")
-	before := []byte("targets: []\n")
+	path := filepath.Join(directory, "managed.yaml")
+	before := []byte("version: 1\n")
 	if err := os.WriteFile(path, before, 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -113,19 +96,22 @@ func TestWriteConfigCoordinatesWriters(t *testing.T) {
 	if err := os.Symlink(directory, link); err != nil {
 		t.Fatal(err)
 	}
-	alias := filepath.Join(link, "config.yaml")
+	alias, err := settings.ManagedPath(filepath.Join(directory, "config.yaml"), filepath.Join(link, "managed.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	after := append(bytes.Clone(before), []byte("# updated\n")...)
 	lock, err := fshelper.LockFile(path + ".lock")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer lock.Close()
-	if err := writeConfig(alias, before, after); err == nil {
-		t.Fatal("setup ignored another configuration writer's lock")
+	if err := settings.WriteManaged(alias, before, after); err == nil {
+		t.Fatal("setup ignored another managed writer's lock")
 	}
 	actual, err := os.ReadFile(path)
 	if err != nil || !bytes.Equal(actual, before) {
-		t.Fatal("locked configuration was modified", err)
+		t.Fatal("locked managed file was modified", err)
 	}
 	lock.Close()
 	start := make(chan struct{})
@@ -133,7 +119,7 @@ func TestWriteConfigCoordinatesWriters(t *testing.T) {
 	for range 2 {
 		go func() {
 			<-start
-			results <- writeConfig(alias, before, after)
+			results <- settings.WriteManaged(alias, before, after)
 		}()
 	}
 	close(start)

@@ -26,7 +26,9 @@ ghalet app setup --scope OWNER/REPO --config ./config.yaml --id build
 別の設定ファイルには `--config PATH` を使います。
 デフォルトは `~/.config/ghalet/config.yaml` です。
 `--scope` は常に必須で、GitHub.com の Organization / リポジトリの HTTPS URL も使えます。
-確認後に設定ファイルの作成、または target の追加を行います。
+確認後に別の [managed ファイル](operations.ja.md#セットアップで管理する情報)へ認証情報を保存します。
+静的な設定ファイルの作成・書き換えは行いません。新しい target では表示された YAML を
+設定へ追加してください。設定ファイルがなければ、設定全体の案も表示します。
 同じ scope の既存 target があれば再利用します。複数一致する場合の選択や、
 同じ scope に別の target を追加する場合は `--id` を指定します。
 一致する target と明示的な ID がなければ、scope を小文字にし、`/` と `.` を
@@ -47,7 +49,7 @@ ghalet app setup --scope OWNER/REPO --config ./config.yaml --id build
 4. 対象アカウントにインストールしてから端末へ戻ります。リポジトリの target では
    **Only select repositories** でそのリポジトリだけを選び、必要な承認を待ちます。
 5. CLI はインストールを検出し、App・アカウント・必要な書き込み権限を検証して、
-   target の設定変更を表示します。`y` で保存するか、辞退して後から再開します。
+   target の managed 情報を表示します。`y` で保存するか、辞退して後から再開します。
    `--yes` が省略するのは最後の設定保存の確認だけで、GitHub 側の承認は省略しません。
 
 以下のブラウザ画面はサンプルデータを使っています。
@@ -56,8 +58,10 @@ ghalet app setup --scope OWNER/REPO --config ./config.yaml --id build
 
 ![GitHub App のインストールリンク](images/app-setup-install.png)
 
-他の target と `defaults.credential` は変更しません。選択・追加した target に
-`type: github-app`、`clientId`、`privateKeyFile`、`installationId` を設定します。
+他の target と `defaults.credential` は変更しません。managed の target エントリーに
+scope、`type: github-app`、`clientId`、`privateKeyFile`、`installationId` を保存します。
+有効になるのは静的設定に記載された target だけで、その target に認証を明示していれば
+managed の情報より優先します。
 ユーザーの OAuth 認可や Webhook イベントは要求せず、Webhook の配信は無効です。
 作成した App は所有アカウント内だけで利用できます。
 
@@ -69,7 +73,7 @@ ghalet app setup --scope OWNER/REPO --config ./config.yaml --id build
 コマンド出力には含めません。インストールの検出には App JWT を使い、
 ユーザートークンやブラウザから渡された installation ID は使いません。
 
-保存した設定を確認してから実行します。
+保存した managed 情報を確認し、表示された静的設定があれば追加してから実行します。
 
 ```sh
 ghalet config validate
@@ -110,9 +114,12 @@ sudo systemctl enable --now ghalet
 
 設定先のデフォルトは `/etc/ghalet/config.yaml` です。`--config PATH` で変更できますが、
 サービス unit の `ExecStart` や設定先は変更しません。
-設定を新規作成する場合は、パッケージ用の `runner.user: ghalet-runner` と
-`logs.root: /var/log/ghalet/runners` も設定します。既存の runner・ログ設定は保持します。
-サービス起動前に設定を確認してください。
+設定がなければ、パッケージ用の `runner.user: ghalet-runner` と
+`logs.root: /var/log/ghalet/runners` を含む案を表示します。
+検証・起動前に選択した config パスへ保存してください。セットアップでは書き込みません。
+`/etc/ghalet/config.yaml` に対する managed 情報のデフォルト保存先は
+`/var/lib/ghalet/managed.yaml` です。別の config パスでは `managedFile` を明示するか、
+サービスと同じ `STATE_DIRECTORY` を一貫して使ってください。起動前に設定を確認してください。
 
 root でブラウザを起動しなくて済むよう、デフォルトでは URL を表示します。
 SSH では上記のポート転送を使い、systemd コマンドに
@@ -151,13 +158,14 @@ GitHub で App 作成後、認証情報の保存前にコールバックや交�
 エラーに保持した鍵のパスを表示します。むやみに App を再作成せず、
 既存 App の設定と認証情報の手動取り込みを使ってください。
 
-設定ファイルは実行ユーザーが所有し、他のユーザーが書き込めないものだけを更新します。
-コメントは保持しますが、YAML の書式やエイリアスが正規化される場合があります。
+静的設定は読み取り専用やシンボリックリンクでも利用でき、内容・書式・権限を変更しません。
+managed ファイルは実行ユーザー所有で、他ユーザーが書き込めない必要があります。
+managed の同時更新は拒否します。
 インストール権限の検証で runner group のアクセス設定は変更しません。
 
 既存 App の鍵には、新しい App を作らず
 [`ghalet systemd credential set`](credentials.ja.md#github-app-と追加の認証情報)を使います。
-`--no-default` を指定しなければ共通設定を更新しますが、
+`--no-default` を指定しなければ managed の共通設定を更新しますが、
 target に明示された認証設定が引き続き優先されます。
 
 App の秘密鍵は有効期限がなく、installation token は自動更新します。

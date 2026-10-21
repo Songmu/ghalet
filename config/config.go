@@ -49,6 +49,7 @@ func (d *Duration) UnmarshalYAML(unmarshal func(any) error) error {
 }
 
 type Config struct {
+	ManagedFile string         `yaml:"managedFile"`
 	Defaults    DefaultsConfig `yaml:"defaults"`
 	Capacity    CapacityConfig `yaml:"capacity"`
 	Targets     []Target       `yaml:"targets"`
@@ -68,11 +69,11 @@ type CapacityConfig struct {
 
 type Credential struct {
 	Type           string `yaml:"type"`
-	Hostname       string `yaml:"hostname"`
-	TokenEnv       string `yaml:"tokenEnv"`
-	TokenFile      string `yaml:"tokenFile"`
-	ClientID       string `yaml:"clientId"`
-	PrivateKeyFile string `yaml:"privateKeyFile"`
+	Hostname       string `yaml:"hostname,omitempty"`
+	TokenEnv       string `yaml:"tokenEnv,omitempty"`
+	TokenFile      string `yaml:"tokenFile,omitempty"`
+	ClientID       string `yaml:"clientId,omitempty"`
+	PrivateKeyFile string `yaml:"privateKeyFile,omitempty"`
 }
 
 func (c *Credential) UnmarshalYAML(unmarshal func(any) error) error {
@@ -86,14 +87,15 @@ func (c *Credential) UnmarshalYAML(unmarshal func(any) error) error {
 }
 
 type Target struct {
-	ID             string        `yaml:"id"`
-	URL            string        `yaml:"scope"`
-	Credential     Credential    `yaml:"credential"`
-	InstallationID int64         `yaml:"installationId"`
-	RunnerGroup    string        `yaml:"runnerGroup"`
-	ScaleSetName   string        `yaml:"scaleSet"`
-	Scaling        ScalingConfig `yaml:"scaling"`
-	credentialSet  bool
+	ID              string        `yaml:"id"`
+	URL             string        `yaml:"scope"`
+	Credential      Credential    `yaml:"credential"`
+	InstallationID  int64         `yaml:"installationId"`
+	RunnerGroup     string        `yaml:"runnerGroup"`
+	ScaleSetName    string        `yaml:"scaleSet"`
+	Scaling         ScalingConfig `yaml:"scaling"`
+	credentialSet   bool
+	installationSet bool
 }
 
 func (t *Target) UnmarshalYAML(unmarshal func(any) error) error {
@@ -111,6 +113,7 @@ func (t *Target) UnmarshalYAML(unmarshal func(any) error) error {
 	}
 	*t = Target(value)
 	_, t.credentialSet = fields["credential"]
+	_, t.installationSet = fields["installationId"]
 	return nil
 }
 
@@ -259,16 +262,27 @@ func ParseConfig(path string, content []byte) (*Config, error) {
 			return nil, fmt.Errorf("resolve log directory: %w", err)
 		}
 	}
-	resolveCredential := func(cred *Credential) {
-		if cred.TokenFile != "" {
-			cred.TokenFile = resolve(cred.TokenFile)
-		}
-		if cred.PrivateKeyFile != "" {
-			cred.PrivateKeyFile = resolve(cred.PrivateKeyFile)
-		}
+	c.ManagedFile, err = ManagedPath(path, c.ManagedFile)
+	if err != nil {
+		return nil, fmt.Errorf("resolve managed file: %w", err)
 	}
 	if c.Defaults.Credential != nil {
-		resolveCredential(c.Defaults.Credential)
+		resolveCredentialPaths(c.Defaults.Credential, base)
+	}
+	for i := range c.Targets {
+		target := &c.Targets[i]
+		resolveCredentialPaths(&target.Credential, base)
+		if !strings.Contains(target.URL, ":") {
+			target.URL = "https://github.com/" + target.URL
+		}
+		target.URL = strings.TrimRight(target.URL, "/")
+	}
+	managed, _, err := ReadManaged(c.ManagedFile)
+	if err != nil {
+		return nil, fmt.Errorf("load managed file: %w", err)
+	}
+	if err := c.mergeManaged(managed); err != nil {
+		return nil, err
 	}
 	for i := range c.Targets {
 		target := &c.Targets[i]
@@ -278,11 +292,6 @@ func ParseConfig(path string, content []byte) (*Config, error) {
 		if target.ScaleSetName == "" {
 			target.ScaleSetName = target.ID
 		}
-		resolveCredential(&target.Credential)
-		if !strings.Contains(target.URL, ":") {
-			target.URL = "https://github.com/" + target.URL
-		}
-		target.URL = strings.TrimRight(target.URL, "/")
 	}
 	if err := c.Validate(); err != nil {
 		return nil, err
@@ -429,6 +438,9 @@ func (c *Config) validateDirectories() error {
 		return fmt.Errorf("resolve config directory: %w", err)
 	}
 	for i, path := range paths {
+		if within(path, c.ManagedFile) || within(path, c.ManagedFile+".lock") {
+			return fmt.Errorf("managedFile must be outside runner and log directories: %s", c.ManagedFile)
+		}
 		if !filepath.IsAbs(path) || path == "/" || within(path, config) || (home != "" && within(path, home)) {
 			return fmt.Errorf("unsafe managed directory %q", path)
 		}

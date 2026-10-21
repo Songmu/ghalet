@@ -85,9 +85,9 @@ func parseCredentialOptionsFor(args []string, config string, errOut io.Writer, e
 	fs.BoolVar(&options.Prompt, "prompt", false, "ask for a PAT without displaying it")
 	fs.StringVar(&options.File, "file", "", "owner-only file containing a PAT or App private key")
 	fs.BoolVar(&options.Stdin, "stdin", false, "read the secret from standard input")
-	fs.StringVar(&options.Config, "config", config, "configuration to update with defaults.credential")
+	fs.StringVar(&options.Config, "config", config, "static configuration whose managed defaults to update")
 	fs.StringVar(&options.ClientID, "client-id", "", "GitHub App client ID (not a secret)")
-	fs.BoolVar(&options.NoDefault, "no-default", false, "register without changing defaults.credential")
+	fs.BoolVar(&options.NoDefault, "no-default", false, "register without changing managed defaults.credential")
 	fs.Usage = func() {
 		fmt.Fprintf(errOut, "Usage: ghalet %s set NAME [--prompt|--file PATH|--stdin] [options]\n", command)
 		fs.PrintDefaults()
@@ -118,7 +118,7 @@ func printFileCredentialResult(out io.Writer, options credentialstore.Options, r
 		return err
 	}
 	if !options.NoDefault {
-		if _, err := fmt.Fprintf(out, "Updated defaults.credential in %s.\n", options.Config); err != nil {
+		if _, err := fmt.Fprintf(out, "Updated defaults.credential in managed file %s.\nExplicit credentials in %s remain authoritative.\n", result.ManagedPath, options.Config); err != nil {
 			return err
 		}
 	}
@@ -142,7 +142,7 @@ func printCredentialResult(out io.Writer, options credentialstore.Options, resul
 		return err
 	}
 	if !options.NoDefault {
-		if _, err := fmt.Fprintf(out, "Updated defaults.credential in %s.\n", options.Config); err != nil {
+		if _, err := fmt.Fprintf(out, "Updated defaults.credential in managed file %s.\nExplicit credentials in %s remain authoritative.\n", result.ManagedPath, options.Config); err != nil {
 			return err
 		}
 	}

@@ -11,6 +11,13 @@ additionalProperties: false
 required:
   - targets
 properties:
+  managedFile:
+    type: string
+    minLength: 1
+    description: |
+      Persistent setup information, separate from this static configuration.
+      Relative paths use this configuration's directory. Defaults to a
+      configuration-specific file in the state directory.
   defaults:
     type: object
     additionalProperties: false

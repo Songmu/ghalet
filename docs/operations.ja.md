@@ -82,6 +82,46 @@ ID は全 target 間で一意とし、先頭を英数字とする 1〜64 文字�
 App の `installationId` は credential ではなく target に属するため、
 複数のインストールで 1 つの App キーを共有できます。
 
+### セットアップで管理する情報
+
+App セットアップと認証情報の登録は、静的な設定ファイルを書き換えません。
+永続的なセットアップ情報は、バージョン付きの別の managed ファイルに保存します。
+シークレット本体は認証ファイルに保持し、どちらの YAML にも直接書きません。
+既存の手書き認証設定は、managed ファイルなしでも引き続き使えます。
+
+標準のユーザー設定に対するデフォルト保存先は `<StateDir>/managed.yaml` です。
+`/etc/ghalet/config.yaml` では、サービス外でも `/var/lib/ghalet/managed.yaml` を使います。
+ただし `STATE_DIRECTORY` があれば、その state を優先します。
+その他の設定では `<StateDir>/managed/<設定パスのSHA-256>.yaml` を使います。
+識別には `--config` の有無によらず、正規化した設定の絶対パスを使うため、
+独自の設定ファイルを移動するとデフォルトの managed 保存先も変わります。
+
+`managedFile` で保存先を変更できます。相対パスは静的設定のディレクトリ基準です。
+
+```yaml
+managedFile: /var/lib/ghalet/managed.yaml
+```
+
+独自の systemd 設定では、絶対パスの `managedFile` を指定するか、セットアップ・検証・
+サービスで同じ `STATE_DIRECTORY` を使ってください。別の config を選んでも unit は変わりません。
+managed ファイルは runner の実行・キャッシュ・ログ用ディレクトリの外に配置します。
+生成時は所有者限定とし、既存の managed ファイルも管理ユーザー所有の通常ファイルで、
+他ユーザーが書き込めない必要があります。
+認証情報と App の再開用情報に加え、managed ファイルもバックアップしてください。
+
+有効になるのは静的設定に記載した target だけです。managed の target は ID と正規化した
+scope で照合し、古い scope と一致しなければ認証を流用せず拒否します。
+target に `credential` または `installationId` を明示した場合、managed の target 認証は
+適用しません。それ以外は managed の credential と installation を一まとまりで使い、
+共通設定より優先します。共通設定では静的な `defaults.credential` が managed 側より優先し、
+どちらもなければ `gh` を使います。認証設定をフィールド単位で混ぜることはありません。
+managed ファイル内の相対パスは、そのファイルのディレクトリ基準です。
+
+既存設定で生成された共通認証を使う場合は、静的な `defaults.credential` を意図的に削除してください。
+登録コマンドによる自動削除はしません。target の手書き認証も、managed 側を使うときだけ削除します。
+managed ファイルがなければ空として扱い、不正な形式や未対応のバージョンはエラーにします。
+反映は起動時または明示的な `apply` 時だけで、systemd の認証情報には従来どおり再起動の制約があります。
+
 [コメント付きサンプル](../examples/config.yaml)の任意の `yaml-language-server` コメントで、
 `schema.yaml` をエディターの補完・検証用に指定できます。設定バージョンのフィールドは
 不要です。登録先の重複、最小容量、

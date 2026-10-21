@@ -88,6 +88,51 @@ digits, underscores or hyphens, starting with a letter or digit.
 App `installationId` belongs to the target, not its credential, so multiple
 installations can share a single App key.
 
+### Managed setup information
+
+App setup and credential registration never rewrite the static configuration.
+They save persistent setup information in a separate, versioned managed file;
+secrets remain in credential files, not inline in either YAML document.
+Existing handwritten credentials continue to work without a managed file.
+
+The default managed file is `<StateDir>/managed.yaml` for the standard user
+configuration. `/etc/ghalet/config.yaml` uses `/var/lib/ghalet/managed.yaml`
+outside the service too, unless `STATE_DIRECTORY` selects another state root.
+Other configuration paths use `<StateDir>/managed/<SHA-256-of-config-path>.yaml`.
+The identity is the normalized absolute config path, regardless of whether
+`--config` was supplied; moving a custom configuration changes its default
+managed path.
+
+Override the path with `managedFile`; relative paths use the static config's
+directory:
+
+```yaml
+managedFile: /var/lib/ghalet/managed.yaml
+```
+
+For a custom systemd configuration, set an absolute `managedFile` or run setup,
+validation and the service with the same `STATE_DIRECTORY`. Selecting another
+config does not change the service unit. Keep the managed file outside runner
+execution, cache and log directories. Generated files are owner-only; existing
+managed files must be regular, owned by the controller and not writable by others.
+Back up the managed file along with credentials and App resume metadata.
+
+Only static targets become active. Managed target entries are matched by ID and
+normalized scope; a stale scope mismatch is rejected instead of reusing another
+target's authentication. Explicit target `credential` or `installationId` prevents
+managed target authentication from being applied. Otherwise a managed target's
+credential and installation are used together, ahead of shared defaults.
+For shared defaults, static `defaults.credential` wins over the managed default;
+without either, authentication remains `gh`. Credentials are replaced as units,
+never merged field by field. Paths inside the managed file use its own directory.
+
+To adopt generated defaults for an existing configuration, remove the static
+`defaults.credential` deliberately; registration does not remove it for you.
+Likewise, remove a target's handwritten authentication only when choosing to use
+its managed entry. A missing managed file is treated as empty; malformed or
+unsupported files are errors. Changes take effect only at startup or explicit
+`apply`, subject to the same systemd credential restart requirements as before.
+
 The [commented example](../examples/config.yaml) includes an optional
 `yaml-language-server` comment selecting `schema.yaml` for editor completion
 and validation. No configuration version field is needed.

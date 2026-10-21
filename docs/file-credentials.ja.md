@@ -37,14 +37,15 @@ StateDir は `STATE_DIRECTORY`、未設定なら `$XDG_STATE_HOME/ghalet` また
 `~/.local/state/ghalet` に従います。デーモンと同じ環境で登録してください。
 認証ファイルは `runs/`・`logs/` と分離し、`ghalet gc` では削除しません。
 
-選択した設定ファイルの `defaults.credential` を、`type: pat` / `tokenFile`、
-または `type: github-app` / `clientId` / `privateKeyFile` に置き換えます。
+選択した設定に対応する [managed ファイル](operations.ja.md#セットアップで管理する情報)の
+`defaults.credential` に、`type: pat` / `tokenFile`、
+または `type: github-app` / `clientId` / `privateKeyFile` を保存します。
 パスは絶対パスです。デフォルト設定は `~/.config/ghalet/config.yaml` で、
 `--config PATH` で変更できます。`--client-id` を省略すると、既存の App 共通設定の
 client ID を再利用します。各 App target の `installationId` は別途必要です。
-target に明示した認証設定は変更しません。
+静的な設定ファイルは変更せず、そこに明示した共通設定と target の認証設定を優先します。
 
-`--no-default` は設定を書き換えずに保存します。表示されたパスを利用したい target に
+`--no-default` は managed の共通設定を変更せずに保存します。表示されたパスを利用したい target に
 指定してください。名前の規則は [systemd の認証情報名](credentials.ja.md#github-app-と追加の認証情報)
 と同じです。既存の安全でない権限やシンボリックリンクは、自動修正せず拒否します。
 

@@ -21,8 +21,9 @@ import (
 func fileOptions(t *testing.T) (string, Options) {
 	t.Helper()
 	root := testDirectory(t)
+	t.Setenv("STATE_DIRECTORY", filepath.Join(root, "state"))
 	path := filepath.Join(root, "config.yaml")
-	if err := os.WriteFile(path, []byte("# retained\ntargets:\n  - id: build\n    scope: owner/repo\n"), 0600); err != nil {
+	if err := os.WriteFile(path, []byte("# retained\nmanagedFile: managed.yaml\ntargets:\n  - id: build\n    scope: owner/repo\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	return filepath.Join(root, "credentials"), Options{Name: "default", Type: "pat", Stdin: true, Config: path}
@@ -30,6 +31,10 @@ func fileOptions(t *testing.T) (string, Options) {
 
 func TestFileRegistrationAndRotation(t *testing.T) {
 	directory, options := fileOptions(t)
+	staticBefore, err := os.ReadFile(options.Config)
+	if err != nil {
+		t.Fatal(err)
+	}
 	first, err := setFile(t.Context(), directory, options, strings.NewReader("first-secret\n"))
 	if err != nil {
 		t.Fatal(err)
@@ -37,6 +42,10 @@ func TestFileRegistrationAndRotation(t *testing.T) {
 	config, err := settings.LoadConfig(options.Config)
 	if err != nil || config.Targets[0].Credential.TokenFile != first.RuntimePath {
 		t.Fatal("credential default not configured", config, err)
+	}
+	staticAfter, err := os.ReadFile(options.Config)
+	if err != nil || !bytes.Equal(staticBefore, staticAfter) {
+		t.Fatal("registration rewrote static configuration", err)
 	}
 	for path, mode := range map[string]os.FileMode{directory: 0700, first.RuntimePath: 0600} {
 		info, err := os.Stat(path)
@@ -111,7 +120,11 @@ func TestCredentialWritersHonorConfigLock(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			lock, err := fshelper.LockFile(options.Config + ".lock")
+			managedPath, err := settings.ManagedPath(options.Config, "managed.yaml")
+			if err != nil {
+				t.Fatal(err)
+			}
+			lock, err := fshelper.LockFile(managedPath + ".lock")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -220,7 +233,7 @@ func TestFileCredentialRollback(t *testing.T) {
 			var writes []string
 			writeAtomic := func(destination string, data []byte, mode os.FileMode) error {
 				writes = append(writes, destination)
-				fail := (stage == "credential-write" && destination == path) || destination == options.Config
+				fail := (stage == "credential-write" && destination == path) || destination == original.ManagedPath
 				restoreFail := stage == "restore" && destination == path && string(data) == "old-secret"
 				if fail || restoreFail {
 					backup, err := os.ReadFile(previousPath)
@@ -240,7 +253,7 @@ func TestFileCredentialRollback(t *testing.T) {
 			}
 			wantWrites := []string{previousPath, path}
 			if stage != "credential-write" {
-				wantWrites = append(wantWrites, options.Config, path)
+				wantWrites = append(wantWrites, original.ManagedPath, path)
 			}
 			if !slices.Equal(writes, wantWrites) {
 				t.Fatal("unexpected write/restore sequence", writes)

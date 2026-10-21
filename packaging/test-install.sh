@@ -58,7 +58,7 @@ STATE_DIRECTORY=/var/lib/ghalet CACHE_DIRECTORY=/var/cache/ghalet \
 grep -qx '  user: ghalet-runner' /etc/ghalet/config.yaml
 grep -qx 'logs:' /etc/ghalet/config.yaml
 grep -qx '  root: /var/log/ghalet/runners' /etc/ghalet/config.yaml
-grep -q 'tokenFile: /run/credentials/ghalet.service/default' /etc/ghalet/config.yaml
+! grep -q '^defaults:' /etc/ghalet/config.yaml
 touch /var/lib/ghalet/retained-state /etc/ghalet/credentials/retained-credential \
   /var/log/ghalet/retained-log
 chmod 0600 /var/lib/ghalet/retained-state /etc/ghalet/credentials/retained-credential

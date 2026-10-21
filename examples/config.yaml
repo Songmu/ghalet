@@ -1,6 +1,7 @@
 # yaml-language-server: $schema=https://raw.githubusercontent.com/Songmu/ghalet/main/schema.yaml
 
 # Relative paths use this file's directory.
+# managedFile: managed.yaml # Override the configuration-specific state path.
 
 # capacity:
 #   maxRunners: 2 # Total runner limit.

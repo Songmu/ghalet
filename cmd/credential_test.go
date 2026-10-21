@@ -118,6 +118,7 @@ func TestPrintCredentialResult(t *testing.T) {
 				EncryptedPath: "/etc/ghalet/credentials/default.cred",
 				DropInPath:    "/etc/systemd/system/ghalet.service.d/credential-default.conf",
 				RuntimePath:   "/run/credentials/ghalet.service/default",
+				ManagedPath:   "/var/lib/ghalet/managed.yaml",
 			}
 			field := "tokenFile"
 			if tc.kind == "github-app" {
@@ -128,7 +129,7 @@ func TestPrintCredentialResult(t *testing.T) {
 				"Systemd drop-in: /etc/systemd/system/ghalet.service.d/credential-default.conf\n" +
 				field + ": /run/credentials/ghalet.service/default\n"
 			if !tc.noDefault {
-				want += "Updated defaults.credential in /etc/ghalet/config.yaml.\n"
+				want += "Updated defaults.credential in managed file /var/lib/ghalet/managed.yaml.\nExplicit credentials in /etc/ghalet/config.yaml remain authoritative.\n"
 			}
 			if tc.rotation {
 				result.PreviousPath = result.EncryptedPath + ".previous"

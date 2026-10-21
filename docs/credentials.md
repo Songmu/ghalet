@@ -58,21 +58,20 @@ The command writes its dedicated drop-in and runs `systemctl daemon-reload`:
 LoadCredentialEncrypted=default:/etc/ghalet/credentials/default.cred
 ```
 
-It also replaces `defaults.credential` in `/etc/ghalet/config.yaml`, preserving
-other settings and comments. YAML formatting may be normalized. Select a
-different configuration with `--config PATH`; the unit still uses
-`/etc/ghalet/config.yaml`, so selecting another file does not change its
-`ExecStart`. Referenced target credentials are not rewritten.
+It also saves `defaults.credential` in `/var/lib/ghalet/managed.yaml`, without
+rewriting `/etc/ghalet/config.yaml`. Static defaults and explicit target
+authentication remain authoritative. Select a different configuration with
+`--config PATH`; this does not change the unit's `ExecStart`.
+See [managed setup information](operations.md#managed-setup-information) for
+path overrides, custom systemd configurations and precedence.
 
 ```yaml
+# /var/lib/ghalet/managed.yaml
+version: 1
 defaults:
   credential:
     type: pat
     tokenFile: /run/credentials/ghalet.service/default
-
-targets:
-  - id: project
-    scope: OWNER/REPO
 ```
 
 Only targets that omit `credential` inherit the shared default;
@@ -101,13 +100,13 @@ sudo ghalet systemd credential set app-work-key --type github-app \
   --client-id APP_CLIENT_ID --file /secure/app.pem
 ```
 
-This replaces the shared default with `type: github-app`, `clientId`, and
+This replaces the managed shared default with `type: github-app`, `clientId`, and
 `privateKeyFile: /run/credentials/ghalet.service/app-work-key`. An existing
 App default's client ID is reused if `--client-id` is omitted. Each target
 using it must set its own `installationId`; the command does not guess it.
 Installation tokens are acquired by the existing SDK, not entered manually.
 
-Use `--no-default` to register another secret without modifying the YAML:
+Use `--no-default` to register another secret without modifying managed defaults:
 
 ```sh
 sudo ghalet systemd credential set secondary --prompt --no-default

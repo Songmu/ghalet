@@ -35,7 +35,7 @@ func app(ctx context.Context, args []string, config string, out, errOut io.Write
 	if systemd {
 		message = "The service was not started or restarted. Validate the configuration, then start it explicitly; an existing service needs a normal stop and successful shutdown before starting it with updated systemd credentials."
 	}
-	_, err = fmt.Fprintf(out, "Configured target %s with installation %d.\n%s\n", result.Target, result.InstallationID, message)
+	_, err = fmt.Fprintf(out, "Saved managed authentication for target %s with installation %d.\n%s\n", result.Target, result.InstallationID, message)
 	return err
 }
 
@@ -50,12 +50,12 @@ func parseAppOptions(args []string, config string, errOut io.Writer, systemd boo
 	options := appsetup.Options{Config: config, Systemd: systemd}
 	fs := flag.NewFlagSet("ghalet "+command+" setup", flag.ContinueOnError)
 	fs.SetOutput(errOut)
-	fs.StringVar(&options.Config, "config", config, "configuration to create or update")
+	fs.StringVar(&options.Config, "config", config, "static configuration whose managed file to update")
 	fs.StringVar(&options.Scope, "scope", "", "required GitHub.com scope: OWNER/REPO or ORG")
 	fs.StringVar(&options.ID, "id", "", "target and credential ID (derived from scope by default)")
 	fs.StringVar(&options.Listen, "listen", "127.0.0.1:0", "loopback callback address; use a fixed port for SSH forwarding")
 	fs.BoolVar(&options.NoBrowser, "no-browser", systemd, "print browser URLs without opening them (default for systemd)")
-	fs.BoolVar(&options.Yes, "yes", false, "write the displayed target configuration without a confirmation prompt")
+	fs.BoolVar(&options.Yes, "yes", false, "write the displayed managed information without a confirmation prompt")
 	fs.Usage = func() {
 		fmt.Fprintf(errOut, "Usage: ghalet %s setup --scope OWNER/REPO|ORG [options]\n", command)
 		fs.PrintDefaults()
