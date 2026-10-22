@@ -24,7 +24,7 @@
 自動選択します。複数ある場合は `ghalet list` で管理 UID、ソケット、稼働中の
 スナップショットを確認し、`--config PATH` で選択してください。設定を明示した場合は、
 別の設定を使うデーモンには切り替わりません。見つからない場合、管理コマンドは
-ユーザーごとのデフォルト設定を使い、`gc` は従来どおりロック取得後にオフラインで
+ユーザーごとのデフォルト設定を使い、`gc` はロック取得後にオフラインで
 保守を行えます。`list --config PATH` は一覧を絞り込み、ファイルの存在は要求しません。
 
 探索では、ファイルシステムの権限に従って `/tmp/ghalet-<UID>/` の非公開 Unix ソケットに
@@ -34,7 +34,7 @@
 非公開でないソケットは無視し、削除しません。PID やプロセス名による推測は行いません。
 応答サイズの上限は 4 MiB です。操作時にも接続相手の UID を確認し、デーモンの設定が
 選択したパスと一致しなければ操作を拒否します。
-CLI の更新時はデーモンも再起動してください。旧デーモンは新しい設定照合付きの要求を拒否します。
+CLI の更新時はデーモンも再起動してください。
 
 設定ファイルはカレントディレクトリや `/etc` から探索しません。相対パスの基準は、
 シェルのカレントディレクトリではなく、選択した設定ファイルのディレクトリです。
@@ -83,7 +83,6 @@ target を一意に識別します。scope や runner group が異なれば同�
 status 出力には scope・runner group・Scale Set 名も含めます。
 App の `installationId` は credential に属し、client ID と鍵のパスと一緒に継承します。
 異なるインストールでは、別々の credential から同じ鍵のパスを参照できます。
-旧形式の target 直下の `installationId` は `credential` 配下へ移動してください。
 共通のインストールを使う場合は `defaults.credential` にまとめられます。
 
 ### セットアップで管理する情報
@@ -91,7 +90,7 @@ App の `installationId` は credential に属し、client ID と鍵のパスと
 App セットアップは不足する target 登録を静的設定に追加し、認証情報の登録コマンドは
 静的設定を変更しません。どちらも認証情報は別の managed ファイルに保存します。
 シークレット本体は認証ファイルに保持し、どちらの YAML にも直接書きません。
-既存の手書き認証設定は、managed ファイルなしでも引き続き使えます。
+手書きの認証設定には managed ファイルは不要です。
 
 標準のユーザー設定に対するデフォルト保存先は `<StateDir>/managed.yaml` です。
 `/etc/ghalet/config.yaml` では、サービス外でも `/var/lib/ghalet/managed.yaml` を使います。
@@ -123,18 +122,15 @@ managed ファイル内の相対パスは、そのファイルのディレクト
 
 既存設定で生成された共通認証を使う場合は、静的な `defaults.credential` を意図的に削除してください。
 または `app setup --overwrite` を使ってください。target の手書き認証も、managed 側を使うときだけ削除します。
-managed ファイルがなければ空として扱い、不正な形式や未対応のバージョンはエラーにします。
-反映は起動時または明示的な `apply` 時だけで、systemd の認証情報には従来どおり再起動の制約があります。
+managed ファイルがなければ空として扱い、不正な形式はエラーにします。
+反映は起動時または明示的な `apply` 時だけで、systemd の認証情報にはサービスの再起動が必要です。
 
 [コメント付きサンプル](../examples/config.yaml)の任意の `yaml-language-server` コメントで、
-`schema.yaml` をエディターの補完・検証用に指定できます。設定バージョンのフィールドは
-不要です。登録先の重複、最小容量、
+`schema.yaml` をエディターの補完・検証用に指定できます。登録先の重複、最小容量、
 管理ディレクトリの安全性などの制約も確認するには `ghalet config validate` を使ってください。
 
-古い設定では `apiVersion` を削除し、トップレベルの `scopes` / `credentials` を
-各 target に移してください。`scopeRef` / `credentialRef` は使いません。
-`scaleSetName` は `scaleSet` に変更します。旧キーを含む未知のキーは、静的設定・managed 設定の
-どの階層でも許容し、無視します。既知の項目の値の検証と YAML キーの重複の拒否は引き続き行います。
+未知のキーは、静的設定・managed 設定のどの階層でも許容し、無視します。
+既知の項目の値は検証し、YAML キーの重複は拒否します。
 
 デフォルトの `gh` 認証では、ghalet の実行環境に GitHub CLI をインストールし、
 実際にサービスを起動するアカウントでログインしてください。ghalet は 15 秒の期限で
@@ -170,12 +166,20 @@ ghalet run --config /path/to/config.yaml
 ```
 
 `runner.user` で別の既存アカウントを指定しない限り、ジョブは起動ユーザーで実行します。
-ユーザーの切り替えには root が必要です。root で起動する場合は、非 root の実行ユーザーを
-明示する必要があります。ghalet はユーザーを作成・削除せず、root ジョブは拒否します。
+非 root の管理プロセスは、パスワード不要の sudo でユーザーを切り替えられます。
+管理ユーザーは runner アカウントのプライマリグループに所属する必要があります。
+[パッケージの sudo 設定](../packaging/sudoers)は、ghalet の runner 用ヘルパーだけを
+`ghalet-runner` として実行することを許可します。独自に導入する場合は、この設定の
+管理ユーザー、runner のユーザー・グループ、実行ファイルのパスを合わせてください。
+ヘルパーは runner の起動、プロセスの識別情報を確認した停止シグナルの送信、
+停止後のログ保存・削除のための共有グループへのファイル公開を行います。
+ジョブを root で実行せず、管理用認証情報も受け取りません。
+管理プロセスを root で起動して直接切り替えることもできますが、
+非 root の `runner.user` を明示する必要があります。
+CLI はユーザーを作成・削除せず、root ジョブは拒否します。
 公式 runner は、自身のディレクトリからファイルシステムの root まで、すべての親で
 一覧取得と通過ができる必要があります。管理対象の実行用親ディレクトリ（`workRoot`、
-target、run）は `0755` で作成し、既存の `0711` は使用時に移行します。
-Linux パッケージは `/var/lib/ghalet` も `0755` に移行します。
+target、run）と、Linux パッケージの `/var/lib/ghalet` の権限は `0755` です。
 ディレクトリ名は見えますが、所有者は管理ユーザーのままで、他ユーザーは書き込めません。
 ステートファイルとロックファイルは所有者のみアクセスできます。
 管理対象外の親ディレクトリは変更しないため、runner ユーザーが一覧取得・通過できるようにしてください。
@@ -415,7 +419,6 @@ ghalet はプロセスの識別情報を再検証し、確認できなければ�
 collector への依存はありません。
 
 runner 開始イベントとアーカイブのメタデータの `scope` は登録先 URL です。
-旧ステートの `scopeRef` は読み取り可能ですが、認証情報の選択や登録の識別には使いません。
 
 `logs` は runner ログの保存設定で、デーモンの標準出力・標準エラーは対象外です。
 `logs.preserve: true` では、実行領域の削除前に `output.log` と `_diag/**/*.log` を
@@ -454,7 +457,13 @@ Linux パッケージや Docker Compose で導入する場合は、
 [パッケージとコンテナ](distribution.ja.md)を参照してください。
 以下はサービスを手動で導入する場合の手順です。
 
-Linux では、専用の `ghalet` ユーザーを事前に作成し、
+Linux では、専用の `ghalet` と `ghalet-runner` ユーザーを、それぞれ利用できる
+ホームディレクトリとともに事前に作成します。`ghalet` を runner のプライマリーグループ
+`ghalet-runner` に追加し、逆方向には追加しないでください。
+`runner.user: ghalet-runner` を設定し、
+[`packaging/sudoers`](../packaging/sudoers) を root 所有、モード `0440` で
+`/etc/sudoers.d/ghalet` に配置します。実行ファイルのパスを `/usr/local/bin/ghalet` に
+調整し、`visudo -cf /etc/sudoers.d/ghalet` で検証してください。
 `examples/ghalet.service` を `/etc/systemd/system/` にコピーして、
 `/etc/ghalet/config.yaml` に設定を配置します。unit は `StateDirectory=ghalet` と
 `CacheDirectory=ghalet` で `/var/lib/ghalet` と `/var/cache/ghalet` をサービスユーザー用に
@@ -481,8 +490,9 @@ macOS ネイティブでは `examples/com.github.ghalet.plist` の絶対パス�
 `AbandonProcessGroup` は false で、launchd がコントローラー自身のグループも cleanup
 します。別の runner グループには[前述の guard](#容量再試行停止)を使います。
 LaunchAgent はログイン時に起動し、ログイン前には起動しません。スリープも防ぎません。
-別の実行ユーザーを使う場合は、管理者が管理する LaunchDaemon と `runner.user` を
-使ってください。LaunchAgent がユーザーを切り替えられるとは想定しないでください。
+別の runner ユーザーを使う場合は、`runner.user` と、前述のグループ所属・
+パスワード不要の sudo を設定します。ログイン前から起動する場合は、管理者が管理する
+LaunchDaemon を使い、`UserName` にコントローラーのアカウントを指定してください。
 実際のログイン・サービス環境で、キーチェーンへのアクセスと停止動作を確認してください。
 
 Apple Silicon の Lima では、`examples/lima.yaml` が VZ、4 vCPU、8 GiB メモリー、

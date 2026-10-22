@@ -17,6 +17,7 @@ import (
 	"syscall"
 	"time"
 
+	settings "github.com/Songmu/ghalet/config"
 	"github.com/Songmu/ghalet/fshelper"
 )
 
@@ -399,7 +400,12 @@ func (s credentialStore) set(ctx context.Context, options Options, input io.Read
 	if err != nil {
 		return result, err
 	}
-	updates := credentialUpdates{writeAtomic: fshelper.WriteFileAtomic}
+	updates := credentialUpdates{writeAtomic: func(path string, data []byte, mode os.FileMode) error {
+		if !options.NoDefault && path == config.original.path {
+			return settings.WriteManagedFile(path, data)
+		}
+		return fshelper.WriteFileAtomic(path, data, mode)
+	}}
 	rollback := func(cause error) error {
 		cause = updates.rollback(cause, previousPath, "previous encrypted credential")
 		// Reload the restored unit even if the caller canceled the operation.

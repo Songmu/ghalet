@@ -148,7 +148,7 @@ func ReadManaged(path string) (*Managed, []byte, error) {
 		return nil, nil, err
 	}
 	stat, ok := info.Sys().(*syscall.Stat_t)
-	if !info.Mode().IsRegular() || !ok || int(stat.Uid) != os.Geteuid() || info.Mode().Perm()&0022 != 0 {
+	if !info.Mode().IsRegular() || !ok || (os.Geteuid() != 0 && int(stat.Uid) != os.Geteuid()) || info.Mode().Perm()&0022 != 0 {
 		return nil, nil, errors.New("managed file must be a regular file owned by the current user and not writable by others")
 	}
 	data, err := io.ReadAll(io.LimitReader(file, maxManagedBytes+1))
@@ -273,5 +273,24 @@ func WriteManaged(path string, before, after []byte) error {
 	if (before == nil) != (current == nil) || !bytes.Equal(before, current) {
 		return errors.New("managed file changed during setup; saved App is retained, rerun setup")
 	}
-	return fshelper.WriteFileAtomic(path, after, 0600)
+	return WriteManagedFile(path, after)
+}
+
+// WriteManagedFile publishes a managed document owned by its storage directory's
+// owner when an administrator writes it on behalf of the service account.
+// Callers must coordinate writers and validate the prepared document first.
+func WriteManagedFile(path string, data []byte) error {
+	uid, gid := -1, -1
+	if os.Geteuid() == 0 {
+		info, err := os.Stat(filepath.Dir(path))
+		if err != nil {
+			return err
+		}
+		stat, ok := info.Sys().(*syscall.Stat_t)
+		if !ok {
+			return errors.New("cannot identify managed directory owner")
+		}
+		uid, gid = int(stat.Uid), int(stat.Gid)
+	}
+	return fshelper.WriteFileAtomicWithOwner(path, data, 0600, uid, gid)
 }

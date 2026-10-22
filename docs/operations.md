@@ -36,8 +36,7 @@ Stale, unresponsive, unrelated, symlinked and insecure socket entries are
 ignored, not deleted. Responses are limited to 4 MiB. Management operations
 also verify the connected peer's UID and require the daemon's config to match
 the selected path. No PID or process-name guessing is used.
-Restart the daemon when upgrading the CLI; older daemons reject the new
-config-checked requests.
+Restart the daemon when upgrading the CLI.
 
 No working-directory or `/etc` config search is performed. Relative paths
 are based on the selected config's directory, not the shell's current
@@ -89,15 +88,14 @@ registration identifies local state, credentials and diagnostic `targetId`
 fields; status output also includes the scope, runner group and scale set name.
 App `installationId` belongs to the credential and is inherited with the App's
 client ID and key path. Different installations can reference the same key path
-in separate credentials. Move any old target-level `installationId` into its
-`credential` mapping; for a shared installation, put it in `defaults.credential`.
+in separate credentials. For a shared installation, put it in `defaults.credential`.
 
 ### Managed setup information
 
 App setup adds missing target registrations to the static configuration;
 credential registration leaves it unchanged. Both save authentication in a separate managed file;
 secrets remain in credential files, not inline in either YAML document.
-Existing handwritten credentials continue to work without a managed file.
+Handwritten credentials do not require a managed file.
 
 The default managed file is `<StateDir>/managed.yaml` for the standard user
 configuration. `/etc/ghalet/config.yaml` uses `/var/lib/ghalet/managed.yaml`
@@ -133,21 +131,18 @@ never merged field by field. Paths inside the managed file use its own directory
 To adopt generated defaults for an existing configuration, remove the static
 `defaults.credential` deliberately, or use `app setup --overwrite`.
 Likewise, remove a target's handwritten authentication only when choosing to use
-its managed entry. A missing managed file is treated as empty; malformed or
-unsupported files are errors. Changes take effect only at startup or explicit
-`apply`, subject to the same systemd credential restart requirements as before.
+its managed entry. A missing managed file is treated as empty; malformed
+files are errors. Changes take effect only at startup or explicit
+`apply`; systemd credentials require a service restart.
 
 The [commented example](../examples/config.yaml) includes an optional
 `yaml-language-server` comment selecting `schema.yaml` for editor completion
-and validation. No configuration version field is needed.
+and validation.
 Use `ghalet config validate` to also check constraints such as conflicting
 registrations, minimum capacities, and managed directory safety.
 
-For older configurations, remove `apiVersion`, move top-level `scopes` /
-`credentials` into each target instead of using `scopeRef` / `credentialRef`,
-and rename `scaleSetName` to `scaleSet`. Unknown keys, including legacy keys,
-are accepted and ignored at every level of static and managed configuration.
-Known fields are still validated, and duplicate YAML keys are rejected.
+Unknown keys are accepted and ignored at every level of static and managed
+configuration. Known fields are validated, and duplicate YAML keys are rejected.
 
 For the default `gh` authentication, install GitHub CLI where ghalet runs
 and log in as the account that actually starts the service. ghalet runs
@@ -183,13 +178,21 @@ ghalet run --config /path/to/config.yaml
 ```
 
 Jobs run as the launching user unless `runner.user` names another existing
-account. Switching users requires root; root must explicitly select a
-non-root account. ghalet never creates or deletes users and refuses root
-jobs. The official runner must list and traverse every ancestor of its
+account. A non-root controller can switch users through non-interactive sudo;
+it must belong to the runner account's primary group. The
+[packaged sudo policy](../packaging/sudoers) permits only ghalet's runner-user
+helper as `ghalet-runner`. For a custom installation, adjust the management
+user, runner user/group, and executable path in that policy.
+The helper launches runners, sends identity-checked stop signals, and makes
+runner-owned files accessible to the shared group after shutdown for log
+archiving and cleanup. It never runs jobs as root or receives management
+credentials. Running the controller as root also supports direct user switching,
+but requires an explicit non-root `runner.user`.
+The CLI never creates or deletes users and refuses root jobs.
+The official runner must list and traverse every ancestor of its
 directory, up to the filesystem root. Managed execution parents (`workRoot`,
-target and run directories) are created with mode `0755`; existing `0711`
-parents are upgraded when used. The Linux package also upgrades
-`/var/lib/ghalet` to `0755`. Directory names are visible, but these parents
+target and run directories) use mode `0755`, as does the Linux package's
+`/var/lib/ghalet`. Directory names are visible, but these parents
 remain management-owned and are not writable by other users; state and lock
 files remain owner-only. Custom ancestors outside these managed directories
 are not changed: make them listable and traversable by the runner user.
@@ -447,8 +450,7 @@ OTel conversion externally. There is no embedded HTTP health endpoint,
 metrics exporter, OTel SDK or collector dependency.
 
 The `scope` field in runner-start events and archive metadata is the
-registration URL. Legacy state `scopeRef` fields remain readable but do not
-select credentials or determine registration identity.
+registration URL.
 
 The `logs` settings control runner log archives, not daemon stdout/stderr.
 With `logs.preserve: true`, `output.log` and `_diag/**/*.log` are archived to
@@ -489,8 +491,13 @@ For packaged Linux installation or Docker Compose, see
 [packages and containers](distribution.md). The instructions below cover
 manual service installation.
 
-For Linux, precreate a dedicated `ghalet` user,
-copy `examples/ghalet.service` into `/etc/systemd/system/`, and place the
+For Linux, precreate dedicated `ghalet` and `ghalet-runner` users with accessible
+home directories. Add `ghalet` to the runner's primary group, `ghalet-runner`,
+but not the reverse. Set `runner.user: ghalet-runner` and install
+[`packaging/sudoers`](../packaging/sudoers) as `/etc/sudoers.d/ghalet`, owned by
+root with mode `0440`; adjust its executable path to `/usr/local/bin/ghalet`
+and validate it with `visudo -cf /etc/sudoers.d/ghalet`.
+Copy `examples/ghalet.service` into `/etc/systemd/system/`, and place the
 configuration at `/etc/ghalet/config.yaml`. The unit uses `StateDirectory=ghalet`
 and `CacheDirectory=ghalet` to create `/var/lib/ghalet` and `/var/cache/ghalet`
 for the service user and pass them through `STATE_DIRECTORY` and `CACHE_DIRECTORY`.
@@ -518,9 +525,10 @@ infinite launchd stop wait and is deliberately avoided. `AbandonProcessGroup`
 is false so launchd also cleans up the controller's own group. Separate runner
 groups use the [guards described above](#capacity-retries-and-shutdown).
 LaunchAgents start at login, not before login, and do not prevent sleep.
-For another execution user, use an
-administrator-managed LaunchDaemon and set `runner.user`; do not assume a
-LaunchAgent can change users. Test keychain access and shutdown behavior in
+For another runner user, set `runner.user` and configure group membership and
+non-interactive sudo as described above. For startup before login, use an
+administrator-managed LaunchDaemon with `UserName` set to the controller account.
+Test keychain access and shutdown behavior in
 the actual login/service context.
 
 For Apple Silicon Lima, `examples/lima.yaml` supplies an Ubuntu 26.04 ARM64 VM

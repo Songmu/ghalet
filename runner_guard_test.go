@@ -36,7 +36,33 @@ func waitGuardFile(t *testing.T, path string) []byte {
 }
 
 func TestRunnerGuardKillsGroupWhenControllerIsKilled(t *testing.T) {
+	testRunnerGuardKillsGroupWhenControllerIsKilled(t, "")
+}
+
+func TestSudoRunnerGuardKillsGroupWhenControllerIsKilled(t *testing.T) {
+	name := os.Getenv("GHALET_TEST_RUNNER_USER")
+	if name == "" {
+		t.Skip("requires a disposable host with a runner-user sudo policy")
+	}
+	testRunnerGuardKillsGroupWhenControllerIsKilled(t, name)
+}
+
+func testRunnerGuardKillsGroupWhenControllerIsKilled(t *testing.T, runnerUser string) {
+	t.Helper()
 	d, _ := testDaemon(t)
+	if runnerUser != "" {
+		d.config.Runner.User = runnerUser
+		d.config.Runner.WorkRoot = filepath.Join(sharedExecutionTestDirectory(t), "runs")
+		d.store = stateStore{root: d.config.Runner.WorkRoot}
+		account, err := resolveUser(runnerUser)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !account.Sudo {
+			t.Fatal("sudo guard test requires distinct non-root accounts")
+		}
+		d.user = account
+	}
 	cleanupProcesses(t, d)
 	state := testState(t, d.config)
 	state.Phase = "registered"
@@ -51,6 +77,11 @@ func TestRunnerGuardKillsGroupWhenControllerIsKilled(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(state.RunnerDir, "bin", "Runner.Listener"), []byte(script), 0700); err != nil {
 		t.Fatal(err)
 	}
+	if d.user.Sudo {
+		if err := shareRunnerDirectory(state.RunnerDir, d.user.GID); err != nil {
+			t.Fatal(err)
+		}
+	}
 	logFile, err := os.Create(filepath.Join(state.RunnerDir, "controller.log"))
 	if err != nil {
 		t.Fatal(err)
@@ -59,6 +90,9 @@ func TestRunnerGuardKillsGroupWhenControllerIsKilled(t *testing.T) {
 	controller := exec.Command(os.Args[0], "-test.run=^TestRunnerGuardControllerHelper$")
 	dataPath := filepath.Join(filepath.Dir(state.RunnerDir), "state.json")
 	controller.Env = append(os.Environ(), "GHALET_GUARD_TEST_CONFIG="+d.config.Path, "GHALET_GUARD_TEST_STATE="+dataPath)
+	if d.user.Sudo {
+		controller.Env = append(controller.Env, "GHALET_GUARD_TEST_RUNNER_USER="+runnerUser, "GHALET_GUARD_TEST_WORK_ROOT="+d.config.Runner.WorkRoot)
+	}
 	controller.Stdout, controller.Stderr = logFile, logFile
 	controller.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if err := controller.Start(); err != nil {
@@ -159,6 +193,9 @@ func TestRunnerGuardControllerHelper(t *testing.T) {
 	config, err := settings.LoadConfig(os.Getenv("GHALET_GUARD_TEST_CONFIG"))
 	if err != nil {
 		t.Fatal(err)
+	}
+	if name := os.Getenv("GHALET_GUARD_TEST_RUNNER_USER"); name != "" {
+		config.Runner.User, config.Runner.WorkRoot = name, os.Getenv("GHALET_GUARD_TEST_WORK_ROOT")
 	}
 	d, err := newDaemon(config)
 	if err != nil {

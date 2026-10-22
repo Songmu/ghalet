@@ -194,6 +194,14 @@ func Inspect(state Group, table map[int]Entry) (bool, []ProcessIdentity, error) 
 // persist must durably record verified members before returning nil; it is called
 // before the first signal and whenever inspection discovers changed membership.
 func Stop(ctx context.Context, state Group, persist func([]ProcessIdentity) error) error {
+	return StopWithSignal(ctx, state, persist, func(group Group, signal syscall.Signal) error {
+		return syscall.Kill(-group.Process.PGID, signal)
+	})
+}
+
+// StopWithSignal preserves Stop's identity and persistence checks while
+// delegating signals to a caller authorized to act as the execution user.
+func StopWithSignal(ctx context.Context, state Group, persist func([]ProcessIdentity) error, signal func(Group, syscall.Signal) error) error {
 	saved := false
 	inspect := func() (bool, error) {
 		table, err := Snapshot(ctx, []ProcessIdentity{state.Process})
@@ -217,7 +225,7 @@ func Stop(ctx context.Context, state Group, persist func([]ProcessIdentity) erro
 	if err != nil || !alive {
 		return err
 	}
-	if err := syscall.Kill(-state.Process.PGID, syscall.SIGTERM); err != nil && !errors.Is(err, syscall.ESRCH) {
+	if err := signal(state, syscall.SIGTERM); err != nil && !errors.Is(err, syscall.ESRCH) {
 		return err
 	}
 	for i := 0; i < 30; i++ {
@@ -231,7 +239,7 @@ func Stop(ctx context.Context, state Group, persist func([]ProcessIdentity) erro
 			return err
 		}
 		if i == 19 {
-			if err := syscall.Kill(-state.Process.PGID, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
+			if err := signal(state, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
 				return err
 			}
 		}

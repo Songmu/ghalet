@@ -9,6 +9,7 @@ Type=notify
 NotifyAccess=main
 User=ghalet
 Group=ghalet
+SupplementaryGroups=ghalet-runner
 Environment=PATH=/usr/local/bin:/usr/bin:/bin
 StateDirectory=ghalet
 StateDirectoryMode=0755

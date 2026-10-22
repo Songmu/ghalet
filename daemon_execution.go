@@ -4,6 +4,7 @@ package ghalet
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
@@ -12,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/Songmu/ghalet/fshelper"
@@ -123,10 +125,25 @@ func (d *daemon) prepare(ctx context.Context, target *targetRuntime, run *active
 				return err
 			}
 		}
+	} else if d.user.Sudo {
+		for _, dir := range []string{state.RunnerDir, state.Workspace} {
+			if err := shareRunnerDirectory(dir, d.user.GID); err != nil {
+				return err
+			}
+		}
 	}
 	check := exec.CommandContext(ctx, "/bin/sh", "-c", `test -d "$HOME" && test -w "$1" && test -x "$2"`, "ghalet-access", state.Workspace, filepath.Join(state.RunnerDir, "bin", "Runner.Listener"))
 	check.Dir, check.Env, check.SysProcAttr = state.RunnerDir, runnerEnvironment(config, d.user, ""), processAttributes(d.user)
-	if err := check.Run(); err != nil {
+	var checkErr error
+	if d.user.Sudo {
+		checkErr = callRunnerUser(ctx, d.user, runnerUserRequest{
+			Operation: "check", RunnerDir: state.RunnerDir, Workspace: state.Workspace,
+			Environment: runnerEnvironment(config, d.user, ""),
+		})
+	} else {
+		checkErr = check.Run()
+	}
+	if err := checkErr; err != nil {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
@@ -242,19 +259,61 @@ func (d *daemon) launch(ctx context.Context, run *activeRun, jit string) (retErr
 		config = d.config
 	}
 	command.Dir, command.Env, command.SysProcAttr = state.RunnerDir, runnerEnvironment(config, d.user, jit), processAttributes(d.user)
+	var requestInput io.Reader
+	if d.user.Sudo {
+		command, err = runnerUserCommand(context.Background(), d.user, runnerUserRequest{
+			Operation: "launch", RunnerDir: state.RunnerDir,
+			Environment: runnerEnvironment(config, d.user, jit),
+		})
+		if err != nil {
+			writer.Close()
+			return err
+		}
+		requestInput, command.Stdin = command.Stdin, input
+		command.Dir = state.RunnerDir
+	}
 	command.Stdout, command.Stderr = logOutput, logOutput
+	if d.user.Sudo {
+		command.Stdout = reportOutput
+	}
 	if err := command.Start(); err != nil {
 		writer.Close()
 		return err
 	}
 	spawned = true
+	input.Close()
+	reportOutput.Close()
 	logOutput.Close()
-	// The child waits on fd 3. No runner can execute until its identity has
-	// been durably recorded; controller death closes the gate without exec.
-	table, err := procgroup.Snapshot(ctx, []procgroup.ProcessIdentity{{PID: command.Process.Pid}})
+	// No runner can execute until its identity has been durably recorded;
+	// controller death closes the launch gate without exec.
+	pid := command.Process.Pid
+	if d.user.Sudo {
+		exitReport.SetReadDeadline(time.Now().Add(15 * time.Second))
+		output.SetWriteDeadline(time.Now().Add(15 * time.Second))
+		cancelRead := context.AfterFunc(ctx, func() {
+			exitReport.SetReadDeadline(time.Now())
+			output.SetWriteDeadline(time.Now())
+		})
+		var reported int64
+		_, err = io.Copy(output, requestInput)
+		if err == nil {
+			err = binary.Read(exitReport, binary.LittleEndian, &reported)
+		}
+		cancelRead()
+		exitReport.SetReadDeadline(time.Time{})
+		output.SetWriteDeadline(time.Time{})
+		if err == nil && (reported <= 1 || int64(int(reported)) != reported) {
+			err = errors.New("invalid sudo runner identity")
+		}
+		pid = int(reported)
+	}
+	var table map[int]procgroup.Entry
+	if err == nil {
+		table, err = procgroup.Snapshot(ctx, []procgroup.ProcessIdentity{{PID: pid}})
+	}
 	if err == nil {
 		var identity procgroup.ProcessIdentity
-		identity, err = procgroup.LaunchedIdentity(table, command.Process.Pid, d.user.UID)
+		identity, err = procgroup.LaunchedIdentity(table, pid, d.user.UID)
 		if err == nil {
 			state.Process = identity
 			state.Members = []procgroup.ProcessIdentity{identity}
@@ -390,9 +449,14 @@ func (d *daemon) stop(run *activeRun, forced bool) error {
 	run.Stopping = true
 	ctx, cancel := context.WithTimeout(d.ctx, 10*time.Second)
 	defer cancel()
-	err := procgroup.Stop(ctx, run.State.processGroup(), func(members []procgroup.ProcessIdentity) error {
+	err := procgroup.StopWithSignal(ctx, run.State.processGroup(), func(members []procgroup.ProcessIdentity) error {
 		run.State.Members = members
 		return d.save(run)
+	}, func(group procgroup.Group, signal syscall.Signal) error {
+		if d.user.Sudo {
+			return callRunnerUser(ctx, d.user, runnerUserRequest{Operation: "signal", Group: group, Signal: signal})
+		}
+		return syscall.Kill(-group.Process.PGID, signal)
 	})
 	if err != nil {
 		return err
@@ -445,6 +509,13 @@ func (d *daemon) cleanup(run *activeRun) error {
 	config := run.Config
 	if config == nil {
 		config = d.config
+	}
+	if d.user.Sudo && run.State.Process.PID != 0 {
+		if err := callRunnerUser(d.ctx, d.user, runnerUserRequest{
+			Operation: "release", RunnerDir: run.State.RunnerDir, Workspace: run.State.Workspace,
+		}); err != nil {
+			return fail(err, cleanupRetryable(err))
+		}
 	}
 	if config.Logs.Preserve {
 		state := run.State
