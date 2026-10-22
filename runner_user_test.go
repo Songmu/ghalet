@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -15,6 +16,59 @@ import (
 	"github.com/Songmu/ghalet/fshelper"
 	"github.com/Songmu/ghalet/procgroup"
 )
+
+func TestRunnerUserRequestPreservesLivenessStream(t *testing.T) {
+	data, err := json.Marshal(runnerUserRequest{Operation: "check"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name string
+		size int
+	}{
+		{"small", len(data) + 1},
+		{"near limit", maxRunnerUserRequestBytes - len("ready\n")},
+		{"at limit", maxRunnerUserRequestBytes},
+		{"oversized", maxRunnerUserRequestBytes + 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			payload := append(bytes.Clone(data), bytes.Repeat([]byte(" "), tc.size-len(data)-1)...)
+			payload = append(payload, []byte("\nready\nalive")...)
+			input, output := io.Pipe()
+			written := make(chan struct{})
+			go func() {
+				defer close(written)
+				output.Write(payload)
+			}()
+			defer func() {
+				input.Close()
+				output.Close()
+				<-written
+			}()
+			request, reader, err := readRunnerUserRequest(input)
+			if tc.size > maxRunnerUserRequestBytes {
+				if err == nil {
+					t.Fatal("accepted an oversized request")
+				}
+				return
+			}
+			if err != nil || request.Operation != "check" {
+				t.Fatal("could not decode request", request, err)
+			}
+			if gate, err := reader.ReadString('\n'); err != nil || gate != "ready\n" {
+				t.Fatal("request consumed the launch gate", gate, err)
+			}
+			probe := make([]byte, len("alive"))
+			if _, err := io.ReadFull(reader, probe); err != nil || string(probe) != "alive" {
+				t.Fatal("request size produced EOF on a live controller connection", err)
+			}
+			output.Close()
+			if _, err := reader.ReadByte(); err != io.EOF {
+				t.Fatal("controller disconnect did not produce EOF", err)
+			}
+		})
+	}
+}
 
 func TestRunnerUserCommandKeepsSecretsOutOfArguments(t *testing.T) {
 	request := runnerUserRequest{

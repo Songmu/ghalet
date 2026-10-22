@@ -24,6 +24,7 @@ import (
 )
 
 const runnerUserArgument = "__ghalet_runner_user"
+const maxRunnerUserRequestBytes = 1024 * 1024
 
 type runnerUserRequest struct {
 	Operation   string          `json:"operation"`
@@ -61,20 +62,40 @@ func init() {
 	os.Exit(0)
 }
 
-func runRunnerUser(input io.Reader) error {
-	if os.Geteuid() == 0 {
-		return errors.New("runner operations require a non-root execution user")
-	}
+func readRunnerUserRequest(input io.Reader) (runnerUserRequest, *bufio.Reader, error) {
 	var request runnerUserRequest
-	reader := bufio.NewReader(io.LimitReader(input, 1024*1024))
-	data, err := reader.ReadBytes('\n')
-	if err != nil {
-		return fmt.Errorf("read runner operation: %w", err)
+	reader := bufio.NewReader(input)
+	// Limit only the request line, not the controller liveness stream.
+	var data []byte
+	for {
+		part, err := reader.ReadSlice('\n')
+		if len(data)+len(part) > maxRunnerUserRequestBytes {
+			return request, nil, errors.New("runner operation exceeds 1 MiB")
+		}
+		data = append(data, part...)
+		if errors.Is(err, bufio.ErrBufferFull) {
+			continue
+		}
+		if err != nil {
+			return request, nil, fmt.Errorf("read runner operation: %w", err)
+		}
+		break
 	}
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&request); err != nil {
-		return fmt.Errorf("decode runner operation: %w", err)
+		return request, nil, fmt.Errorf("decode runner operation: %w", err)
+	}
+	return request, reader, nil
+}
+
+func runRunnerUser(input io.Reader) error {
+	if os.Geteuid() == 0 {
+		return errors.New("runner operations require a non-root execution user")
+	}
+	request, reader, err := readRunnerUserRequest(input)
+	if err != nil {
+		return err
 	}
 	switch request.Operation {
 	case "check":
