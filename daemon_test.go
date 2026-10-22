@@ -479,13 +479,13 @@ func TestShutdownWaitsForUncertainLiveRunnerAfterDrainDeadline(t *testing.T) {
 		!response.Status.Targets[0].Forced {
 		t.Fatal("shutdown lost diagnostics/control access or did not reach its drain deadline", response)
 	}
-	table, err := procgroup.Snapshot(t.Context(), []procgroup.ProcessIdentity{run.State.Process})
-	if err != nil {
-		t.Fatal(err)
-	}
 	d.mu.Lock()
 	snapshot := *run.State
 	d.mu.Unlock()
+	table, err := procgroup.Snapshot(t.Context(), []procgroup.ProcessIdentity{snapshot.Process})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if alive, _, err := procgroup.Inspect(snapshot.processGroup(), table); err != nil || !alive {
 		t.Fatal("shutdown stopped the uncertain runner", err)
 	}
