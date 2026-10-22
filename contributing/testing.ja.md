@@ -49,6 +49,23 @@ runner が要求する OS の依存パッケージと、外向き HTTPS 通信�
 `TestExecutionDirectoryAccessAsRunner` も root で実行し、runner のダウンロードなしで
 別 UID のディレクトリアクセスとステート・ロックファイルの保護を確認できます。
 
+## 非 root でのユーザー切り替え
+
+`TestSudoRunnerLifecycle` は、非特権の管理プロセスと runner を別々の UID で実行します。
+使い捨てのホストで、管理ユーザーを runner のプライマリグループに所属させ、
+[`packaging/sudoers`](../packaging/sudoers)を基に sudo 設定を用意してください。
+`/usr/bin/ghalet` はビルドしたテストバイナリの絶対パスに置き換えます。
+管理ユーザーとして実行します。
+
+```sh
+GHALET_TEST_RUNNER_USER=ghalet-runner /absolute/path/ghalet-tests \
+  -test.run '^TestSudoRunner' -test.v
+```
+
+パッケージの workflow はこの設定を用意し、runner の起動、識別情報を確認した停止、
+管理用ファイルの保護、非公開の診断ログのマスキング付き保存、
+runner が所有するファイルの削除、管理プロセスが強制終了された後のグループの停止を確認します。
+
 ## 明示的に実行する実環境の受け入れテスト
 
 このテストは GitHub 上で実際のジョブを実行します。使い捨て可能な信頼できるホストと、

@@ -178,9 +178,19 @@ ghalet run --config /path/to/config.yaml
 ```
 
 Jobs run as the launching user unless `runner.user` names another existing
-account. Switching users requires root; root must explicitly select a
-non-root account. ghalet never creates or deletes users and refuses root
-jobs. The official runner must list and traverse every ancestor of its
+account. A non-root controller can switch users through non-interactive sudo
+(`sudo.ws` when available);
+it must belong to the runner account's primary group. The
+[packaged sudo policy](../packaging/sudoers) permits only ghalet's runner-user
+helper as `ghalet-runner`. For a custom installation, adjust the management
+user, runner user/group, and executable path in that policy.
+The helper launches runners, sends identity-checked stop signals, and makes
+runner-owned files accessible to the shared group after shutdown for log
+archiving and cleanup. It never runs jobs as root or receives management
+credentials. Running the controller as root also supports direct user switching,
+but requires an explicit non-root `runner.user`.
+The CLI never creates or deletes users and refuses root jobs.
+The official runner must list and traverse every ancestor of its
 directory, up to the filesystem root. Managed execution parents (`workRoot`,
 target and run directories) use mode `0755`, as does the Linux package's
 `/var/lib/ghalet`. Directory names are visible, but these parents

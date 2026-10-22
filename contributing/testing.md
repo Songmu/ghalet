@@ -53,6 +53,24 @@ traverse them. `TestExecutionDirectoryAccessAsRunner`
 also runs as root to verify cross-UID directory access and private state/lock
 files without downloading a runner.
 
+## Non-root user switching
+
+`TestSudoRunnerLifecycle` runs an unprivileged controller and a runner under
+different UIDs. On a disposable host, configure the controller's membership in
+the runner's primary group and a policy based on
+[`packaging/sudoers`](../packaging/sudoers), using the compiled test binary's
+absolute path instead of `/usr/bin/ghalet`. Run as the management account:
+
+```sh
+GHALET_TEST_RUNNER_USER=ghalet-runner /absolute/path/ghalet-tests \
+  -test.run '^TestSudoRunner' -test.v
+```
+
+The packaging workflow sets up this policy and verifies runner startup,
+identity-checked shutdown, management file protection, private diagnostic log
+archiving with redaction, cleanup of runner-owned files, and group cleanup
+after the controller is killed.
+
 ## Explicit live acceptance
 
 This test runs real jobs on GitHub. Use a disposable trusted host and a

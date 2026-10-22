@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/Songmu/ghalet/fshelper"
@@ -250,6 +251,31 @@ func TestManagedEmptyDocumentRoundTrip(t *testing.T) {
 	}
 	if parsed.Defaults.Credential != nil || len(parsed.Targets) != 0 {
 		t.Fatalf("empty managed document gained settings: %+v", parsed)
+	}
+}
+
+func TestManagedAdministratorWritesForDirectoryOwner(t *testing.T) {
+	if os.Geteuid() != 0 {
+		t.Skip("requires root to write for a service account")
+	}
+	directory := t.TempDir()
+	if err := os.Chown(directory, 65534, 65534); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(directory, "managed.yaml")
+	before, after := []byte("{}\n"), []byte("defaults:\n  credential: {}\n")
+	for _, snapshot := range []struct{ before, after []byte }{{nil, before}, {before, after}} {
+		if err := WriteManaged(path, snapshot.before, snapshot.after); err != nil {
+			t.Fatal(err)
+		}
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		stat := info.Sys().(*syscall.Stat_t)
+		if stat.Uid != 65534 || stat.Gid != 65534 || info.Mode().Perm() != 0600 {
+			t.Fatal("administrator's managed write was not readable by the service account", info)
+		}
 	}
 }
 

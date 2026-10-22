@@ -21,6 +21,7 @@ type executionUser struct {
 	UID    int
 	GID    int
 	Groups []uint32
+	Sudo   bool
 }
 
 func resolveUser(name string) (executionUser, error) {
@@ -45,9 +46,6 @@ func resolveUser(name string) (executionUser, error) {
 	if uid == 0 {
 		return executionUser{}, errors.New("root jobs are prohibited; root must specify an existing non-root runner.user")
 	}
-	if os.Geteuid() != 0 && uid != os.Geteuid() {
-		return executionUser{}, errors.New("switching runner.user requires root; refusing to fall back to the launching user")
-	}
 	groupIDs, err := account.GroupIds()
 	if err != nil {
 		return executionUser{}, err
@@ -59,6 +57,20 @@ func resolveUser(name string) (executionUser, error) {
 			return executionUser{}, err
 		}
 		result.Groups = append(result.Groups, uint32(n))
+	}
+	if os.Geteuid() != 0 && uid != os.Geteuid() {
+		groups, err := os.Getgroups()
+		if err != nil {
+			return executionUser{}, err
+		}
+		shared := os.Getegid() == gid
+		for _, group := range groups {
+			shared = shared || group == gid
+		}
+		if !shared {
+			return executionUser{}, errors.New("switching runner.user without root requires membership in the runner's primary group and non-interactive sudo")
+		}
+		result.Sudo = true
 	}
 	return result, nil
 }

@@ -28,11 +28,17 @@ Install Git and the build tools your workflows need separately.
 The packages are tested on Ubuntu 26.04 hosts and Rocky Linux 9 containers on both
 architectures; check compatibility before deploying on other distributions.
 
-Installation creates an unprivileged `ghalet-runner` account with HOME at
-`/var/lib/ghalet-runner`, storage directories, and a systemd unit. The controller
-runs as root to switch users; the package configuration sets
-`runner.user: ghalet-runner` so runners and jobs run without root privileges.
-Configuration, management credentials, caches, and saved logs are root-only.
+Installation creates separate unprivileged accounts: `ghalet` for the controller
+and `ghalet-runner` for runners and jobs. Their HOME directories are
+`/var/lib/ghalet` and `/var/lib/ghalet-runner`.
+The systemd unit runs as `ghalet`, and the supplied configuration sets
+`runner.user: ghalet-runner`. A command-scoped sudo policy permits only the
+runner-user helper as `ghalet-runner`, not root commands.
+The controller belongs to the runner group to prepare execution files and
+collect them after shutdown. Configuration is root-owned and readable by
+`ghalet`; state, caches, and saved logs belong to `ghalet`.
+Encrypted credential sources remain root-only; systemd delivers decrypted
+credentials to the service account.
 The runner can traverse `/var/lib/ghalet` to reach its own execution directories,
 but cannot modify that parent directory. Installation does **not** create a live
 configuration, enable the service, or start it.
@@ -59,7 +65,7 @@ port forwarding in [App setup](app-setup.md#ssh-and-manual-browser-operation).
 To use a PAT instead, copy and edit the package example:
 
 ```sh
-sudo install -o root -g root -m 0600 \
+sudo install -o root -g ghalet -m 0640 \
   /usr/share/ghalet/config.yaml.example /etc/ghalet/config.yaml
 sudoedit /etc/ghalet/config.yaml
 sudo ghalet systemd credential set default --prompt
@@ -105,7 +111,7 @@ sudo systemctl start ghalet
 ```
 
 Removal stops and disables the service. Configuration, credentials, state,
-logs, and the runner account remain, including after `apt purge`; remove them only
+logs, and both accounts remain, including after `apt purge`; remove them only
 after inspecting retained executions. Package operations never delete GitHub
 scale sets.
 

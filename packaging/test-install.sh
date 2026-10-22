@@ -23,15 +23,26 @@ case "$format" in
 esac
 
 test "$(id -u ghalet-runner)" -ne 0
+test "$(id -u ghalet)" -ne 0
+test "$(id -u ghalet)" -ne "$(id -u ghalet-runner)"
 test "$(stat -c %U:%G:%a /var/lib/ghalet-runner)" = ghalet-runner:ghalet-runner:700
-test "$(stat -c %U:%G:%a /var/lib/ghalet)" = root:root:755
-for path in /etc/ghalet /etc/ghalet/credentials /var/cache/ghalet /var/log/ghalet; do
-  test "$(stat -c %U:%G:%a "$path")" = root:root:700
+test "$(stat -c %U:%G:%a /var/lib/ghalet)" = ghalet:ghalet:755
+test "$(stat -c %U:%G:%a /etc/ghalet)" = root:ghalet:750
+test "$(stat -c %U:%G:%a /etc/ghalet/credentials)" = root:root:700
+for path in /var/cache/ghalet /var/log/ghalet; do
+  test "$(stat -c %U:%G:%a "$path")" = ghalet:ghalet:700
 done
+visudo_command=visudo
+if command -v visudo.ws >/dev/null 2>&1; then
+  visudo_command=visudo.ws
+fi
+"$visudo_command" -cf /etc/sudoers.d/ghalet
+test "$(stat -c %U:%G:%a /etc/sudoers.d/ghalet)" = root:root:440
 grep -qx 'Type=notify' /usr/lib/systemd/system/ghalet.service
 grep -qx 'NotifyAccess=main' /usr/lib/systemd/system/ghalet.service
-grep -qx 'User=root' /usr/lib/systemd/system/ghalet.service
-grep -qx 'Group=root' /usr/lib/systemd/system/ghalet.service
+grep -qx 'User=ghalet' /usr/lib/systemd/system/ghalet.service
+grep -qx 'Group=ghalet' /usr/lib/systemd/system/ghalet.service
+grep -qx 'SupplementaryGroups=ghalet-runner' /usr/lib/systemd/system/ghalet.service
 grep -qx 'StateDirectory=ghalet' /usr/lib/systemd/system/ghalet.service
 grep -qx 'StateDirectoryMode=0755' /usr/lib/systemd/system/ghalet.service
 grep -qx 'CacheDirectory=ghalet' /usr/lib/systemd/system/ghalet.service
@@ -53,10 +64,15 @@ if [ -d /run/systemd/system ]; then
   test "$(systemctl show --property=ActiveState --value ghalet.service)" = inactive
 fi
 test ! -e /etc/ghalet/config.yaml
-cp /usr/share/ghalet/config.yaml.example /etc/ghalet/config.yaml
+install -o root -g ghalet -m 0640 /usr/share/ghalet/config.yaml.example /etc/ghalet/config.yaml
 config_sum=$(sha256sum < /etc/ghalet/config.yaml)
 STATE_DIRECTORY=/var/lib/ghalet CACHE_DIRECTORY=/var/cache/ghalet \
   /usr/bin/ghalet config validate --config /etc/ghalet/config.yaml
+su -s /bin/sh ghalet -c '
+  STATE_DIRECTORY=/var/lib/ghalet CACHE_DIRECTORY=/var/cache/ghalet \
+    /usr/bin/ghalet config validate --config /etc/ghalet/config.yaml
+  if sudo -n -u root /usr/bin/ghalet --version 2>/dev/null; then exit 1; fi
+'
 grep -qx '  user: ghalet-runner' /etc/ghalet/config.yaml
 grep -qx 'logs:' /etc/ghalet/config.yaml
 grep -qx '  root: /var/log/ghalet/runners' /etc/ghalet/config.yaml
@@ -90,7 +106,7 @@ esac
 test "$(sha256sum < /etc/ghalet/config.yaml)" = "$config_sum"
 test -e /var/lib/ghalet/retained-state
 test -e /var/log/ghalet/retained-log
-test "$(stat -c %U:%G:%a /var/lib/ghalet)" = root:root:755
+test "$(stat -c %U:%G:%a /var/lib/ghalet)" = ghalet:ghalet:755
 test "$(stat -c %a /var/lib/ghalet/retained-state)" = 600
 test "$(stat -c %a /etc/ghalet/credentials/retained-credential)" = 600
 su -s /bin/sh ghalet-runner -c '
@@ -115,3 +131,5 @@ test -e /var/lib/ghalet/retained-state
 test -e /etc/ghalet/credentials/retained-credential
 test -e /var/log/ghalet/retained-log
 id ghalet-runner
+id ghalet
+test ! -e /etc/sudoers.d/ghalet

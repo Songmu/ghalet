@@ -289,6 +289,16 @@ func (s service) commitSetup(ctx context.Context, prepared preparedConfig, direc
 			return errors.New("cannot preserve static configuration ownership")
 		}
 		uid, gid = int(stat.Uid), int(stat.Gid)
+	} else if prepared.options.Systemd {
+		info, err := os.Stat(filepath.Dir(configPath))
+		if err != nil {
+			return err
+		}
+		stat, ok := info.Sys().(*syscall.Stat_t)
+		if !ok {
+			return errors.New("cannot identify static configuration group")
+		}
+		mode, gid = 0640, int(stat.Gid)
 	}
 	if err := settings.WriteManaged(prepared.managedPath, prepared.managedBefore, after); err != nil {
 		return err
