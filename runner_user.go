@@ -218,6 +218,11 @@ func shareRunnerDirectory(directory string, gid int) error {
 	if !info.IsDir() || info.Mode().Perm()&0077 != 0 {
 		return errors.New("runner preparation requires a private directory")
 	}
+	root, err := os.OpenRoot(directory)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
 	// Other jobs share the runner UID. Keep them outside until all descendant
 	// ownership and permission changes finish, including on preparation failure.
 	if err := filepath.WalkDir(directory, func(path string, entry os.DirEntry, err error) error {
@@ -227,14 +232,18 @@ func shareRunnerDirectory(directory string, gid int) error {
 		if path == directory {
 			return nil
 		}
+		relative, err := filepath.Rel(directory, path)
+		if err != nil {
+			return err
+		}
 		if entry.Type()&os.ModeSymlink != 0 {
-			return errors.New("runner preparation contains a symlink")
+			return fshelper.CheckSymlink(root, relative)
 		}
 		info, err := entry.Info()
 		if err != nil {
 			return err
 		}
-		if err := os.Chown(path, -1, gid); err != nil {
+		if err := root.Chown(relative, -1, gid); err != nil {
 			return err
 		}
 		mode := info.Mode().Perm()
@@ -242,14 +251,14 @@ func shareRunnerDirectory(directory string, gid int) error {
 		if entry.IsDir() {
 			mode |= 0770 | os.ModeSetgid
 		}
-		return os.Chmod(path, mode)
+		return root.Chmod(relative, mode)
 	}); err != nil {
 		return err
 	}
-	if err := os.Chown(directory, -1, gid); err != nil {
+	if err := root.Chown(".", -1, gid); err != nil {
 		return err
 	}
-	return os.Chmod(directory, 0770|os.ModeSetgid)
+	return root.Chmod(".", 0770|os.ModeSetgid)
 }
 
 // Release only runner-owned children after the group is confirmed stopped.

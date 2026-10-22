@@ -237,6 +237,7 @@ func extractRunner(ctx context.Context, archive, dest string) error {
 	}
 	defer compressed.Close()
 	reader := tar.NewReader(compressed)
+	var symlinks []string
 	for {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -272,13 +273,21 @@ func extractRunner(ctx context.Context, archive, dest string) error {
 		case tar.TypeSymlink:
 			target := path.Clean(path.Join(path.Dir(name), header.Linkname))
 			if path.IsAbs(header.Linkname) || !filepath.IsLocal(target) {
-				return fmt.Errorf("unsafe archive symlink %s", name)
+				return fmt.Errorf("unsafe archive symlink %q -> %q", name, header.Linkname)
 			}
 			err = root.Symlink(header.Linkname, name)
+			symlinks = append(symlinks, name)
 		default:
 			return fmt.Errorf("unsupported archive entry type %d for %s", header.Typeflag, name)
 		}
 		if err != nil {
+			return err
+		}
+	}
+	// Forward references are valid, but every link must resolve inside the
+	// completed distribution, including through other links and "..".
+	for _, name := range symlinks {
+		if err := fshelper.CheckSymlink(root, name); err != nil {
 			return err
 		}
 	}

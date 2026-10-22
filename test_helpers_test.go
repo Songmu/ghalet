@@ -65,7 +65,7 @@ func testConfig(t *testing.T) *settings.Config {
 	return c
 }
 
-func seedDistribution(t *testing.T, c *settings.Config, script string) {
+func seedDistribution(t *testing.T, c *settings.Config, script string, links ...[2]string) {
 	t.Helper()
 	if err := fshelper.EnsureDirectory(c.Runner.CacheRoot, 0700); err != nil {
 		t.Fatal(err)
@@ -94,6 +94,13 @@ func seedDistribution(t *testing.T, c *settings.Config, script string) {
 	}
 	if _, err := io.WriteString(writer, script); err != nil {
 		t.Fatal(err)
+	}
+	for _, link := range links {
+		if err := writer.WriteHeader(&tar.Header{
+			Name: link[0], Typeflag: tar.TypeSymlink, Linkname: link[1],
+		}); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if err := writer.Close(); err != nil {
 		t.Fatal(err)

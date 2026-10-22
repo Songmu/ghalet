@@ -137,6 +137,7 @@ func TestArchiveExtractionRejectsUnsafeEntries(t *testing.T) {
 		"parent traversal": {name: "../outside", body: "bad"},
 		"absolute":         {name: "/outside", body: "bad"},
 		"symlink escape":   {name: "escape", kind: tar.TypeSymlink, link: "../../outside"},
+		"absolute link":    {name: "escape", kind: tar.TypeSymlink, link: "/outside"},
 		"device":           {name: "device", kind: tar.TypeChar},
 		"hardlink":         {name: "hardlink", kind: tar.TypeLink, link: "/outside"},
 	} {
@@ -145,6 +146,72 @@ func TestArchiveExtractionRejectsUnsafeEntries(t *testing.T) {
 			writeArchive(t, archive, []archiveEntry{entry})
 			if err := extractRunner(t.Context(), archive, filepath.Join(testDirectory(t), "runner")); err == nil {
 				t.Fatal("unsafe archive accepted")
+			}
+		})
+	}
+}
+
+func TestArchiveSymlinkResolution(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		entries []archiveEntry
+		wantErr bool
+	}{
+		{"forward link", []archiveEntry{
+			{name: "bin/link", kind: tar.TypeSymlink, link: "Runner.Listener"},
+		}, false},
+		{"safe chain", []archiveEntry{
+			{name: "link", kind: tar.TypeSymlink, link: "hop"},
+			{name: "hop", kind: tar.TypeSymlink, link: "bin/Runner.Listener"},
+		}, false},
+		{"dotdot escape", []archiveEntry{
+			{name: "pivot", kind: tar.TypeSymlink, link: "."},
+			{name: "nested/link", kind: tar.TypeSymlink, link: "../pivot/../secret"},
+		}, true},
+		{"cycle", []archiveEntry{
+			{name: "link", kind: tar.TypeSymlink, link: "hop"},
+			{name: "hop", kind: tar.TypeSymlink, link: "link"},
+		}, true},
+		{"dangling", []archiveEntry{
+			{name: "link", kind: tar.TypeSymlink, link: "missing"},
+		}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			base := testDirectory(t)
+			secret := filepath.Join(base, "secret")
+			if err := os.WriteFile(secret, []byte("private"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			archive := filepath.Join(base, "runner.tar.gz")
+			entries := []archiveEntry{
+				{name: "bin", kind: tar.TypeDir}, {name: "nested", kind: tar.TypeDir},
+			}
+			entries = append(entries, tc.entries...)
+			entries = append(entries, archiveEntry{name: "bin/Runner.Listener", body: "#!/bin/sh\nexit 0\n"})
+			writeArchive(t, archive, entries)
+			dest := filepath.Join(base, "runner")
+			err := extractRunner(t.Context(), archive, dest)
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("extraction error %v, want error=%v", err, tc.wantErr)
+			}
+			if tc.wantErr {
+				if !strings.Contains(err.Error(), "symlink") {
+					t.Fatal("missing link diagnostic", err)
+				}
+				info, err := os.Stat(dest)
+				if err != nil || info.Mode().Perm() != 0700 {
+					t.Fatal("failed extraction exposed the directory", info, err)
+				}
+			} else {
+				data, err := os.ReadFile(filepath.Join(dest, tc.entries[0].name))
+				if err != nil || string(data) != "#!/bin/sh\nexit 0\n" {
+					t.Fatal("safe extracted link is not accessible", err)
+				}
+			}
+			data, err := os.ReadFile(secret)
+			info, statErr := os.Stat(secret)
+			if err != nil || statErr != nil || string(data) != "private" || info.Mode().Perm() != 0600 {
+				t.Fatal("extraction changed the outside file", err, statErr)
 			}
 		})
 	}
