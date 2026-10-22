@@ -166,8 +166,7 @@ ghalet run --config /path/to/config.yaml
 ```
 
 `runner.user` で別の既存アカウントを指定しない限り、ジョブは起動ユーザーで実行します。
-非 root の管理プロセスは、パスワード不要の sudo（利用可能なら `sudo.ws`）で
-ユーザーを切り替えられます。
+非 root の管理プロセスは、パスワード不要の sudo でユーザーを切り替えられます。
 管理ユーザーは runner アカウントのプライマリグループに所属する必要があります。
 [パッケージの sudo 設定](../packaging/sudoers)は、ghalet の runner 用ヘルパーだけを
 `ghalet-runner` として実行することを許可します。独自に導入する場合は、この設定の
@@ -458,7 +457,13 @@ Linux パッケージや Docker Compose で導入する場合は、
 [パッケージとコンテナ](distribution.ja.md)を参照してください。
 以下はサービスを手動で導入する場合の手順です。
 
-Linux では、専用の `ghalet` ユーザーを事前に作成し、
+Linux では、専用の `ghalet` と `ghalet-runner` ユーザーを、それぞれ利用できる
+ホームディレクトリとともに事前に作成します。`ghalet` を runner のプライマリーグループ
+`ghalet-runner` に追加し、逆方向には追加しないでください。
+`runner.user: ghalet-runner` を設定し、
+[`packaging/sudoers`](../packaging/sudoers) を root 所有、モード `0440` で
+`/etc/sudoers.d/ghalet` に配置します。実行ファイルのパスを `/usr/local/bin/ghalet` に
+調整し、`visudo -cf /etc/sudoers.d/ghalet` で検証してください。
 `examples/ghalet.service` を `/etc/systemd/system/` にコピーして、
 `/etc/ghalet/config.yaml` に設定を配置します。unit は `StateDirectory=ghalet` と
 `CacheDirectory=ghalet` で `/var/lib/ghalet` と `/var/cache/ghalet` をサービスユーザー用に
@@ -485,8 +490,9 @@ macOS ネイティブでは `examples/com.github.ghalet.plist` の絶対パス�
 `AbandonProcessGroup` は false で、launchd がコントローラー自身のグループも cleanup
 します。別の runner グループには[前述の guard](#容量再試行停止)を使います。
 LaunchAgent はログイン時に起動し、ログイン前には起動しません。スリープも防ぎません。
-別の実行ユーザーを使う場合は、管理者が管理する LaunchDaemon と `runner.user` を
-使ってください。LaunchAgent がユーザーを切り替えられるとは想定しないでください。
+別の runner ユーザーを使う場合は、`runner.user` と、前述のグループ所属・
+パスワード不要の sudo を設定します。ログイン前から起動する場合は、管理者が管理する
+LaunchDaemon を使い、`UserName` にコントローラーのアカウントを指定してください。
 実際のログイン・サービス環境で、キーチェーンへのアクセスと停止動作を確認してください。
 
 Apple Silicon の Lima では、`examples/lima.yaml` が VZ、4 vCPU、8 GiB メモリー、

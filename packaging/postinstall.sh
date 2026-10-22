@@ -22,11 +22,7 @@ install -d -o root -g ghalet -m 0750 /etc/ghalet
 install -d -o ghalet -g ghalet -m 0700 /var/cache/ghalet /var/log/ghalet
 install -d -o root -g root -m 0700 \
   /etc/ghalet/credentials
-visudo_command=visudo
-if command -v visudo.ws >/dev/null 2>&1; then
-  visudo_command=visudo.ws
-fi
-"$visudo_command" -cf /etc/sudoers.d/ghalet
+visudo -cf /etc/sudoers.d/ghalet
 if [ -d /run/systemd/system ]; then
   systemctl daemon-reload
 fi

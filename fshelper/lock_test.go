@@ -65,6 +65,7 @@ func TestLockFileRejectsUnsafePaths(t *testing.T) {
 			case "permissions":
 				err = os.WriteFile(path, nil, 0644)
 			}
+
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -73,5 +74,34 @@ func TestLockFileRejectsUnsafePaths(t *testing.T) {
 				t.Fatal("unsafe lock file accepted")
 			}
 		})
+	}
+}
+
+func TestLockFileAdministratorUsesDirectoryOwner(t *testing.T) {
+	if os.Geteuid() != 0 {
+		t.Skip("requires root to write for a service account")
+	}
+	directory := testDirectory(t)
+	if err := os.Chown(directory, 65534, 65534); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(directory, "config.lock")
+	var original os.FileInfo
+	for range 2 {
+		lock, err := LockFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		info, err := lock.Stat()
+		lock.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		stat := info.Sys().(*syscall.Stat_t)
+		if stat.Uid != 65534 || stat.Gid != 65534 || info.Mode().Perm() != 0600 ||
+			(original != nil && !os.SameFile(original, info)) {
+			t.Fatal("administrator changed the lock's ownership, permissions or inode")
+		}
+		original = info
 	}
 }

@@ -3,6 +3,7 @@
 package ghalet
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/binary"
@@ -33,12 +34,28 @@ type runnerUserRequest struct {
 	Signal      syscall.Signal  `json:"signal,omitempty"`
 }
 
+type runnerUserResult struct {
+	Error string        `json:"error,omitempty"`
+	Errno syscall.Errno `json:"errno,omitempty"`
+}
+
 func init() {
 	if (len(os.Args) != 2 && len(os.Args) != 3) || os.Args[1] != runnerUserArgument {
 		return
 	}
-	if err := runRunnerUser(os.Stdin); err != nil {
+	err := runRunnerUser(os.Stdin)
+	if err != nil {
 		fmt.Fprintln(os.Stderr, "runner user:", err)
+	}
+	if len(os.Args) == 2 {
+		result := runnerUserResult{}
+		if err != nil {
+			result.Error = err.Error()
+			errors.As(err, &result.Errno)
+		}
+		err = errors.Join(err, json.NewEncoder(os.Stdout).Encode(result))
+	}
+	if err != nil {
 		os.Exit(1)
 	}
 	os.Exit(0)
@@ -49,7 +66,12 @@ func runRunnerUser(input io.Reader) error {
 		return errors.New("runner operations require a non-root execution user")
 	}
 	var request runnerUserRequest
-	decoder := json.NewDecoder(io.LimitReader(input, 1024*1024))
+	reader := bufio.NewReader(io.LimitReader(input, 1024*1024))
+	data, err := reader.ReadBytes('\n')
+	if err != nil {
+		return fmt.Errorf("read runner operation: %w", err)
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&request); err != nil {
 		return fmt.Errorf("decode runner operation: %w", err)
@@ -79,12 +101,10 @@ func runRunnerUser(input io.Reader) error {
 				return err
 			}
 		}
-		var identity [8]byte
-		binary.LittleEndian.PutUint64(identity[:], uint64(os.Getpid()))
-		if _, err := syscall.Write(4, identity[:]); err != nil {
+		if err := binary.Write(os.Stdout, binary.LittleEndian, int64(os.Getpid())); err != nil {
 			return fmt.Errorf("report runner identity: %w", err)
 		}
-		return runRunnerGuard(runner)
+		return guardRunner(runner, reader, os.Stdout, nil, os.Stderr, os.Stderr)
 	case "release":
 		for _, path := range []string{request.RunnerDir, request.Workspace} {
 			if err := releaseRunnerDirectory(path); err != nil {
@@ -126,18 +146,14 @@ func runnerUserCommand(ctx context.Context, account executionUser, request runne
 	if err != nil {
 		return nil, err
 	}
-	sudo := "sudo"
-	if path, err := exec.LookPath("sudo.ws"); err == nil {
-		sudo = path
-	}
-	command := exec.CommandContext(ctx, sudo, "-n",
+	command := exec.CommandContext(ctx, "sudo", "-n",
 		"-u", "#"+strconv.Itoa(account.UID), "-g", "#"+strconv.Itoa(account.GID),
-		"-C", "5", "--", executable, runnerUserArgument)
+		"--", executable, runnerUserArgument)
 	if request.Operation == "launch" {
 		command.Args = append(command.Args, filepath.Join(request.RunnerDir, "bin", "Runner.Listener"))
 	}
 	command.Env = []string{"PATH=/usr/local/bin:/usr/bin:/bin"}
-	command.Stdin = bytes.NewReader(data)
+	command.Stdin = bytes.NewReader(append(data, '\n'))
 	return command, nil
 }
 
@@ -149,11 +165,26 @@ func callRunnerUser(ctx context.Context, account executionUser, request runnerUs
 		return err
 	}
 	command.WaitDelay = time.Second
-	if err := command.Run(); err != nil {
-		if ctx.Err() != nil {
-			return ctx.Err()
+	var output, diagnostic bytes.Buffer
+	command.Stdout, command.Stderr = &output, &diagnostic
+	err = command.Run()
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	var result runnerUserResult
+	decodeErr := json.Unmarshal(output.Bytes(), &result)
+	var helperErr error
+	if result.Error != "" {
+		helperErr = errors.New(result.Error)
+		if result.Errno != 0 {
+			helperErr = fmt.Errorf("%s: %w", result.Error, result.Errno)
 		}
-		return fmt.Errorf("sudo runner %s failed; check non-interactive sudo policy: %w", request.Operation, err)
+	}
+	if err = errors.Join(err, decodeErr, helperErr); err != nil {
+		if text := strings.TrimSpace(diagnostic.String()); text != "" {
+			err = fmt.Errorf("%w: %s", err, text)
+		}
+		return fmt.Errorf("sudo runner %s failed: %w", request.Operation, err)
 	}
 	return nil
 }

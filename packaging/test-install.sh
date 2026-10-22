@@ -32,11 +32,7 @@ test "$(stat -c %U:%G:%a /etc/ghalet/credentials)" = root:root:700
 for path in /var/cache/ghalet /var/log/ghalet; do
   test "$(stat -c %U:%G:%a "$path")" = ghalet:ghalet:700
 done
-visudo_command=visudo
-if command -v visudo.ws >/dev/null 2>&1; then
-  visudo_command=visudo.ws
-fi
-"$visudo_command" -cf /etc/sudoers.d/ghalet
+visudo -cf /etc/sudoers.d/ghalet
 test "$(stat -c %U:%G:%a /etc/sudoers.d/ghalet)" = root:root:440
 grep -qx 'Type=notify' /usr/lib/systemd/system/ghalet.service
 grep -qx 'NotifyAccess=main' /usr/lib/systemd/system/ghalet.service

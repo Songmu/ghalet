@@ -10,7 +10,6 @@ NotifyAccess=main
 User=ghalet
 Group=ghalet
 SupplementaryGroups=ghalet-runner
-Environment=HOME=/var/lib/ghalet
 Environment=PATH=/usr/local/bin:/usr/bin:/bin
 StateDirectory=ghalet
 StateDirectoryMode=0755

@@ -263,6 +263,17 @@ func TestManagedAdministratorWritesForDirectoryOwner(t *testing.T) {
 		t.Fatal(err)
 	}
 	path := filepath.Join(directory, "managed.yaml")
+	lockPath := path + ".lock"
+	if err := os.WriteFile(lockPath, nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chown(lockPath, 65534, 65534); err != nil {
+		t.Fatal(err)
+	}
+	lockInfo, err := os.Stat(lockPath)
+	if err != nil {
+		t.Fatal(err)
+	}
 	before, after := []byte("{}\n"), []byte("defaults:\n  credential: {}\n")
 	for _, snapshot := range []struct{ before, after []byte }{{nil, before}, {before, after}} {
 		if err := WriteManaged(path, snapshot.before, snapshot.after); err != nil {
@@ -275,6 +286,10 @@ func TestManagedAdministratorWritesForDirectoryOwner(t *testing.T) {
 		stat := info.Sys().(*syscall.Stat_t)
 		if stat.Uid != 65534 || stat.Gid != 65534 || info.Mode().Perm() != 0600 {
 			t.Fatal("administrator's managed write was not readable by the service account", info)
+		}
+		afterLock, err := os.Stat(lockPath)
+		if err != nil || !os.SameFile(lockInfo, afterLock) {
+			t.Fatal("administrator replaced the service-owned lock", err)
 		}
 	}
 }

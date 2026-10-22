@@ -1,2 +1,2 @@
-Defaults:ghalet !requiretty, !use_pty, closefrom_override
+Defaults:ghalet !use_pty
 ghalet ALL=(ghalet-runner:ghalet-runner) NOPASSWD: /usr/bin/ghalet __ghalet_runner_user, /usr/bin/ghalet __ghalet_runner_user *

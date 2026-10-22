@@ -178,8 +178,7 @@ ghalet run --config /path/to/config.yaml
 ```
 
 Jobs run as the launching user unless `runner.user` names another existing
-account. A non-root controller can switch users through non-interactive sudo
-(`sudo.ws` when available);
+account. A non-root controller can switch users through non-interactive sudo;
 it must belong to the runner account's primary group. The
 [packaged sudo policy](../packaging/sudoers) permits only ghalet's runner-user
 helper as `ghalet-runner`. For a custom installation, adjust the management
@@ -492,8 +491,13 @@ For packaged Linux installation or Docker Compose, see
 [packages and containers](distribution.md). The instructions below cover
 manual service installation.
 
-For Linux, precreate a dedicated `ghalet` user,
-copy `examples/ghalet.service` into `/etc/systemd/system/`, and place the
+For Linux, precreate dedicated `ghalet` and `ghalet-runner` users with accessible
+home directories. Add `ghalet` to the runner's primary group, `ghalet-runner`,
+but not the reverse. Set `runner.user: ghalet-runner` and install
+[`packaging/sudoers`](../packaging/sudoers) as `/etc/sudoers.d/ghalet`, owned by
+root with mode `0440`; adjust its executable path to `/usr/local/bin/ghalet`
+and validate it with `visudo -cf /etc/sudoers.d/ghalet`.
+Copy `examples/ghalet.service` into `/etc/systemd/system/`, and place the
 configuration at `/etc/ghalet/config.yaml`. The unit uses `StateDirectory=ghalet`
 and `CacheDirectory=ghalet` to create `/var/lib/ghalet` and `/var/cache/ghalet`
 for the service user and pass them through `STATE_DIRECTORY` and `CACHE_DIRECTORY`.
@@ -521,9 +525,10 @@ infinite launchd stop wait and is deliberately avoided. `AbandonProcessGroup`
 is false so launchd also cleans up the controller's own group. Separate runner
 groups use the [guards described above](#capacity-retries-and-shutdown).
 LaunchAgents start at login, not before login, and do not prevent sleep.
-For another execution user, use an
-administrator-managed LaunchDaemon and set `runner.user`; do not assume a
-LaunchAgent can change users. Test keychain access and shutdown behavior in
+For another runner user, set `runner.user` and configure group membership and
+non-interactive sudo as described above. For startup before login, use an
+administrator-managed LaunchDaemon with `UserName` set to the controller account.
+Test keychain access and shutdown behavior in
 the actual login/service context.
 
 For Apple Silicon Lima, `examples/lima.yaml` supplies an Ubuntu 26.04 ARM64 VM

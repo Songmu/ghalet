@@ -259,6 +259,7 @@ func (d *daemon) launch(ctx context.Context, run *activeRun, jit string) (retErr
 		config = d.config
 	}
 	command.Dir, command.Env, command.SysProcAttr = state.RunnerDir, runnerEnvironment(config, d.user, jit), processAttributes(d.user)
+	var requestInput io.Reader
 	if d.user.Sudo {
 		command, err = runnerUserCommand(context.Background(), d.user, runnerUserRequest{
 			Operation: "launch", RunnerDir: state.RunnerDir,
@@ -268,10 +269,13 @@ func (d *daemon) launch(ctx context.Context, run *activeRun, jit string) (retErr
 			writer.Close()
 			return err
 		}
-		command.ExtraFiles = []*os.File{input, reportOutput}
+		requestInput, command.Stdin = command.Stdin, input
 		command.Dir = state.RunnerDir
 	}
 	command.Stdout, command.Stderr = logOutput, logOutput
+	if d.user.Sudo {
+		command.Stdout = reportOutput
+	}
 	if err := command.Start(); err != nil {
 		writer.Close()
 		return err
@@ -280,16 +284,24 @@ func (d *daemon) launch(ctx context.Context, run *activeRun, jit string) (retErr
 	input.Close()
 	reportOutput.Close()
 	logOutput.Close()
-	// The child waits on fd 3. No runner can execute until its identity has
-	// been durably recorded; controller death closes the gate without exec.
+	// No runner can execute until its identity has been durably recorded;
+	// controller death closes the launch gate without exec.
 	pid := command.Process.Pid
 	if d.user.Sudo {
 		exitReport.SetReadDeadline(time.Now().Add(15 * time.Second))
-		cancelRead := context.AfterFunc(ctx, func() { exitReport.SetReadDeadline(time.Now()) })
+		output.SetWriteDeadline(time.Now().Add(15 * time.Second))
+		cancelRead := context.AfterFunc(ctx, func() {
+			exitReport.SetReadDeadline(time.Now())
+			output.SetWriteDeadline(time.Now())
+		})
 		var reported int64
-		err = binary.Read(exitReport, binary.LittleEndian, &reported)
+		_, err = io.Copy(output, requestInput)
+		if err == nil {
+			err = binary.Read(exitReport, binary.LittleEndian, &reported)
+		}
 		cancelRead()
 		exitReport.SetReadDeadline(time.Time{})
+		output.SetWriteDeadline(time.Time{})
 		if err == nil && (reported <= 1 || int64(int(reported)) != reported) {
 			err = errors.New("invalid sudo runner identity")
 		}
@@ -498,7 +510,7 @@ func (d *daemon) cleanup(run *activeRun) error {
 	if config == nil {
 		config = d.config
 	}
-	if d.user.Sudo {
+	if d.user.Sudo && run.State.Process.PID != 0 {
 		if err := callRunnerUser(d.ctx, d.user, runnerUserRequest{
 			Operation: "release", RunnerDir: run.State.RunnerDir, Workspace: run.State.Workspace,
 		}); err != nil {

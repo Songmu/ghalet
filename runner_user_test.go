@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/Songmu/ghalet/fshelper"
@@ -35,6 +36,9 @@ func TestRunnerUserCommandKeepsSecretsOutOfArguments(t *testing.T) {
 	}
 	if command.Args[len(command.Args)-1] != filepath.Join(request.RunnerDir, "bin", "Runner.Listener") {
 		t.Fatal("sudo launch omitted the command used for process identity verification")
+	}
+	if len(command.ExtraFiles) != 0 || strings.Contains(strings.Join(command.Args, " "), "-C") {
+		t.Fatal("sudo requires descriptor-preservation privileges")
 	}
 }
 
@@ -82,9 +86,46 @@ func TestRunnerUserRejectsInvalidOperations(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := runRunnerUser(bytes.NewReader(data)); err == nil {
+		if err := runRunnerUser(bytes.NewReader(append(data, '\n'))); err == nil {
 			t.Fatal("accepted invalid runner operation", request)
 		}
+	}
+}
+
+func TestRunnerUserPreservesHelperFailure(t *testing.T) {
+	dir := testDirectory(t)
+	script := "#!/bin/sh\nprintf '%s\\n' '{\"error\":\"read workspace: input/output error\",\"errno\":5}'\nprintf 'runner diagnostic\\n' >&2\nexit 1\n"
+	if err := os.WriteFile(filepath.Join(dir, "sudo"), []byte(script), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir)
+	err := callRunnerUser(t.Context(), executionUser{}, runnerUserRequest{Operation: "release"})
+	if !errors.Is(err, syscall.EIO) || !cleanupRetryable(err) ||
+		!strings.Contains(err.Error(), "runner diagnostic") ||
+		!strings.Contains(err.Error(), "read workspace") {
+		t.Fatal("helper failure lost its cause, retryability or diagnostic", err)
+	}
+}
+
+func TestSudoRunnerCleanupBeforeLaunch(t *testing.T) {
+	d, _ := testDaemon(t)
+	d.user.Sudo = true
+	state := testState(t, d.config)
+	state.ProcessDone, state.Phase = true, "cleaning"
+	if err := os.MkdirAll(state.RunnerDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.store.save(state); err != nil {
+		t.Fatal(err)
+	}
+	run := &activeRun{State: state}
+	d.runs[state.RunID] = run
+	t.Setenv("PATH", testDirectory(t))
+	if err := d.cleanup(run); err != nil {
+		t.Fatal("partial preparation required runner-user access", err)
+	}
+	if _, err := os.Stat(filepath.Dir(state.RunnerDir)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("partial preparation files were retained", err)
 	}
 }
 

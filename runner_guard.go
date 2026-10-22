@@ -46,7 +46,14 @@ func killGuardGroup() {
 	}
 }
 
-func runRunnerGuard(runner string) (retErr error) {
+func runRunnerGuard(runner string) error {
+	gate, report := os.NewFile(3, "controller-liveness"), os.NewFile(4, "runner-exit")
+	syscall.CloseOnExec(3)
+	syscall.CloseOnExec(4)
+	return guardRunner(runner, bufio.NewReader(gate), report, os.Stdin, os.Stdout, os.Stderr)
+}
+
+func guardRunner(runner string, reader *bufio.Reader, report io.WriteCloser, input io.Reader, stdout, stderr io.Writer) (retErr error) {
 	if os.Getpid() <= 1 || syscall.Getpgrp() != os.Getpid() {
 		return errors.New("refusing to guard a process group not led by this process")
 	}
@@ -60,10 +67,6 @@ func runRunnerGuard(runner string) (retErr error) {
 	}()
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, syscall.SIGTERM, syscall.SIGINT, syscall.SIGHUP, syscall.SIGQUIT, syscall.SIGPIPE)
-	gate, report := os.NewFile(3, "controller-liveness"), os.NewFile(4, "runner-exit")
-	syscall.CloseOnExec(3)
-	syscall.CloseOnExec(4)
-	reader := bufio.NewReader(gate)
 	ready, err := reader.ReadString('\n')
 	if err != nil {
 		return fmt.Errorf("read launch gate: %w", err)
@@ -78,7 +81,7 @@ func runRunnerGuard(runner string) (retErr error) {
 		killGuardGroup()
 	}()
 	command := exec.Command(runner, "run")
-	command.Stdin, command.Stdout, command.Stderr = os.Stdin, os.Stdout, os.Stderr
+	command.Stdin, command.Stdout, command.Stderr = input, stdout, stderr
 	err = command.Run()
 	result := runnerGuardResult{Completed: true}
 	if err != nil {

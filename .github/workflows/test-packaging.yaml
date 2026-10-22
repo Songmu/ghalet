@@ -73,8 +73,12 @@ jobs:
               rockylinux:9 sh /tests/test-install.sh rpm "/packages/$(basename "$1")"
           fi
         done
-    - name: test encrypted credential registration and rotation
+    - name: test administrator ownership and encrypted credential updates
       run: |
+        go test -c -o "$RUNNER_TEMP/config-tests" ./config
+        sudo "$RUNNER_TEMP/config-tests" -test.run '^TestManagedAdministratorWritesForDirectoryOwner$' -test.v
+        go test -c -o "$RUNNER_TEMP/fshelper-tests" ./fshelper
+        sudo "$RUNNER_TEMP/fshelper-tests" -test.run '^TestLockFileAdministratorUsesDirectoryOwner$' -test.v
         go test -c -o "$RUNNER_TEMP/credential-tests" ./credentialstore
         sudo env GHALET_TEST_SYSTEMD_CREDENTIALS=1 \
           "$RUNNER_TEMP/credential-tests" -test.run '^TestSystemdCredentialEncryption$' -test.v
@@ -86,7 +90,7 @@ jobs:
         sudo sed 's@/usr/bin/ghalet @/usr/bin/ghalet-tests @g' packaging/sudoers \
           | sudo tee /etc/sudoers.d/ghalet-tests >/dev/null
         sudo chmod 0440 /etc/sudoers.d/ghalet-tests
-        sudo visudo.ws -cf /etc/sudoers.d/ghalet-tests
+        sudo visudo -cf /etc/sudoers.d/ghalet-tests
         sudo -u ghalet env GHALET_TEST_RUNNER_USER=ghalet-runner \
           /usr/bin/ghalet-tests -test.run '^TestSudoRunner' -test.v
     - name: set up Docker buildx
