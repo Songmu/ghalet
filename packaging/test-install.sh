@@ -65,6 +65,7 @@ config_sum=$(sha256sum < /etc/ghalet/config.yaml)
 STATE_DIRECTORY=/var/lib/ghalet CACHE_DIRECTORY=/var/cache/ghalet \
   /usr/bin/ghalet config validate --config /etc/ghalet/config.yaml
 su -s /bin/sh ghalet -c '
+  set -eu
   STATE_DIRECTORY=/var/lib/ghalet CACHE_DIRECTORY=/var/cache/ghalet \
     /usr/bin/ghalet config validate --config /etc/ghalet/config.yaml
   if sudo -n -u root /usr/bin/ghalet --version 2>/dev/null; then exit 1; fi

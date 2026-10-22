@@ -42,6 +42,44 @@ func TestRunnerUserCommandKeepsSecretsOutOfArguments(t *testing.T) {
 	}
 }
 
+func TestShareRunnerDirectoryKeepsFailedPreparationPrivate(t *testing.T) {
+	directory, outside := testDirectory(t), testDirectory(t)
+	if err := os.Chmod(directory, 0700); err != nil {
+		t.Fatal(err)
+	}
+	secret := filepath.Join(outside, "secret")
+	if err := os.WriteFile(secret, []byte("private"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	nested := filepath.Join(directory, "a")
+	if err := os.Mkdir(nested, 0700); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(nested, "outside")
+	if err := os.Symlink(secret, link); err != nil {
+		t.Fatal(err)
+	}
+	if err := shareRunnerDirectory(directory, os.Getegid()); err == nil {
+		t.Fatal("shared a preparation tree containing a symlink")
+	}
+	for _, path := range []string{directory, secret} {
+		info, err := os.Stat(path)
+		if err != nil || info.Mode().Perm()&0077 != 0 {
+			t.Fatal("failed preparation exposed the tree or an outside file", path, info, err)
+		}
+	}
+	if err := os.Remove(link); err != nil {
+		t.Fatal(err)
+	}
+	if err := shareRunnerDirectory(directory, os.Getegid()); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(directory)
+	if err != nil || info.Mode().Perm() != 0770 || info.Mode()&os.ModeSetgid == 0 {
+		t.Fatal("completed preparation did not expose the shared tree", err)
+	}
+}
+
 func TestReleaseRunnerDirectoryDoesNotFollowLinks(t *testing.T) {
 	dir, outside := testDirectory(t), testDirectory(t)
 	log := filepath.Join(dir, "private.log")

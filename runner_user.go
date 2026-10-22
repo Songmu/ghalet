@@ -189,10 +189,22 @@ func callRunnerUser(ctx context.Context, account executionUser, request runnerUs
 	return nil
 }
 
-func shareRunnerDirectory(path string, gid int) error {
-	return filepath.WalkDir(path, func(path string, entry os.DirEntry, err error) error {
+func shareRunnerDirectory(directory string, gid int) error {
+	info, err := os.Lstat(directory)
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() || info.Mode().Perm()&0077 != 0 {
+		return errors.New("runner preparation requires a private directory")
+	}
+	// Other jobs share the runner UID. Keep them outside until all descendant
+	// ownership and permission changes finish, including on preparation failure.
+	if err := filepath.WalkDir(directory, func(path string, entry os.DirEntry, err error) error {
 		if err != nil {
 			return err
+		}
+		if path == directory {
+			return nil
 		}
 		if entry.Type()&os.ModeSymlink != 0 {
 			return errors.New("runner preparation contains a symlink")
@@ -210,7 +222,13 @@ func shareRunnerDirectory(path string, gid int) error {
 			mode |= 0770 | os.ModeSetgid
 		}
 		return os.Chmod(path, mode)
-	})
+	}); err != nil {
+		return err
+	}
+	if err := os.Chown(directory, -1, gid); err != nil {
+		return err
+	}
+	return os.Chmod(directory, 0770|os.ModeSetgid)
 }
 
 // Release only runner-owned children after the group is confirmed stopped.
