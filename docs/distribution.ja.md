@@ -5,7 +5,7 @@
 リリースタグごとに amd64 / arm64 のバイナリ、`.deb` / `.rpm` パッケージ、
 マルチプラットフォームイメージ `ghcr.io/songmu/ghalet:TAG` を公開します。
 既存のアーカイブ、`install.sh`、`go install` も引き続き利用できます。
-この配布設定には APT/DNF リポジトリは含みません。
+APT/DNF リポジトリは提供しません。
 Homebrew でのインストールと macOS のサービス連携は
 [導入ガイド](getting-started.ja.md#インストール)を参照してください。
 
@@ -25,9 +25,9 @@ sudo dnf install ./PACKAGE.rpm
 配布用設定は systemd が渡す暗号化 PAT を使うため、GitHub CLI は必須ではありません。
 登録コマンドには systemd 250 以降が必要です。
 Git や workflow で使用するビルドツールは別途導入してください。
-パッケージのスモークテストは、両アーキテクチャの Ubuntu 26.04 ホストと
-Rocky Linux 9 コンテナを対象としています。他のディストリビューションでは
-別途互換性の確認が必要です。
+パッケージは、両アーキテクチャの Ubuntu 26.04 ホストと
+Rocky Linux 9 コンテナでテストしています。他のディストリビューションでは
+導入前に互換性を確認してください。
 
 導入時に、非特権の `ghalet-runner` アカウント、その HOME となる
 `/var/lib/ghalet-runner`、保存用ディレクトリ、systemd unit を作成します。
@@ -177,44 +177,3 @@ macOS ジョブには引き続き macOS ネイティブの導入が必要です�
 サンプルは Docker ソケットをマウントせず、ホストの PID namespace を共有せず、
 特権モードも要求しません。同じユーザーで動く信頼済みジョブは、マウントした管理用の
 認証情報を読めるほか、HOME、ツール、キャッシュを共有する点には注意してください。
-
-## 配布物のビルド
-
-`release-build.yaml` は、Linux / macOS のアーカイブを goxz、
-Linux パッケージを nFPM で生成します。リリース用ファイルは `dist` に集約し、
-パッケージ生成後、その配下の全ファイルについて `SHA256SUMS` を一度だけ生成します。
-manifest 自身は対象から除外します。
-`packaging/build.sh` はアーカイブから同じ Linux バイナリを取り出し、
-`examples/ghalet.service` を元にパッケージ用 unit を生成して、
-コンテナのビルド用にはバイナリとライセンス文書だけを用意します。
-
-nFPM のバージョンは [`packaging/nfpm.version`](../packaging/nfpm.version) に固定します。
-Renovate が nFPM と組み込み runner の更新を毎週提案します。
-Go modules、GitHub Actions、Docker イメージは引き続き Dependabot で管理します。
-自動更新 PR を作成するには、[Renovate GitHub App](https://github.com/apps/renovate) の
-インストール設定で、このリポジトリを有効にしてください。
-
-```sh
-go install github.com/Songmu/goxz/cmd/goxz@v0.13.0
-go install "github.com/goreleaser/nfpm/v2/cmd/nfpm@$(cat packaging/nfpm.version)"
-VERSION=$(sed -n 's/^const Version = "\([^"]*\)"$/v\1/p' version.go)
-test -n "$VERSION"
-goxz -pv "$VERSION" -os linux,darwin -arch amd64,arm64 -static \
-  -d /tmp/ghalet-release ./cmd/ghalet
-sh packaging/build.sh "$VERSION" /tmp/ghalet-release /tmp/ghalet-release /tmp/ghalet-binaries
-docker buildx build --platform linux/amd64,linux/arm64 \
-  --build-context binaries=/tmp/ghalet-binaries .
-```
-
-Dockerfile は、バイナリとライセンス文書だけを含む明示的な名前付き context を使います。
-`.dockerignore` は、それ以外のチェックアウト内容を除外します。
-ローカル設定、認証情報、worktree、Git メタデータも対象です。
-リリース時には、パッケージをアーカイブや共通の checksum / provenance と共に公開し、
-別のジョブで GHCR イメージの公開と attestation を行います。
-独立した `test-packaging.yaml` はパッケージとイメージをビルド・検証しますが、
-公開は行わず、レジストリの認証情報も受け取りません。
-そのバージョンは、すでに tagpr の更新対象となっている `version.go` から取得します。
-
-初回のイメージ公開後、リポジトリ所有者は GHCR のパッケージ設定を確認し、
-匿名で pull できるようにパッケージを Public にする必要があります。
-リポジトリを公開しても、新規パッケージが自動的に Public になるわけではありません。

@@ -5,7 +5,7 @@
 Release tags publish amd64 and arm64 binaries, `.deb` and `.rpm` packages,
 and the multi-platform image `ghcr.io/songmu/ghalet:TAG`.
 Existing archives, `install.sh`, and `go install` remain available.
-APT/DNF repositories are not provided by this packaging configuration.
+APT/DNF repositories are not provided.
 For Homebrew installation and macOS service integration, see the
 [getting started](getting-started.md#installation).
 
@@ -25,8 +25,8 @@ Packages include the official runner's OS dependencies and `procps`.
 GitHub CLI is not required: the supplied configuration uses an encrypted PAT
 provided by systemd. Registration requires systemd 250 or later.
 Install Git and the build tools your workflows need separately.
-The package smoke tests cover Ubuntu 26.04 hosts and Rocky Linux 9 containers on both
-architectures; other distributions need their own compatibility checks.
+The packages are tested on Ubuntu 26.04 hosts and Rocky Linux 9 containers on both
+architectures; check compatibility before deploying on other distributions.
 
 Installation creates an unprivileged `ghalet-runner` account with HOME at
 `/var/lib/ghalet-runner`, storage directories, and a systemd unit. The controller
@@ -178,44 +178,3 @@ does not add Docker actions, job/service containers, or per-job isolation.
 The example mounts no Docker socket, shares no host PID namespace, and
 requires no privileged mode. Trusted jobs running as the same user can
 still read mounted management credentials and share HOME, tools, and caches.
-
-## Building distribution artifacts
-
-`release-build.yaml` keeps goxz for Linux/macOS archives and uses nFPM for
-Linux packages. All release files are collected in `dist`; after packaging,
-`SHA256SUMS` is generated once for every file below it, excluding the manifest
-itself. `packaging/build.sh` extracts the exact Linux binaries from
-those archives, generates the packaged unit from `examples/ghalet.service`,
-and stages only the binaries and license notices for the container build.
-
-The nFPM version is pinned in [`packaging/nfpm.version`](../packaging/nfpm.version).
-Renovate proposes weekly updates to nFPM and the bundled runner; Go modules,
-GitHub Actions, and Docker images remain managed by Dependabot.
-Enable this repository in the [Renovate GitHub App](https://github.com/apps/renovate)
-installation settings for automatic update PRs.
-
-```sh
-go install github.com/Songmu/goxz/cmd/goxz@v0.13.0
-go install "github.com/goreleaser/nfpm/v2/cmd/nfpm@$(cat packaging/nfpm.version)"
-VERSION=$(sed -n 's/^const Version = "\([^"]*\)"$/v\1/p' version.go)
-test -n "$VERSION"
-goxz -pv "$VERSION" -os linux,darwin -arch amd64,arm64 -static \
-  -d /tmp/ghalet-release ./cmd/ghalet
-sh packaging/build.sh "$VERSION" /tmp/ghalet-release /tmp/ghalet-release /tmp/ghalet-binaries
-docker buildx build --platform linux/amd64,linux/arm64 \
-  --build-context binaries=/tmp/ghalet-binaries .
-```
-
-The Dockerfile uses an explicit named context containing only binaries and
-license notices.
-`.dockerignore` excludes the rest of the checkout, including local
-configuration, credentials, worktrees, and Git metadata.
-Release publication uploads packages alongside archives and their combined
-checksums/provenance, then a separate job publishes and attests the GHCR
-image. The separate `test-packaging.yaml` workflow builds and tests
-packages/images without publishing or receiving registry credentials.
-Its version comes from `version.go`, which tagpr already updates.
-
-After the first image publication, the repository owner must check the
-GHCR package settings and make the package public for anonymous pulls.
-Repository visibility does not automatically make a new package public.

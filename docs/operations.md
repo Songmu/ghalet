@@ -13,6 +13,7 @@ the [command overview](../README.md#commands).
 - [Diagnosis and garbage collection](#diagnosis-and-garbage-collection)
 - [Logs](#logs)
 - [Service deployment](#service-deployment)
+- [Deployment verification](#deployment-verification)
 - [Trust boundary](#trust-boundary)
 
 ## Configuration and credentials
@@ -170,9 +171,7 @@ Group access policy and App installation access are separate. Create groups
 and grant their repository access in GitHub first: ghalet never creates,
 changes access to, or deletes runner groups.
 
-The SDK supports PAT/App-based management-token renewal, but does not expose
-a renewable registration-token-only provider. No registration-token-only
-mode is offered.
+Short-lived runner registration tokens are not a supported credential input.
 
 ## Direct execution and environment
 
@@ -242,8 +241,6 @@ packages are selected from the pinned version. Windows is not supported.
 
 `runner` is global and optional. Its version defaults to the numeric version
 bundled with ghalet; set `runner.version` to pin a different release.
-Renovate checks official stable releases weekly and opens PRs updating the
-bundled default and example together; the regular CI validates these changes.
 Updating ghalet and restarting picks up the new
 default unless the configuration explicitly pins a version. Startup never
 resolves `latest`, and runner self-update remains disabled.
@@ -270,14 +267,9 @@ capacity pool. An accepted job takes precedence over another target's idle
 warm runner. Slots are not reused until the previous process group is
 confirmed stopped. Busy runners are not stopped merely because demand falls.
 
-Each listener advertises at most `min(target.maxRunners, capacity.maxRunners)`,
-not the instantaneous free process count, so a full warm pool does not make
-other targets invisible. Acquisition is separately serialized against the
-shared outstanding-job budget. Pending acquisition responses reserve budget
-until the next authoritative statistics message. Scaling demand comes from
-`TotalAssignedJobs`, never a count of job messages. An acknowledgment follows
-a successful official Listener callback; redelivery must remain idempotent.
-Cross-target fairness and distributed writers are not provided.
+A full warm pool does not prevent other targets from accepting jobs within
+the shared capacity limit. Cross-target fairness and coordination across
+multiple controllers are not provided.
 
 Preparation has a 10-minute deadline, API operations 45 seconds, authentication
 commands 15 seconds, and listener polls 60 seconds. Registration/listener
@@ -321,19 +313,14 @@ daemon's exit result and logs rather than only the stop command's result.
 Do not proceed with a restart after forced or incomplete drain; inspect
 diagnostics and resolve retained executions or cleanup failures first.
 
-On Linux and macOS, each new runner has a small foreground guard as its process
-group leader, whether run directly or through a service manager.
-The durable launch gate also supplies controller liveness:
-if the controller exits or is killed, the pipe closes and the guard sends
-SIGKILL to its own group, including itself. Its live leadership pins the group
-ID, so this does not depend on guessing an uncertain PID. A normal runner
-exit is reported separately, followed by TERM and a two-second grace before
-the final group-wide KILL. The controller uses the runner's actual process
-result, not the guard's deliberate SIGKILL, for exit diagnostics. The guard
-does not rewrite state or remove logs, and its descriptors are not inherited
-by the runner. This is child supervision, not self-daemonization or isolation:
-trusted jobs must not kill their guard or escape its group, and kernel/host
-failure can interrupt supervision.
+On Linux and macOS, each new runner has a foreground guard, whether run directly
+or through a service manager. If the controller exits or is killed, the guard
+forcibly stops its runner process group. After a normal runner exit, it also
+terminates remaining group members, allowing two seconds before forced cleanup.
+Exit diagnostics report the runner's actual result. State and logs remain for
+recovery. This is child supervision, not job isolation: trusted jobs must not
+kill their guard or escape its group, and kernel/host failure can interrupt
+supervision.
 
 ## Applying configuration
 
@@ -387,9 +374,9 @@ deadline and `TimeoutStopSec` when increasing drain timeouts or target counts.
 
 ## Diagnosis and garbage collection
 
-Slow GitHub requests, runner preparation, process stopping, and cleanup do not
-hold the daemon's shared status/scheduling lock. Other targets can continue
-scheduling, and `status`/`doctor` return the last coherent execution snapshot
+During slow GitHub requests, runner preparation, process stopping, and cleanup,
+other targets can continue scheduling, and `status`/`doctor` return the last
+coherent execution snapshot
 while an operation is in progress. A reservation remains visible until its
 preparation or cleanup result is published. Drain and apply wait for execution
 operations to finish; `gc` still waits for the cleanup it reports rather than
@@ -432,39 +419,15 @@ with which to prove process absence; they are never used to authorize cleanup.
 Ordinary files directly in workRoot or a target directory are retained and logged
 as warnings without reserving capacity; unrecognized directories and symlinks
 remain conservative diagnostics.
-Recovery of a surviving process does not recreate `Wait` or
-invent its exit code. Descendants observed in the original process group can
-be recovered; escaped descendants cannot be completely detected or isolated.
+Recovery of a surviving process cannot recover its exit code.
+Descendants observed in the original process group can be recovered; escaped
+descendants cannot be completely detected or isolated.
 
-Process snapshots still enumerate host processes with `ps`, but kernel start
-identities are queried only for the inspected runs' recorded leader PIDs and
-members of their recorded process groups, including previously unknown descendants.
-A recorded leader PID is checked even if it now belongs to another group, so
-PID reuse still prevents signaling or cleanup. The gated launch checks only its
-new child PID before recording the identity and releasing the runner.
-
-Empty and zombie-only process-group snapshots require kernel revalidation.
-Linux checks kernel group membership before reading each enumerated PID's
-`/proc` state, so a PID identified outside the group need not remain readable.
-Disappearance of a known group member still triggers bounded retries.
-If an unclassified PID disappears, a second enumeration must also find only
-previously identified, single-threaded zombies in the group, so a child forked
-before that disappearance can be discovered. This bounded check tolerates
-unrelated PID churn; it is not an atomic snapshot against deliberately timed,
-repeated fork/exit chains, consistent with the trusted-job model.
-macOS queries `kern.proc.pgrp`. A group is
-treated as stopped only when absent or when every fresh member was already
-observed as a zombie with the same kernel identity. Newly observed zombies
-cannot establish safety because they may have just forked. Failed
-verification retains uncertainty and capacity. State
-files are limited to 1 MiB, including their final newline. Oversized saves fail
-without replacing the last readable record, including when a large descendant
-list cannot be persisted before signaling.
-
-State updates sync the file and its execution directory. Each newly created
-managed directory syncs its immediate parent before use, including missing
-storage ancestors and log directories. Unchanged ancestors are not recursively
-synced to the filesystem root.
+An empty or zombie-only process listing alone is not proof that an execution
+has stopped. ghalet revalidates process identities; failed verification retains
+uncertainty and capacity. State files are limited to 1 MiB, including their
+final newline. Oversized saves fail without replacing the last readable record,
+including when a large descendant list cannot be persisted before signaling.
 
 For manual recovery, inspect the named paths/processes, wait for or explicitly
 stop only the identified execution, then run `gc --dry-run` and `gc`. Correct
@@ -511,14 +474,9 @@ Live output capture and diagnostic-log archival limit each line to 64 KiB
 (excluding the newline). An oversized line is omitted in full and replaced
 with `[ghalet: log line over 64 KiB omitted]`; capture resumes at the next
 newline. This bounds memory without leaking a secret through a partial line.
-Ordinary lines still support redaction and readiness detection across write
-boundaries.
 
 Known management and JIT values are redacted. Nonblank lines of multiline
-values, including App private keys, are also masked independently, with
-shared components retained until their last registration is released.
-Matches are located in the original text; overlapping matches are masked
-together regardless of registration order.
+values, including App private keys, are also masked independently.
 The official runner is responsible for masking job secrets in its own logs.
 No mechanism can mask arbitrary secrets deliberately transformed or printed
 by a trusted workflow.
@@ -567,7 +525,6 @@ For Apple Silicon Lima, `examples/lima.yaml` supplies an Ubuntu 26.04 ARM64 VM
 with VZ, 4 vCPU, 8 GiB, 80 GiB, no host mounts, no containerd, installation
 and an enabled systemd service. Provisioning does not copy host credentials.
 It builds the published ghalet module with Go's toolchain selection.
-To test unpublished changes, copy a locally built Linux ARM64 binary instead.
 Copy a configuration explicitly with `limactl copy`, log in
 as the guest `ghalet` user or supply guest-only credentials, and start the
 service. The service is conditionally skipped until configuration exists.
@@ -578,6 +535,15 @@ VM per job or promise operation while the Mac sleeps/logs out. Inspect
 `limactl list` and guest mount output to confirm no macOS host shares are
 exposed. VM lifecycle, sleep/wake and power-loss tests are operator
 acceptance checks, not established by template validation.
+
+## Deployment verification
+
+After setup or an update, run `ghalet config validate`, `ghalet doctor`, and
+a trusted test workflow for each target. Local validation alone does not prove
+GitHub permissions or server-side job assignment.
+Confirm organization/App permissions, runner group access, multi-target
+scheduling, service shutdown, reboot, and sleep/wake in the actual deployment
+environment. Successful tests do not establish job isolation.
 
 ## Trust boundary
 

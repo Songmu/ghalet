@@ -124,24 +124,12 @@ All guides are available in English and Japanese.
   permissions, creation steps and credential rotation for PATs and GitHub Apps.
 - [Operations](docs/operations.md): authentication, configuration, execution
   environment, recovery, logs and systemd/launchd/Lima deployment.
-- [Validation](docs/validation.md): automated tests, opt-in live
-  acceptance tests and what those tests do not establish.
 - [Example configuration](examples/config.yaml) and [configuration schema](schema.yaml).
 
 ## Development
 
-For local documentation builds and GitHub Pages deployment setup, see
-[the site guide](docs/site/README.md).
-
-```sh
-go test -race ./...
-go vet ./...
-go build ./cmd/ghalet
-```
-
-After changing GitHub Actions dependencies, run `gh actions-lock` and commit
-`.github/workflows/actions.lock` with the workflow changes. Install the tool
-with `gh extension install github/gh-actions-lock`.
+See [the contributor guide](CONTRIBUTING.md) for development, testing,
+packaging, and documentation site maintenance.
 
 ## Author
 

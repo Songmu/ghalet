@@ -68,7 +68,6 @@ while IFS= read -r -d '' source; do
     file-credentials) weight=50 ;;
     credentials) weight=60 ;;
     operations) weight=70 ;;
-    validation) weight=80 ;;
     *) weight=100 ;;
   esac
   add_page "$source" "$relative" "$weight"
