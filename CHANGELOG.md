@@ -1,5 +1,9 @@
 # Changelog
 
+## [v0.2.1](https://github.com/Songmu/ghalet/compare/v0.2.0...v0.2.1) - 2026-10-22
+
+- Fix non-root systemd credential ACL validation by @Songmu in https://github.com/Songmu/ghalet/pull/81
+
 ## [v0.2.0](https://github.com/Songmu/ghalet/compare/v0.1.1...v0.2.0) - 2026-10-22
 
 - docs: separate user guides from contributor documentation by @Songmu in https://github.com/Songmu/ghalet/pull/76
