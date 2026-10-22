@@ -3,7 +3,7 @@
 [日本語](README.ja.md)
 
 The site follows the Hugo/Hextra setup in Songmu/tagpr. The Markdown files under
-`docs/` are the documentation sources, readable directly in the repository.
+`docs/` are the user documentation sources, readable directly in the repository.
 `docs/index.md` and `docs/index.ja.md` become the site home pages, and
 `docs/getting-started.md` and its Japanese counterpart contain the installation
 and quick-start guide. The directory structure under `docs/` becomes the site
@@ -11,14 +11,19 @@ structure. Edit those source files in both languages; no separate site content i
 The build adds frontmatter, checks translation pairs, and rewrites Markdown links
 for the site. The repository README introduces the project and links to the
 documentation; links to it, examples, and other repository files stay on GitHub.
+This build directory and its maintenance guide are colocated with the user
+documentation as an exception to the audience-based directory layout.
+They are excluded from published site pages. Follow the
+[documentation policy](../../CONTRIBUTING.md#documentation-policy).
 
 ## Local build
 
 Renovate tracks Hugo releases and proposes updates to `.hugo-version`;
 the Pages workflow reads that same file.
 
-Install the extended Hugo version in `.hugo-version` and Go as specified in
-`go.mod`, then run from the repository root:
+Install the extended Hugo version in
+[`docs/site/.hugo-version`](.hugo-version) and Go as specified in
+[`docs/site/go.mod`](go.mod), then run from the repository root:
 
 ```sh
 bash docs/site/build.sh

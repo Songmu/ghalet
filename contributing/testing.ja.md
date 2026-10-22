@@ -1,10 +1,11 @@
-# 検証ガイド
+# テスト
 
-[English](validation.md)
+[English](testing.md)
 
 自動テストと、公式 runner・GitHub に対して任意で実行するテストの手順です。
-セットアップと常駐化は[導入ガイド](getting-started.ja.md)と
-[運用ガイド](operations.ja.md)を参照してください。
+コマンドはリポジトリルートで実行してください。
+セットアップと常駐化は[導入ガイド](../docs/getting-started.ja.md)と
+[運用ガイド](../docs/operations.ja.md)を参照してください。
 
 ## 自動テスト
 
@@ -69,7 +70,7 @@ GHALET_INTEGRATION_CONFIG=/absolute/path/to/dedicated/config.yaml \
 別々の実行ログを確認し、15 秒の期限でデーモンを drain します。
 **Scale Set の登録を残してデーモンを停止します。** 実行後は専用の Scale Set を
 GitHub 上で手動削除してください。通常運用では、target を設定から外して
-[`ghalet apply`](operations.ja.md#設定反映) を実行することで、旧実行時情報を
+[`ghalet apply`](../docs/operations.ja.md#設定反映) を実行することで、旧実行時情報を
 失う前に未参照 Scale Set の削除を試みます。
 
 ## 検証の限界
@@ -77,6 +78,7 @@ GitHub 上で手動削除してください。通常運用では、target を設
 自動テストは偽の API を使うため、GitHub サーバー側の割り当て動作やジョブの隔離を
 実証するものではありません。Organization / App の権限、複数 target のスケジューリング、
 サービスの停止、再起動、スリープ・復帰は、実際の運用環境で確認してください。
-[信頼境界](operations.ja.md#信頼境界)も参照してください。
+[導入環境の確認](../docs/operations.ja.md#導入環境の確認)と
+[信頼境界](../docs/operations.ja.md#信頼境界)も参照してください。
 
 結果を報告する際は、実行済みの確認と未実行のシナリオを区別してください。

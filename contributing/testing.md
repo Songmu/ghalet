@@ -1,10 +1,11 @@
-# Validation
+# Testing
 
-[日本語](validation.ja.md)
+[日本語](testing.ja.md)
 
 How to run automated tests and opt-in checks against the official runner
-and GitHub. For setup and deployment, see [getting started](getting-started.md) and
-[operations](operations.md).
+and GitHub. Run commands from the repository root.
+For setup and deployment, see [getting started](../docs/getting-started.md) and
+[operations](../docs/operations.md).
 
 ## Automated tests
 
@@ -74,7 +75,7 @@ The test creates/reuses the scale set, runs two sequential jobs, checks
 separate execution logs, and drains the daemon with a 15-second deadline.
 It **leaves the scale set registered** and stops its daemon. Afterwards,
 delete the dedicated scale set manually in GitHub. During normal operation,
-removing a target and running [`ghalet apply`](operations.md#applying-configuration)
+removing a target and running [`ghalet apply`](../docs/operations.md#applying-configuration)
 attempts to delete its unused scale set before losing the old runtime context.
 
 ## Verification limits
@@ -82,7 +83,9 @@ attempts to delete its unused scale set before losing the old runtime context.
 Automated tests use fake APIs; they do not establish GitHub's server-side
 assignment behavior or job isolation. Check organization/App permissions,
 multi-target scheduling, service shutdown, reboot and sleep/wake in the
-actual deployment environment. See the [trust boundary](operations.md#trust-boundary).
+actual deployment environment. See
+[deployment verification](../docs/operations.md#deployment-verification) and
+the [trust boundary](../docs/operations.md#trust-boundary).
 
 When reporting results, distinguish executed checks from scenarios that
 were not run.

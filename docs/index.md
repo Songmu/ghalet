@@ -34,7 +34,6 @@ one another; use only trusted workflows.
 
 - [Operations](operations.md): configuration, execution users, scaling,
   recovery, logs, service deployment, and trust boundaries.
-- [Validation](validation.md): automated tests and opt-in live acceptance tests.
 - [Commands](../README.md#commands): CLI command overview.
 - [Example configuration](../examples/config.yaml) and
   [configuration schema](../schema.yaml).

@@ -125,24 +125,12 @@ runner のアーカイブは固定バージョンを自動ダウンロードし�
   PAT と GitHub App の最小権限・作成手順・ローテーション。
 - [運用ガイド](docs/operations.ja.md): 認証、設定、実行環境、復旧、ログ、
   systemd / launchd / Lima での常駐化。
-- [検証ガイド](docs/validation.ja.md): 自動テストの実行方法、明示的に実行する実環境での
-  受け入れテスト、検証で保証できないこと。
 - [設定サンプル](examples/config.yaml)と[設定スキーマ](schema.yaml)。
 
 ## 開発
 
-ドキュメントのローカルビルドと GitHub Pages の公開設定は
-[サイトガイド](docs/site/README.ja.md)を参照してください。
-
-```sh
-go test -race ./...
-go vet ./...
-go build ./cmd/ghalet
-```
-
-GitHub Actions の依存を変更した後は `gh actions-lock` を実行し、
-workflow と一緒に `.github/workflows/actions.lock` をコミットしてください。
-ツールは `gh extension install github/gh-actions-lock` でインストールできます。
+開発、テスト、パッケージング、ドキュメントサイトの保守は
+[開発者ガイド](CONTRIBUTING.ja.md)を参照してください。
 
 ## 作者
 
