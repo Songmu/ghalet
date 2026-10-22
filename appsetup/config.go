@@ -84,11 +84,19 @@ func setupConfig(options Options) (preparedConfig, error) {
 	if err != nil {
 		return preparedConfig{}, err
 	}
-	config, err = settings.ParseConfigWithManaged(path, data, managed)
+	// Validate authentication in confirm, once the replacement App credential is known.
+	var proposed settings.Config
+	_, err = settings.NewEditor(data, &proposed)
 	if err != nil {
 		return preparedConfig{}, err
 	}
-	prepared.proposed, prepared.target = data, config.Targets[len(config.Targets)-1]
+	target := proposed.Targets[len(proposed.Targets)-1]
+	scope, err := normalizeScope(target.URL)
+	if err != nil {
+		return preparedConfig{}, err
+	}
+	target.ID, target.URL = key, "https://github.com/"+scope
+	prepared.proposed, prepared.target = data, target
 	return prepared, nil
 }
 

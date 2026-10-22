@@ -888,7 +888,7 @@ func TestConfigRejectsInvalidInput(t *testing.T) {
 		"zero log retention":       testYAML + "logs:\n  retention: 0s\n",
 		"two PAT inputs":           strings.Replace(testYAML, "tokenEnv: GHALET_TEST_TOKEN", "tokenEnv: GHALET_TEST_TOKEN\n      tokenFile: token", 1),
 		"inline token":             strings.Replace(testYAML, "tokenEnv: GHALET_TEST_TOKEN", "token: secret", 1),
-		"App installation":         strings.Replace(testYAML, "scaleSet: build", "scaleSet: build\n      installationId: 10", 1),
+		"App installation":         strings.Replace(testYAML, "tokenEnv: GHALET_TEST_TOKEN", "tokenEnv: GHALET_TEST_TOKEN\n      installationId: 10", 1),
 		"credential env":           strings.Replace(testYAML, `"2.338.0"`, "\"2.338.0\"\n  env:\n    GH_TOKEN: never-copy", 1),
 		"custom credential env":    strings.Replace(testYAML, `"2.338.0"`, "\"2.338.0\"\n  env:\n    GHALET_TEST_TOKEN: never-copy", 1),
 		"identity env":             strings.Replace(testYAML, `"2.338.0"`, "\"2.338.0\"\n  env:\n    HOME: /tmp", 1),
@@ -896,8 +896,12 @@ func TestConfigRejectsInvalidInput(t *testing.T) {
 	}
 	for name, input := range cases {
 		t.Run(name, func(t *testing.T) {
-			if _, err := settings.LoadConfig(writeConfig(t, input)); err == nil {
+			_, err := settings.LoadConfig(writeConfig(t, input))
+			if err == nil {
 				t.Fatal("invalid config was accepted")
+			}
+			if name == "App installation" && !strings.Contains(err.Error(), "credential.installationId is required only for github-app") {
+				t.Fatal("installation ID did not reach credential validation", err)
 			}
 		})
 	}

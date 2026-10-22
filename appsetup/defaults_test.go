@@ -54,6 +54,49 @@ func TestSetupDefaultAddsStaticTarget(t *testing.T) {
 	}
 }
 
+func TestSetupReplacesDifferentHostDefault(t *testing.T) {
+	for _, storage := range []string{"static", "managed"} {
+		for _, target := range []bool{false, true} {
+			name := storage + "/overwrite"
+			if target {
+				name = storage + "/target"
+			}
+			t.Run(name, func(t *testing.T) {
+				f := setupFixture(t, "owner/repo", "User")
+				f.options.Target, f.options.Overwrite = target, !target
+				defaults := []byte("defaults:\n  credential:\n    type: gh\n    hostname: ghe.example.com\n")
+				static := []byte("targets: []\n")
+				if storage == "static" {
+					static = append(static, defaults...)
+				} else {
+					path, err := settings.ManagedPath(f.options.Config, "")
+					if err != nil {
+						t.Fatal(err)
+					}
+					if err := settings.WriteManaged(path, nil, defaults); err != nil {
+						t.Fatal(err)
+					}
+				}
+				if err := os.WriteFile(f.options.Config, static, 0600); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := f.run(t.Context(), f.options, nil, io.Discard); err != nil {
+					t.Fatal("unrelated default prevented App setup", err)
+				}
+				config, err := settings.LoadConfig(f.options.Config)
+				if err != nil || len(config.Targets) != 1 || config.Targets[0].Credential.Type != "github-app" ||
+					config.Targets[0].Credential.InstallationID != 123 {
+					t.Fatal("target did not receive the final App credential", config, err)
+				}
+				data, err := os.ReadFile(f.options.Config)
+				if err != nil || bytes.Contains(data, []byte("type: github-app")) {
+					t.Fatal("temporary authentication leaked into static configuration", err)
+				}
+			})
+		}
+	}
+}
+
 func TestSetupDefaultCredential(t *testing.T) {
 	f := setupFixture(t, "owner/repo", "User")
 	f.options.Target = false

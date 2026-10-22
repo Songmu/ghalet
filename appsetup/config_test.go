@@ -68,15 +68,15 @@ func TestScopeTargetSelection(t *testing.T) {
 	}
 }
 
-func TestAppendTargetInheritsAppInstallation(t *testing.T) {
+func TestAppendTargetDefersAuthentication(t *testing.T) {
 	f := setupFixture(t, "owner/repo", "User")
 	data := []byte("defaults:\n  credential:\n    type: github-app\n    clientId: existing\n    privateKeyFile: existing.pem\n    installationId: 42\ntargets:\n  - scaleSet: existing\n    scope: owner/other\n")
 	if err := os.WriteFile(f.options.Config, data, 0600); err != nil {
 		t.Fatal(err)
 	}
 	prepared, err := setupConfig(f.options)
-	if err != nil || prepared.target.ID != f.options.credentialName || prepared.target.Credential.InstallationID != 42 {
-		t.Fatal("new target did not inherit the shared installation", err)
+	if err != nil || prepared.target.ID != f.options.credentialName || prepared.target.Credential.Type != "gh" {
+		t.Fatal("new target resolved authentication before App installation", err)
 	}
 	config, err := settings.ParseConfig(f.options.Config, prepared.proposed)
 	if err != nil || config.Targets[0].Credential.InstallationID != 42 || config.Defaults.Credential.ClientID != "existing" {
