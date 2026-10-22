@@ -255,6 +255,12 @@ func (s service) commitSetup(ctx context.Context, prepared preparedConfig, direc
 	if err != nil {
 		return err
 	}
+	if prepared.before != nil {
+		configPath, err = filepath.EvalSymlinks(configPath)
+		if err != nil {
+			return err
+		}
+	}
 	if err := fshelper.EnsureDirectory(filepath.Dir(configPath), 0700); err != nil {
 		return err
 	}
@@ -263,21 +269,17 @@ func (s service) commitSetup(ctx context.Context, prepared preparedConfig, direc
 		return err
 	}
 	defer configLock.Close()
-	current, err := os.ReadFile(prepared.options.Config)
+	current, err := os.ReadFile(configPath)
 	if err != nil && !(prepared.before == nil && errors.Is(err, os.ErrNotExist)) {
 		return err
 	}
 	if (prepared.before == nil && err == nil) || !bytes.Equal(current, prepared.before) {
 		return errors.New("configuration changed during setup; saved App is retained, rerun setup")
 	}
-	staticPath, mode := prepared.options.Config, os.FileMode(0600)
+	mode := os.FileMode(0600)
 	uid, gid := -1, -1
 	if prepared.before != nil {
-		staticPath, err = filepath.EvalSymlinks(staticPath)
-		if err != nil {
-			return err
-		}
-		info, err := os.Stat(staticPath)
+		info, err := os.Stat(configPath)
 		if err != nil {
 			return err
 		}
@@ -294,7 +296,7 @@ func (s service) commitSetup(ctx context.Context, prepared preparedConfig, direc
 	if bytes.Equal(prepared.before, prepared.proposed) {
 		return nil
 	}
-	if err := fshelper.WriteFileAtomicWithOwner(staticPath, prepared.proposed, mode, uid, gid); err != nil {
+	if err := fshelper.WriteFileAtomicWithOwner(configPath, prepared.proposed, mode, uid, gid); err != nil {
 		// Keep both snapshots consistent if the static target could not be saved.
 		if prepared.managedBefore != nil {
 			return errors.Join(err, settings.WriteManaged(prepared.managedPath, after, prepared.managedBefore))

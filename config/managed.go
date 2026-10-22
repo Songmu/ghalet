@@ -112,14 +112,14 @@ func CheckManagedPaths(managedPath, configPath string, reserved ...string) error
 	if err != nil {
 		return err
 	}
-	for i, path := range append([]string{configPath, configPath + ".lock"}, reserved...) {
+	for i, path := range append([]string{configPath, configPath + ".lock", static + ".lock"}, reserved...) {
 		protected, err := identity(path)
 		if err != nil {
 			return err
 		}
 		if within(managed, protected) || within(protected, managed) ||
 			within(lock, protected) || within(protected, lock) ||
-			(i >= 2 && (within(static, protected) || within(protected, static))) {
+			(i >= 3 && (within(static, protected) || within(protected, static))) {
 			return errors.New("static and managed configuration must not overlap credential, setup or service files")
 		}
 	}

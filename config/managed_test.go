@@ -322,8 +322,10 @@ func TestManagedPathRejectsFinalConfigSymlinkCollision(t *testing.T) {
 	if err := os.Symlink(actual, link); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ManagedPath(link, actual); err == nil {
-		t.Fatal("managed path aliases the final configuration symlink target")
+	for _, path := range []string{actual, actual + ".lock"} {
+		if _, err := ManagedPath(link, path); err == nil {
+			t.Fatal("managed path aliases the final configuration symlink target or its lock", path)
+		}
 	}
 }
 
