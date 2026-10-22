@@ -45,7 +45,7 @@ GHALET_TEST_OFFICIAL_RUNNER=1 \
 マスクされることを確認します。runner の登録やジョブ実行は行いません。
 runner が要求する OS の依存パッケージと、外向き HTTPS 通信が必要です。
 使い捨てのホスト・コンテナで root として実行した場合は、runner を `nobody` で起動し、
-旧 `0711` の親ディレクトリでのエラー再現と、移行後にその起動チェックを通過することを確認します。
+実行用の親ディレクトリで一覧取得・通過ができることを確認します。
 `TestExecutionDirectoryAccessAsRunner` も root で実行し、runner のダウンロードなしで
 別 UID のディレクトリアクセスとステート・ロックファイルの保護を確認できます。
 

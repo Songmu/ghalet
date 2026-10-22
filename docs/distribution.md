@@ -4,7 +4,7 @@
 
 Release tags publish amd64 and arm64 binaries, `.deb` and `.rpm` packages,
 and the multi-platform image `ghcr.io/songmu/ghalet:TAG`.
-Existing archives, `install.sh`, and `go install` remain available.
+Archives, `install.sh`, and `go install` are also available.
 APT/DNF repositories are not provided.
 For Homebrew installation and macOS service integration, see the
 [getting started](getting-started.md#installation).
@@ -97,13 +97,6 @@ For updates, stop the service normally and inspect any incomplete shutdown
 before replacing the package. Package upgrade scripts also stop the service,
 but never restart it automatically. Start it explicitly after the update;
 an existing enable-at-boot setting is preserved.
-
-When upgrading from the original shared-`ghalet`-user package, drain and clean up
-existing executions before upgrading. Existing configuration is not rewritten:
-add `runner.user: ghalet-runner` to `/etc/ghalet/config.yaml` before starting
-the new root-run service. Without it, startup refuses to run root jobs.
-Change management credential files to `root:root` with mode `0600`.
-The legacy `ghalet` account and retained files are not deleted automatically.
 
 ```sh
 sudo systemctl stop ghalet

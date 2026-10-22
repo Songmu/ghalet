@@ -4,7 +4,7 @@
 
 リリースタグごとに amd64 / arm64 のバイナリ、`.deb` / `.rpm` パッケージ、
 マルチプラットフォームイメージ `ghcr.io/songmu/ghalet:TAG` を公開します。
-既存のアーカイブ、`install.sh`、`go install` も引き続き利用できます。
+アーカイブ、`install.sh`、`go install` も利用できます。
 APT/DNF リポジトリは提供しません。
 Homebrew でのインストールと macOS のサービス連携は
 [導入ガイド](getting-started.ja.md#インストール)を参照してください。
@@ -94,13 +94,6 @@ sudo ghalet doctor --config /etc/ghalet/config.yaml
 更新時はサービスを通常停止し、停止が不完全なら状況を確認してからパッケージを置き換えます。
 パッケージの更新スクリプトもサービスを停止しますが、自動では再起動しません。
 更新後は明示的に起動してください。既存の OS 起動時の自動起動設定は保持します。
-
-従来の `ghalet` ユーザーを共用するパッケージから更新する場合は、先に既存の実行を
-drain し、後始末を完了してください。既存設定は書き換えないため、root で動く新しい
-サービスを起動する前に `/etc/ghalet/config.yaml` に `runner.user: ghalet-runner` を
-追加してください。未指定の場合は root でのジョブ実行を拒否して起動に失敗します。
-管理用認証ファイルは所有者を `root:root`、権限を `0600` に変更してください。
-従来の `ghalet` アカウントと保持されたファイルは自動削除しません。
 
 ```sh
 sudo systemctl stop ghalet

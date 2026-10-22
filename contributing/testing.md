@@ -48,8 +48,8 @@ invalid JIT input is masked in output and diagnostic logs. It does not
 register a runner or execute a job. Install the runner's OS prerequisites
 and allow outbound HTTPS.
 When run as root on a disposable host/container, it launches the runner as
-`nobody`, reproduces the legacy `0711` parent error, and verifies startup
-passes that check after migration. `TestExecutionDirectoryAccessAsRunner`
+`nobody` and checks that execution parents allow the runner to list and
+traverse them. `TestExecutionDirectoryAccessAsRunner`
 also runs as root to verify cross-UID directory access and private state/lock
 files without downloading a runner.
 
