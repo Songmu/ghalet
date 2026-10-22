@@ -17,6 +17,14 @@ go vet ./...
 CI は Linux と macOS で、実際の GitHub 登録を使わずにテストを実行します。
 非 root ユーザーで実行してください。root ではプロセスのテストをスキップします。
 
+使い捨ての Linux ホスト・コンテナでは、ルートパッケージのテストバイナリをビルドし、
+root で `GHALET_TEST_SYSTEMD_CREDENTIALS=1 ./ghalet-tests -test.run '^TestProtectedSystemdCredentialAccess$' -test.v`
+を実行すると、実際の credential ACL と非 root の読み取りプロセスを検証できます。
+systemd がサービスを管理する環境で `-test.run '^TestProtectedSystemd'` を指定すると、
+`LoadCredentialEncrypted=` を使った非 root サービスも検証します。
+パッケージ CI は Ubuntu で両方を実行します。使用するのはダミーの credential のみです。
+本番ホストでは実行せず、開発ホストのアカウントや sudo 設定も変更しないでください。
+
 Linux の fixture は、対象外と所属確認できた PID の消失、所属不明の PID の増減と
 直前に fork した子孫に対する回数制限付き確認、既知のグループメンバーの曖昧な消失、
 列挙から漏れた生存子孫、ワーカースレッドを持つゾンビリーダー、

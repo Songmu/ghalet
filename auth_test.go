@@ -146,6 +146,8 @@ func TestProtectedCredentials(t *testing.T) {
 		wantErr bool
 	}{
 		{name: "world-readable", mode: 0644, wantErr: true},
+		{name: "group-readable", mode: 0440, wantErr: true},
+		{name: "read-only", mode: 0400, want: "secret"},
 		{name: "private", mode: 0600, want: "secret"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

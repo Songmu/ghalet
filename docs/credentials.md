@@ -89,6 +89,12 @@ Validation checks configuration, not GitHub authentication or permissions.
 Systemd supplies the decrypted credential in a private, read-only runtime
 directory at service startup. Standalone processes outside the service do
 not automatically receive those runtime files.
+ghalet accepts root-owned files under `/run/credentials/UNIT/` with a read-only
+ACL for the service's effective UID, provided the parent directories are
+root-owned and not writable by other users and no group or unrelated user has
+effective access. Ordinary credential files still require owner-only permissions.
+Do not `chmod` systemd's runtime files: changing the ACL mask can remove the
+service user's access.
 
 ## GitHub Apps and additional credentials
 

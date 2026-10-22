@@ -3,6 +3,7 @@ package ghalet
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
@@ -23,10 +24,22 @@ func readProtected(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if !info.Mode().IsRegular() || info.Mode().Perm()&0077 != 0 {
+	if !info.Mode().IsRegular() {
 		return "", fmt.Errorf("%w: credential file %s must be a regular file accessible only to its owner (0600)", errUnsafeTarget, path)
 	}
-	data, err := os.ReadFile(path)
+	file, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+	info, err = file.Stat()
+	if err != nil {
+		return "", err
+	}
+	if !info.Mode().IsRegular() || (info.Mode().Perm()&0077 != 0 && !protectedSystemdCredential(file, info)) {
+		return "", fmt.Errorf("%w: credential file %s must be owner-only (0400/0600) or a protected systemd credential", errUnsafeTarget, path)
+	}
+	data, err := io.ReadAll(file)
 	if err != nil {
 		return "", err
 	}
