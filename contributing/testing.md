@@ -52,8 +52,10 @@ GHALET_TEST_OFFICIAL_RUNNER=1 \
 ```
 
 This downloads and verifies the pinned official runner, then checks that
-invalid JIT input is masked in output and diagnostic logs. It does not
-register a runner or execute a job. Install the runner's OS prerequisites
+its relative symlinks survive shared-directory preparation and remain readable
+by the execution user, and that invalid JIT input is masked in output and
+diagnostic logs. It does not register a runner or execute a job.
+Install the runner's OS prerequisites
 and allow outbound HTTPS.
 When run as root on a disposable host/container, it launches the runner as
 `nobody` and checks that execution parents allow the runner to list and
@@ -77,7 +79,9 @@ GHALET_TEST_RUNNER_USER=ghalet-runner /absolute/path/ghalet-tests \
 The packaging workflow sets up this policy and verifies runner startup,
 identity-checked shutdown, management file protection, private diagnostic log
 archiving with redaction, cleanup of runner-owned files, and group cleanup
-after the controller is killed.
+after the controller is killed. Its synthetic distribution includes file and
+directory symlinks to exercise extraction, sharing, access checks, launch,
+shutdown and log preservation with distinct UIDs and primary GIDs.
 
 ## Explicit live acceptance
 

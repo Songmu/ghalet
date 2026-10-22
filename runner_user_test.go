@@ -7,14 +7,17 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/Songmu/ghalet/fshelper"
 	"github.com/Songmu/ghalet/procgroup"
+	"github.com/Songmu/ghalet/runnerdist"
 )
 
 func TestRunnerUserRequestPreservesLivenessStream(t *testing.T) {
@@ -97,40 +100,118 @@ func TestRunnerUserCommandKeepsSecretsOutOfArguments(t *testing.T) {
 }
 
 func TestShareRunnerDirectoryKeepsFailedPreparationPrivate(t *testing.T) {
-	directory, outside := testDirectory(t), testDirectory(t)
-	if err := os.Chmod(directory, 0700); err != nil {
+	for _, kind := range []string{"relative escape", "absolute outside", "absolute inside", "chain escape", "dotdot escape", "cycle", "dangling"} {
+		t.Run(kind, func(t *testing.T) {
+			base := sharedExecutionTestDirectory(t)
+			gid := os.Getegid()
+			var account executionUser
+			if os.Geteuid() == 0 {
+				var err error
+				account, err = resolveUser("nobody")
+				if err != nil {
+					t.Fatal(err)
+				}
+				gid = account.GID
+			}
+			directory, secret := filepath.Join(base, "runner"), filepath.Join(base, "secret")
+			if err := os.MkdirAll(filepath.Join(directory, "nested"), 0700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(secret, []byte("private"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			before, err := os.Stat(secret)
+			if err != nil {
+				t.Fatal(err)
+			}
+			links := [][2]string{{"escape", "../secret"}}
+			switch kind {
+			case "absolute outside":
+				links = [][2]string{{"escape", secret}}
+			case "absolute inside":
+				links = [][2]string{{"escape", filepath.Join(directory, "nested")}}
+			case "chain escape":
+				links = [][2]string{{"escape", "hop"}, {"hop", "../secret"}}
+			case "dotdot escape":
+				links = [][2]string{{"nested/escape", "../pivot/../secret"}, {"pivot", "."}}
+			case "cycle":
+				links = [][2]string{{"escape", "escape"}}
+			case "dangling":
+				links = [][2]string{{"escape", "missing"}}
+			}
+			for _, link := range links {
+				if err := os.Symlink(link[1], filepath.Join(directory, link[0])); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := shareRunnerDirectory(directory, gid); err == nil ||
+				!strings.Contains(err.Error(), "escape") {
+				t.Fatal("unsafe link was accepted or diagnostic omitted its path", err)
+			}
+			assertPermissions(t, directory, 0700)
+			if os.Geteuid() == 0 {
+				check := exec.Command("/bin/sh", "-c", `test -x "$1"`, "private-access", directory)
+				check.SysProcAttr = processAttributes(account)
+				if err := check.Run(); err == nil {
+					t.Fatal("another runner UID can enter the failed preparation")
+				}
+			}
+			after, err := os.Stat(secret)
+			if err != nil {
+				t.Fatal(err)
+			}
+			oldStat, newStat := before.Sys().(*syscall.Stat_t), after.Sys().(*syscall.Stat_t)
+			data, err := os.ReadFile(secret)
+			if err != nil || string(data) != "private" || before.Mode() != after.Mode() ||
+				oldStat.Uid != newStat.Uid || oldStat.Gid != newStat.Gid {
+				t.Fatal("failed preparation changed an outside file", err)
+			}
+		})
+	}
+}
+
+func TestShareRunnerDistributionWithSymlinks(t *testing.T) {
+	c := testConfig(t)
+	script := "#!/bin/sh\nexit 0\n"
+	seedDistribution(t, c, script,
+		[2]string{"bin/listener-link", "Runner.Listener"},
+		[2]string{"linked-bin", "bin"},
+		[2]string{"chain", "bin/listener-link"})
+	directory := filepath.Join(testDirectory(t), "runner")
+	if err := runnerdist.New(time.Minute).Prepare(t.Context(), runnerdist.Config{
+		Version: c.Runner.Version, CacheRoot: c.Runner.CacheRoot,
+	}, directory); err != nil {
 		t.Fatal(err)
 	}
-	secret := filepath.Join(outside, "secret")
-	if err := os.WriteFile(secret, []byte("private"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	nested := filepath.Join(directory, "a")
-	if err := os.Mkdir(nested, 0700); err != nil {
-		t.Fatal(err)
-	}
-	link := filepath.Join(nested, "outside")
-	if err := os.Symlink(secret, link); err != nil {
-		t.Fatal(err)
-	}
-	if err := shareRunnerDirectory(directory, os.Getegid()); err == nil {
-		t.Fatal("shared a preparation tree containing a symlink")
-	}
-	for _, path := range []string{directory, secret} {
-		info, err := os.Stat(path)
-		if err != nil || info.Mode().Perm()&0077 != 0 {
-			t.Fatal("failed preparation exposed the tree or an outside file", path, info, err)
-		}
-	}
-	if err := os.Remove(link); err != nil {
+	dataFile := filepath.Join(directory, "data")
+	if err := os.WriteFile(dataFile, []byte("data"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	if err := shareRunnerDirectory(directory, os.Getegid()); err != nil {
 		t.Fatal(err)
 	}
-	info, err := os.Stat(directory)
-	if err != nil || info.Mode().Perm() != 0770 || info.Mode()&os.ModeSetgid == 0 {
-		t.Fatal("completed preparation did not expose the shared tree", err)
+	for _, name := range []string{"bin/listener-link", "linked-bin/Runner.Listener", "chain"} {
+		data, err := os.ReadFile(filepath.Join(directory, name))
+		if err != nil || string(data) != script {
+			t.Fatal("shared link is not accessible", name, err)
+		}
+	}
+	for _, tc := range []struct {
+		name string
+		mode os.FileMode
+	}{
+		{".", 0770 | os.ModeSetgid}, {"bin", 0770 | os.ModeSetgid},
+		{"bin/Runner.Listener", 0770}, {"data", 0660},
+	} {
+		info, err := os.Stat(filepath.Join(directory, tc.name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		stat := info.Sys().(*syscall.Stat_t)
+		if info.Mode()&(os.ModePerm|os.ModeSetgid) != tc.mode ||
+			int(stat.Uid) != os.Geteuid() || int(stat.Gid) != os.Getegid() {
+			t.Fatal("sharing changed ownership or permissions unexpectedly", tc.name, info)
+		}
 	}
 }
 
@@ -236,8 +317,8 @@ func TestSudoRunnerLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !d.user.Sudo || d.user.UID == os.Geteuid() || os.Geteuid() == 0 {
-		t.Fatal("test must use distinct, non-root management and runner accounts")
+	if !d.user.Sudo || d.user.UID == os.Geteuid() || d.user.GID == os.Getegid() || os.Geteuid() == 0 {
+		t.Fatal("test must use non-root management and runner accounts with distinct UIDs and primary GIDs")
 	}
 	if err := fshelper.EnsureDirectory(c.Runner.WorkRoot, 0755); err != nil {
 		t.Fatal(err)
@@ -265,6 +346,8 @@ test "$(id -u)" = %s
 test ! -r ../state.json
 test ! -w ..
 test ! -r %q
+test -r bin/listener-link
+test -x linked-bin/Runner.Listener
 umask 077
 mkdir _diag ../work/private
 printf 'test-jit-secret\n' > _diag/runner.log
@@ -272,7 +355,9 @@ printf 'workspace\n' > ../work/private/data
 printf 'Listening for Jobs\n'
 sleep 60
 `, strconv.Itoa(d.user.UID), secret)
-	seedDistribution(t, c, script)
+	seedDistribution(t, c, script,
+		[2]string{"bin/listener-link", "Runner.Listener"},
+		[2]string{"linked-bin", "bin"})
 	d.targets[buildTargetID].Assigned = 1
 	run := waitForRun(t, d, func(run *activeRun) bool { return run.State.Ready })
 	d.targets[buildTargetID].Assigned = 0

@@ -78,15 +78,28 @@ func TestOfficialRunnerJITInputSmoke(t *testing.T) {
 	}, dest); err != nil {
 		t.Fatal(err)
 	}
-	if os.Geteuid() == 0 {
-		if err := filepath.WalkDir(dest, func(path string, _ os.DirEntry, err error) error {
-			if err != nil {
-				return err
-			}
-			return os.Lchown(path, d.user.UID, d.user.GID)
-		}); err != nil {
+	if err := os.MkdirAll(state.Workspace, 0700); err != nil {
+		t.Fatal(err)
+	}
+	for _, dir := range []string{dest, state.Workspace} {
+		if err := shareRunnerDirectory(dir, d.user.GID); err != nil {
 			t.Fatal(err)
 		}
+	}
+	links := []string{state.Workspace}
+	if err := filepath.WalkDir(dest, func(path string, entry os.DirEntry, err error) error {
+		if err == nil && entry.Type()&os.ModeSymlink != 0 {
+			links = append(links, path)
+		}
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	check := exec.CommandContext(ctx, "/bin/sh", append([]string{"-ec",
+		`test -w "$1"; shift; for link do test -r "$link"; done`, "ghalet-link-access"}, links...)...)
+	check.Dir, check.Env, check.SysProcAttr = dest, runnerEnvironment(d.config, d.user, ""), processAttributes(d.user)
+	if output, err := check.CombinedOutput(); err != nil {
+		t.Fatalf("execution user cannot access the shared workspace or distribution links: %v\n%s", err, output)
 	}
 	// A syntactically invalid config exercises the standard secret input and
 	// argument masking without registering a runner or contacting GitHub.

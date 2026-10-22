@@ -75,6 +75,22 @@ func CheckDirectory(path string) error {
 	return managedDirectory(path, 0, false)
 }
 
+// CheckSymlink requires a relative link whose lexical target and fully resolved
+// target stay within root. Call after all targets exist, while the tree is private.
+func CheckSymlink(root *os.Root, name string) error {
+	target, err := root.Readlink(name)
+	if err != nil {
+		return err
+	}
+	if filepath.IsAbs(target) || !filepath.IsLocal(filepath.Join(filepath.Dir(name), target)) {
+		return fmt.Errorf("unsafe symlink %q -> %q", name, target)
+	}
+	if _, err := root.Stat(name); err != nil {
+		return fmt.Errorf("unsafe symlink %q -> %q: %w", name, target, err)
+	}
+	return nil
+}
+
 func managedDirectory(path string, mode os.FileMode, create bool) error {
 	if !filepath.IsAbs(path) || filepath.Clean(path) == "/" {
 		return fmt.Errorf("unsafe directory %s", path)
