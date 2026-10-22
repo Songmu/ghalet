@@ -166,14 +166,14 @@ func TestSharedAppKeyUsesTargetInstallations(t *testing.T) {
 	first := c.Targets[0]
 	first.URL = "https://github.com/first"
 	first.Credential = settings.Credential{Type: "github-app", ClientID: "app-client", PrivateKeyFile: "/protected/app.pem"}
-	first.InstallationID = 100
+	first.Credential.InstallationID = 100
 	second := first
-	second.ID, second.URL, second.InstallationID = "second", "https://github.com/second", 200
+	second.ID, second.URL, second.Credential.InstallationID = "second", "https://github.com/second", 200
 	c.Targets = []settings.Target{first, second}
 	if err := c.Validate(); err != nil {
 		t.Fatal("shared App key rejected across installations", err)
 	}
-	c.Targets[1].InstallationID = 0
+	c.Targets[1].Credential.InstallationID = 0
 	if err := c.Validate(); err == nil {
 		t.Fatal("App installation identity was not target-specific")
 	}

@@ -28,11 +28,10 @@ type Managed struct {
 }
 
 type ManagedTarget struct {
-	Scope          string     `yaml:"scope"`
-	RunnerGroup    string     `yaml:"runnerGroup,omitempty"`
-	ScaleSetName   string     `yaml:"scaleSet"`
-	Credential     Credential `yaml:"credential"`
-	InstallationID int64      `yaml:"installationId,omitempty"`
+	Scope        string     `yaml:"scope"`
+	RunnerGroup  string     `yaml:"runnerGroup,omitempty"`
+	ScaleSetName string     `yaml:"scaleSet"`
+	Credential   Credential `yaml:"credential"`
 }
 
 // ManagedPath resolves an explicit path relative to the static configuration.
@@ -190,10 +189,6 @@ func ParseManaged(data []byte) (*Managed, error) {
 		if err := target.Credential.validate(); err != nil {
 			return nil, fmt.Errorf("managed target %s: %w", target.Scope, err)
 		}
-		if (target.Credential.Type == "github-app" && target.InstallationID <= 0) ||
-			(target.Credential.Type != "github-app" && target.InstallationID != 0) {
-			return nil, errors.New("managed installationId is required only for github-app")
-		}
 	}
 	return &managed, nil
 }
@@ -242,7 +237,7 @@ func (c *Config) mergeManaged(managed *Managed) {
 	}
 	for i := range c.Targets {
 		target := &c.Targets[i]
-		if target.credentialSet || target.installationSet {
+		if target.credentialSet {
 			continue
 		}
 		for _, stored := range managed.Targets {
@@ -250,7 +245,7 @@ func (c *Config) mergeManaged(managed *Managed) {
 			if key != target.ID {
 				continue
 			}
-			target.Credential, target.InstallationID = stored.Credential, stored.InstallationID
+			target.Credential = stored.Credential
 			resolveCredentialPaths(&target.Credential, base)
 			target.credentialSet = true
 			break

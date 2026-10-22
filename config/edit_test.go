@@ -39,11 +39,11 @@ func TestEditorTargetEdits(t *testing.T) {
 	}
 	var decoded struct {
 		Targets []struct {
-			ScaleSet       string `yaml:"scaleSet"`
-			InstallationID int64  `yaml:"installationId"`
-			Credential     struct {
-				Type     string `yaml:"type"`
-				TokenEnv string `yaml:"tokenEnv"`
+			ScaleSet   string `yaml:"scaleSet"`
+			Credential struct {
+				InstallationID int64  `yaml:"installationId"`
+				Type           string `yaml:"type"`
+				TokenEnv       string `yaml:"tokenEnv"`
 			}
 		}
 	}
@@ -51,8 +51,8 @@ func TestEditorTargetEdits(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(decoded.Targets) != 3 || decoded.Targets[0].ScaleSet != "123" ||
-		decoded.Targets[0].InstallationID != 42 || decoded.Targets[0].Credential.Type != "github-app" ||
-		decoded.Targets[1].Credential.TokenEnv != "OLD_TOKEN" || decoded.Targets[2].InstallationID != 43 {
+		decoded.Targets[0].Credential.InstallationID != 42 || decoded.Targets[0].Credential.Type != "github-app" ||
+		decoded.Targets[1].Credential.TokenEnv != "OLD_TOKEN" || decoded.Targets[2].Credential.InstallationID != 43 {
 		t.Fatalf("target or alias semantics changed: %+v\n%s", decoded, data)
 	}
 	if err := editor.SetTargetApp("missing", "client", "app.pem", 1); err == nil {
@@ -60,7 +60,7 @@ func TestEditorTargetEdits(t *testing.T) {
 	}
 }
 
-func TestEditorAppendTargetOverridesDefaults(t *testing.T) {
+func TestEditorAppendTargetInheritsDefaults(t *testing.T) {
 	editor, err := NewEditor([]byte("defaults:\n  credential:\n    type: github-app\n    clientId: existing\n    privateKeyFile: old.pem\ntargets: []\n"), nil)
 	if err != nil {
 		t.Fatal(err)
@@ -72,8 +72,8 @@ func TestEditorAppendTargetOverridesDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(data), "credential: {}") {
-		t.Fatal("new target can inherit an unrelated App installation", string(data))
+	if strings.Contains(string(data), "credential: {}") {
+		t.Fatal("new target cannot inherit defaults", string(data))
 	}
 }
 

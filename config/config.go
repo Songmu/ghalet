@@ -75,6 +75,7 @@ type Credential struct {
 	TokenFile      string `yaml:"tokenFile,omitempty"`
 	ClientID       string `yaml:"clientId,omitempty"`
 	PrivateKeyFile string `yaml:"privateKeyFile,omitempty"`
+	InstallationID int64  `yaml:"installationId,omitempty"`
 }
 
 func (c *Credential) UnmarshalYAML(unmarshal func(any) error) error {
@@ -88,15 +89,13 @@ func (c *Credential) UnmarshalYAML(unmarshal func(any) error) error {
 }
 
 type Target struct {
-	ID              string        `yaml:"-"` // Derived from the registration, never configured.
-	URL             string        `yaml:"scope"`
-	Credential      Credential    `yaml:"credential"`
-	InstallationID  int64         `yaml:"installationId"`
-	RunnerGroup     string        `yaml:"runnerGroup"`
-	ScaleSetName    string        `yaml:"scaleSet"`
-	Scaling         ScalingConfig `yaml:"scaling"`
-	credentialSet   bool
-	installationSet bool
+	ID            string        `yaml:"-"` // Derived from the registration, never configured.
+	URL           string        `yaml:"scope"`
+	Credential    Credential    `yaml:"credential"`
+	RunnerGroup   string        `yaml:"runnerGroup"`
+	ScaleSetName  string        `yaml:"scaleSet"`
+	Scaling       ScalingConfig `yaml:"scaling"`
+	credentialSet bool
 }
 
 func (t *Target) UnmarshalYAML(unmarshal func(any) error) error {
@@ -114,7 +113,6 @@ func (t *Target) UnmarshalYAML(unmarshal func(any) error) error {
 	}
 	*t = Target(value)
 	_, t.credentialSet = fields["credential"]
-	_, t.installationSet = fields["installationId"]
 	return nil
 }
 
@@ -203,6 +201,15 @@ func LoadConfig(path string) (*Config, error) {
 
 // ParseConfig resolves and validates configuration bytes without writing a file.
 func ParseConfig(path string, content []byte) (*Config, error) {
+	return parseConfig(path, content, nil)
+}
+
+// ParseConfigWithManaged validates a proposed static and managed configuration.
+func ParseConfigWithManaged(path string, content []byte, managed *Managed) (*Config, error) {
+	return parseConfig(path, content, managed)
+}
+
+func parseConfig(path string, content []byte, managed *Managed) (*Config, error) {
 	path, err := ResolvePath(path)
 	if err != nil {
 		return nil, err
@@ -282,9 +289,11 @@ func ParseConfig(path string, content []byte) (*Config, error) {
 			return nil, fmt.Errorf("target %s: %w", target.URL, err)
 		}
 	}
-	managed, _, err := ReadManaged(c.ManagedFile)
-	if err != nil {
-		return nil, fmt.Errorf("load managed file: %w", err)
+	if managed == nil {
+		managed, _, err = ReadManaged(c.ManagedFile)
+		if err != nil {
+			return nil, fmt.Errorf("load managed file: %w", err)
+		}
 	}
 	c.mergeManaged(managed)
 	for i := range c.Targets {
@@ -389,9 +398,6 @@ func (t Target) validate() error {
 	if err := cred.validate(); err != nil {
 		return err
 	}
-	if (cred.Type == "github-app" && t.InstallationID <= 0) || (cred.Type != "github-app" && t.InstallationID != 0) {
-		return errors.New("installationId is required only for github-app")
-	}
 	if cred.Type == "gh" && cred.Hostname != "" && cred.Hostname != u.Host {
 		return errors.New("credential hostname does not match scope hostname")
 	}
@@ -424,6 +430,9 @@ func (c Credential) validate() error {
 		}
 	default:
 		return fmt.Errorf("unsupported credential type %q", c.Type)
+	}
+	if (c.Type == "github-app" && c.InstallationID <= 0) || (c.Type != "github-app" && c.InstallationID != 0) {
+		return errors.New("credential.installationId is required only for github-app")
 	}
 	return nil
 }

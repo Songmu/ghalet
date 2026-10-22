@@ -760,13 +760,12 @@ func TestConfigAliases(t *testing.T) {
 		{"gh", "      type: gh", false},
 		{"PAT environment", "      type: pat\n      tokenEnv: SHARED_TOKEN", false},
 		{"PAT file", "      type: pat\n      tokenFile: credentials/token", false},
-		{"App key", "      type: github-app\n      clientId: app-client\n      privateKeyFile: credentials/app.pem", true},
+		{"App key", "      type: github-app\n      clientId: app-client\n      privateKeyFile: credentials/app.pem\n      installationId: 100", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			firstInstallation, secondInstallation := "", ""
 			content := input
 			if tc.app {
-				firstInstallation, secondInstallation = "    installationId: 100", "    installationId: 200"
 				content = strings.Replace(content, "scope: *scope", "scope: https://github.com/second", 1)
 			}
 			content = strings.NewReplacer("CREDENTIAL", tc.credential,
@@ -787,9 +786,9 @@ func TestConfigAliases(t *testing.T) {
 			if first.Credential.TokenFile != "" && first.Credential.TokenFile != filepath.Join(filepath.Dir(path), "credentials/token") {
 				t.Fatal("aliased token path was not resolved relative to config")
 			}
-			if tc.app && (first.InstallationID != 100 || second.InstallationID != 200 ||
+			if tc.app && (first.Credential.InstallationID != 100 || second.Credential.InstallationID != 100 ||
 				first.Credential.PrivateKeyFile != filepath.Join(filepath.Dir(path), "credentials/app.pem")) {
-				t.Fatal("shared App credential lost per-target installation IDs or relative path")
+				t.Fatal("shared App credential lost its installation ID or relative path")
 			}
 			c.Targets[0].Credential.Type = "changed"
 			if c.Targets[1].Credential.Type == "changed" {
@@ -822,7 +821,7 @@ func TestConfigTargetCredentials(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			c := testConfig(t)
-			c.Targets[0].Credential, c.Targets[0].InstallationID = tc.credential, tc.installationID
+			c.Targets[0].Credential, c.Targets[0].Credential.InstallationID = tc.credential, tc.installationID
 			if err := c.Validate(); (err == nil) != tc.valid {
 				t.Fatalf("valid=%v: %v", tc.valid, err)
 			}
@@ -889,7 +888,7 @@ func TestConfigRejectsInvalidInput(t *testing.T) {
 		"zero log retention":       testYAML + "logs:\n  retention: 0s\n",
 		"two PAT inputs":           strings.Replace(testYAML, "tokenEnv: GHALET_TEST_TOKEN", "tokenEnv: GHALET_TEST_TOKEN\n      tokenFile: token", 1),
 		"inline token":             strings.Replace(testYAML, "tokenEnv: GHALET_TEST_TOKEN", "token: secret", 1),
-		"App installation":         strings.Replace(testYAML, "scaleSet: build", "scaleSet: build\n    installationId: 10", 1),
+		"App installation":         strings.Replace(testYAML, "scaleSet: build", "scaleSet: build\n      installationId: 10", 1),
 		"credential env":           strings.Replace(testYAML, `"2.338.0"`, "\"2.338.0\"\n  env:\n    GH_TOKEN: never-copy", 1),
 		"custom credential env":    strings.Replace(testYAML, `"2.338.0"`, "\"2.338.0\"\n  env:\n    GHALET_TEST_TOKEN: never-copy", 1),
 		"identity env":             strings.Replace(testYAML, `"2.338.0"`, "\"2.338.0\"\n  env:\n    HOME: /tmp", 1),
@@ -969,7 +968,7 @@ func TestConfigValidationOrder(t *testing.T) {
 			c.Targets[0].URL, c.Targets[0].Credential.Type = "invalid", "invalid"
 		}, "target " + buildTargetID + ": scope URL must be an HTTPS organization or repository URL"},
 		{"credential before installation", func(c *settings.Config) {
-			c.Targets[0].Credential.Type, c.Targets[0].InstallationID = "invalid", 1
+			c.Targets[0].Credential.Type, c.Targets[0].Credential.InstallationID = "invalid", 1
 		}, "target " + buildTargetID + `: unsupported credential type "invalid"`},
 		{"target before total minimum", func(c *settings.Config) {
 			c.Targets[0].Scaling.MinRunners = c.Capacity.MaxRunners + 1

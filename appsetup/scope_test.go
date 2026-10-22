@@ -16,7 +16,7 @@ import (
 	"github.com/Songmu/ghalet/fshelper"
 )
 
-func TestSetupLeavesNewConfigToUserAndResumes(t *testing.T) {
+func TestSetupCreatesNewConfigAndResumes(t *testing.T) {
 	for _, registration := range []struct{ scope, group string }{
 		{scope: "owner/repo"}, {scope: "owner"}, {scope: "owner", group: "linux"},
 	} {
@@ -31,31 +31,14 @@ func TestSetupLeavesNewConfigToUserAndResumes(t *testing.T) {
 				t.Fatal(err)
 			}
 			want := f.options.credentialName
-			if _, err := os.Stat(f.options.Config); !errors.Is(err, os.ErrNotExist) {
-				t.Fatal("setup created static configuration", err)
-			}
-			if !strings.Contains(output.String(), "Suggested static configuration:") ||
-				!strings.Contains(output.String(), "scaleSet: \"build\"") {
-				t.Fatal("setup did not print the required static configuration", output.String())
-			}
-			if err := os.MkdirAll(filepath.Dir(f.options.Config), 0700); err != nil {
-				t.Fatal(err)
-			}
-			_, suggestion, found := strings.Cut(output.String(), "Suggested static configuration:\n")
-			if !found {
-				t.Fatal("missing suggested configuration")
-			}
-			if err := os.WriteFile(f.options.Config, []byte(suggestion), 0444); err != nil {
-				t.Fatal(err)
-			}
 			config, err := settings.LoadConfig(f.options.Config)
 			if err != nil || len(config.Targets) != 1 || config.Targets[0].ID != want || config.Targets[0].RunnerGroup != registration.group ||
-				config.Targets[0].InstallationID != 123 || result.Target != want {
+				config.Targets[0].Credential.InstallationID != 123 || result.Target != want {
 				t.Fatal("new configuration did not use the derived ID", config, err)
 			}
 			info, err := os.Stat(f.options.Config)
-			if err != nil || info.Mode().Perm() != 0444 {
-				t.Fatal("static configuration permissions changed", err)
+			if err != nil || info.Mode().Perm() != 0600 {
+				t.Fatal("new configuration is not owner-only", err)
 			}
 			second, err := f.run(t.Context(), f.options, nil, io.Discard)
 			if err != nil || second.KeyPath != result.KeyPath || f.conversions.Load() != 1 {
@@ -69,7 +52,7 @@ func TestSetupLeavesNewConfigToUserAndResumes(t *testing.T) {
 	}
 }
 
-func TestSetupPrintsQuotedTargetForExistingConfig(t *testing.T) {
+func TestSetupAddsQuotedTargetToExistingConfig(t *testing.T) {
 	f := setupFixture(t, "owner/repo", "User")
 	f.options.ScaleSet = "null"
 	before, err := os.ReadFile(f.options.Config)
@@ -80,17 +63,17 @@ func TestSetupPrintsQuotedTargetForExistingConfig(t *testing.T) {
 	if _, err := f.run(t.Context(), f.options, nil, &output); err != nil {
 		t.Fatal(err)
 	}
-	_, suggestion, found := strings.Cut(output.String(), "before starting or applying:\n")
-	if !found {
-		t.Fatal("missing suggested target", output.String())
+	data, err := os.ReadFile(f.options.Config)
+	if err != nil || bytes.Equal(before, data) || !bytes.Contains(data, []byte("# keep this comment")) {
+		t.Fatal("new target was not added while preserving comments", err)
 	}
-	config, err := settings.ParseConfig(f.options.Config, append(before, suggestion...))
+	config, err := settings.LoadConfig(f.options.Config)
 	if err != nil {
 		t.Fatal("suggested target is not valid configuration", err)
 	}
 	target := config.Targets[len(config.Targets)-1]
 	if len(config.Targets) != 3 || target.ScaleSetName != "null" ||
-		target.Credential.Type != "github-app" || target.InstallationID != 123 {
+		target.Credential.Type != "github-app" || target.Credential.InstallationID != 123 {
 		t.Fatal("suggested target did not activate its managed authentication", config.Targets)
 	}
 }
@@ -174,23 +157,13 @@ func TestSystemdAppSetupResumesAfterProvisionFailure(t *testing.T) {
 	if err != nil || saves != 1 || reads != 4 || provisions != 2 || first.KeyPath != second.KeyPath || f.conversions.Load() != 1 {
 		t.Fatal("systemd setup did not reuse the encrypted key", saves, reads, err)
 	}
-	if _, err := os.Stat(f.options.Config); !errors.Is(err, os.ErrNotExist) {
-		t.Fatal("systemd setup created static configuration", err)
-	}
-	if !strings.Contains(output.String(), "user: ghalet-runner") ||
-		!strings.Contains(output.String(), "root: /var/log/ghalet/runners") {
-		t.Fatal("missing suggested package service settings", output.String())
-	}
-	if err := os.WriteFile(f.options.Config, []byte("runner:\n  user: ghalet-runner\nlogs:\n  root: /var/log/ghalet/runners\ntargets:\n  - scaleSet: build\n    scope: owner/repo\n"), 0444); err != nil {
-		t.Fatal(err)
-	}
 	logRoot, err := fshelper.ResolveDirectory("/var/log/ghalet/runners")
 	if err != nil {
 		t.Fatal(err)
 	}
 	config, err := settings.LoadConfig(f.options.Config)
 	if err != nil || config.Targets[0].Credential.PrivateKeyFile != first.KeyPath ||
-		config.Targets[0].InstallationID != 123 || config.Runner.User != "ghalet-runner" ||
+		config.Targets[0].Credential.InstallationID != 123 || config.Runner.User != "ghalet-runner" ||
 		config.Logs.Root != logRoot {
 		t.Fatal("new systemd config does not use package service settings", config, err)
 	}

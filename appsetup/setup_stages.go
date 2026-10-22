@@ -177,32 +177,40 @@ func (s service) installApp(ctx context.Context, options Options, files setupFil
 
 func (prepared preparedConfig) confirm(ctx context.Context, state savedApp, installationID int64, input *os.File, output io.Writer) ([]byte, error) {
 	options := prepared.options
-	after, err := targetConfig(prepared.proposed, prepared.target.ID, state, installationID)
-	if err != nil {
-		return nil, err
+	credential := settings.Credential{
+		Type: "github-app", ClientID: state.ClientID, PrivateKeyFile: state.KeyPath, InstallationID: installationID,
 	}
-	if _, err := settings.ParseConfig(options.Config, after); err != nil {
+	destination := "defaults.credential"
+	if options.Target {
+		destination = "target credential"
+		prepared.managed.SetTarget(settings.ManagedTarget{
+			Scope: prepared.target.URL, RunnerGroup: prepared.target.RunnerGroup, ScaleSetName: prepared.target.ScaleSetName,
+			Credential: credential,
+		})
+	} else {
+		prepared.managed.Defaults.Credential = &credential
+		for i, target := range prepared.managed.Targets {
+			key, _ := settings.TargetKey(target.Scope, target.RunnerGroup, target.ScaleSetName)
+			if key == prepared.target.ID {
+				prepared.managed.Targets = append(prepared.managed.Targets[:i], prepared.managed.Targets[i+1:]...)
+				break
+			}
+		}
+	}
+	if _, err := settings.ParseConfigWithManaged(options.Config, prepared.proposed, prepared.managed); err != nil {
 		return nil, fmt.Errorf("validate proposed configuration: %w", err)
 	}
-	if _, err := fmt.Fprintf(output, "Save target in managed file %s:\n  scope: %s\n  scaleSet: %s\n  runnerGroup: %s\n  credential.type: github-app\n  credential.clientId: %s\n  credential.privateKeyFile: %s\n  installationId: %d\nStatic configuration %s is not changed; explicit target authentication takes precedence.\n", prepared.managedPath, options.Scope, options.ScaleSet, settings.RunnerGroupName(options.RunnerGroup), state.ClientID, state.KeyPath, installationID, options.Config); err != nil {
+	if _, err := fmt.Fprintf(output, "Save %s in managed file %s:\n  type: github-app\n  clientId: %s\n  privateKeyFile: %s\n  installationId: %d\nExplicit target credentials take precedence.\n", destination, prepared.managedPath, state.ClientID, state.KeyPath, installationID); err != nil {
 		return nil, err
 	}
 	if !prepared.targetExists {
-		suggestion := fmt.Sprintf("  - scope: %q\n    scaleSet: %q\n", options.Scope, options.ScaleSet)
-		if options.RunnerGroup != "" {
-			suggestion += fmt.Sprintf("    runnerGroup: %q\n", options.RunnerGroup)
-		}
-		if _, err := fmt.Fprintf(output, "Add this target to %s before starting or applying:\n%s", options.Config, suggestion); err != nil {
+		if _, err := fmt.Fprintf(output, "Add target to %s:\n  scope: %s\n  scaleSet: %s\n  runnerGroup: %s\n", options.Config, options.Scope, options.ScaleSet, settings.RunnerGroupName(options.RunnerGroup)); err != nil {
 			return nil, err
 		}
-		if prepared.before == nil {
-			suggestion = "targets:\n" + suggestion
-			if options.Systemd {
-				suggestion += "runner:\n  user: ghalet-runner\nlogs:\n  root: /var/log/ghalet/runners\n"
-			}
-			if _, err := fmt.Fprintf(output, "Suggested static configuration:\n%s", suggestion); err != nil {
-				return nil, err
-			}
+	}
+	if options.Overwrite {
+		if _, err := fmt.Fprintln(output, "Replace defaults.credential; targets inheriting defaults will use this installation."); err != nil {
+			return nil, err
 		}
 	}
 	if !options.Yes {
@@ -217,11 +225,6 @@ func (prepared preparedConfig) confirm(ctx context.Context, state savedApp, inst
 			return nil, errors.New("configuration not changed; App/key retained, rerun setup to resume")
 		}
 	}
-	prepared.managed.SetTarget(settings.ManagedTarget{
-		Scope: prepared.target.URL, RunnerGroup: prepared.target.RunnerGroup, ScaleSetName: prepared.target.ScaleSetName,
-		Credential:     settings.Credential{Type: "github-app", ClientID: state.ClientID, PrivateKeyFile: state.KeyPath},
-		InstallationID: installationID,
-	})
 	return prepared.managed.Marshal()
 }
 
@@ -248,6 +251,18 @@ func (s service) commitSetup(ctx context.Context, prepared preparedConfig, direc
 			return fmt.Errorf("provision systemd App key: %w; App/key and setup metadata retained, rerun setup to resume", err)
 		}
 	}
+	configPath, err := fshelper.ResolveParent(prepared.options.Config)
+	if err != nil {
+		return err
+	}
+	if err := fshelper.EnsureDirectory(filepath.Dir(configPath), 0700); err != nil {
+		return err
+	}
+	configLock, err := fshelper.LockFile(configPath + ".lock")
+	if err != nil {
+		return err
+	}
+	defer configLock.Close()
 	current, err := os.ReadFile(prepared.options.Config)
 	if err != nil && !(prepared.before == nil && errors.Is(err, os.ErrNotExist)) {
 		return err
@@ -255,5 +270,34 @@ func (s service) commitSetup(ctx context.Context, prepared preparedConfig, direc
 	if (prepared.before == nil && err == nil) || !bytes.Equal(current, prepared.before) {
 		return errors.New("configuration changed during setup; saved App is retained, rerun setup")
 	}
-	return settings.WriteManaged(prepared.managedPath, prepared.managedBefore, after)
+	staticPath, mode := prepared.options.Config, os.FileMode(0600)
+	if prepared.before != nil {
+		staticPath, err = filepath.EvalSymlinks(staticPath)
+		if err != nil {
+			return err
+		}
+		info, err := os.Stat(staticPath)
+		if err != nil {
+			return err
+		}
+		mode = info.Mode().Perm()
+	}
+	if err := settings.WriteManaged(prepared.managedPath, prepared.managedBefore, after); err != nil {
+		return err
+	}
+	if bytes.Equal(prepared.before, prepared.proposed) {
+		return nil
+	}
+	if err := fshelper.WriteFileAtomic(staticPath, prepared.proposed, mode); err != nil {
+		// Keep both snapshots consistent if the static target could not be saved.
+		if prepared.managedBefore != nil {
+			return errors.Join(err, settings.WriteManaged(prepared.managedPath, after, prepared.managedBefore))
+		}
+		empty, marshalErr := (&settings.Managed{}).Marshal()
+		if marshalErr != nil {
+			return errors.Join(err, marshalErr)
+		}
+		return errors.Join(err, settings.WriteManaged(prepared.managedPath, after, empty))
+	}
+	return nil
 }

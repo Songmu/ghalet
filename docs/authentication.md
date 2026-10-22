@@ -157,7 +157,7 @@ Follow [GitHub's App registration guide][app-guide]:
    **installation ID** from the final URL segment, for example
    `https://github.com/organizations/ORG/settings/installations/12345678`
    or `https://github.com/settings/installations/12345678`.
-   Set `installationId: 12345678` on each target using that installation.
+   Set `installationId: 12345678` inside the credential for that installation.
 
 For direct execution, make the downloaded private key readable only by its
 owner (`chmod 600 /absolute/path/to/ghalet-app.pem`) and configure:
@@ -168,16 +168,16 @@ defaults:
     type: github-app
     clientId: Iv1.REPLACE_WITH_CLIENT_ID
     privateKeyFile: /absolute/path/to/ghalet-app.pem
+    installationId: 12345678
 
 targets:
   - scaleSet: project
     scope: OWNER/REPO
-    installationId: 12345678
 ```
 
 For an organization target, change `scope` to `ORG` and use that organization's
 installation ID. Multiple installations can share the App's client ID and key,
-but each target must specify the installation ID for its owner.
+but each credential must specify the installation ID for its owner.
 ghalet's SDK obtains and renews installation tokens automatically.
 For the packaged service, follow [App key import](credentials.md#github-apps-and-additional-credentials)
 instead of storing the key directly in the configuration directory.
@@ -211,7 +211,7 @@ For planned replacement of ordinary PAT files or App key files on Linux/macOS:
 2. Retain a protected copy of the old file for rollback, then atomically replace
    the configured file with the new value. Preserve owner-only permissions and
    readability by the daemon user. An App key rotation keeps the same
-   `clientId` and target `installationId` values.
+   `credential.clientId` and `credential.installationId` values.
 3. Run `ghalet apply --config /absolute/path/to/config.yaml`. It drains all
    targets and creates new clients that reread the files, even if their paths
    have not changed. Plan for the [drain deadline](operations.md#capacity-retries-and-shutdown);

@@ -66,7 +66,7 @@ func TestManagedCredentialPrecedence(t *testing.T) {
 	if err := os.Mkdir(filepath.Dir(managedPath), 0700); err != nil {
 		t.Fatal(err)
 	}
-	data := []byte("defaults:\n  credential:\n    type: pat\n    tokenFile: managed.pat\ntargets:\n  - scaleSet: build\n    scope: https://github.com/owner/repo\n    credential:\n      type: github-app\n      clientId: generated\n      privateKeyFile: app.pem\n    installationId: 123\n  - scaleSet: removed\n    scope: https://github.com/owner/removed\n    credential: {}\n")
+	data := []byte("defaults:\n  credential:\n    type: pat\n    tokenFile: managed.pat\ntargets:\n  - scaleSet: build\n    scope: https://github.com/owner/repo\n    credential:\n      type: github-app\n      clientId: generated\n      privateKeyFile: app.pem\n      installationId: 123\n  - scaleSet: removed\n    scope: https://github.com/owner/removed\n    credential: {}\n")
 	if err := os.WriteFile(managedPath, data, 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -79,7 +79,7 @@ func TestManagedCredentialPrecedence(t *testing.T) {
 		{name: "managed target before static default", defaults: "defaults:\n  credential:\n    type: pat\n    tokenEnv: STATIC_PAT\n", want: "github-app", installation: 123},
 		{name: "explicit gh", target: "    credential: {}\n", want: "gh"},
 		{name: "explicit PAT", target: "    credential:\n      type: pat\n      tokenEnv: STATIC_PAT\n", want: "pat"},
-		{name: "explicit App", target: "    credential:\n      type: github-app\n      clientId: static\n      privateKeyFile: static.pem\n    installationId: 456\n", want: "github-app", installation: 456},
+		{name: "explicit App", target: "    credential:\n      type: github-app\n      clientId: static\n      privateKeyFile: static.pem\n      installationId: 456\n", want: "github-app", installation: 456},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			static := []byte("managedFile: generated/managed.yaml\n" + tc.defaults + "targets:\n  - scaleSet: build\n    scope: OWNER/REPO/\n" + tc.target + "  - scaleSet: fallback\n    scope: owner/other\n")
@@ -88,7 +88,7 @@ func TestManagedCredentialPrecedence(t *testing.T) {
 				t.Fatal(err)
 			}
 			target := config.Targets[0]
-			if len(config.Targets) != 2 || target.Credential.Type != tc.want || target.InstallationID != tc.installation {
+			if len(config.Targets) != 2 || target.Credential.Type != tc.want || target.Credential.InstallationID != tc.installation {
 				t.Fatal("managed merge changed static targets or combined authentication", config)
 			}
 			if tc.target == "" && target.Credential.PrivateKeyFile != filepath.Join(filepath.Dir(managedPath), "app.pem") {
@@ -111,7 +111,7 @@ func TestManagedCredentialPrecedence(t *testing.T) {
 func TestManagedScopeAndAuthenticationIsolation(t *testing.T) {
 	_, path := managedFixture(t)
 	managedPath := filepath.Join(filepath.Dir(path), "managed.yaml")
-	managed := []byte("targets:\n  - scaleSet: build\n    scope: https://github.com/owner/old\n    credential:\n      type: github-app\n      clientId: generated\n      privateKeyFile: app.pem\n    installationId: 123\n")
+	managed := []byte("targets:\n  - scaleSet: build\n    scope: https://github.com/owner/old\n    credential:\n      type: github-app\n      clientId: generated\n      privateKeyFile: app.pem\n      installationId: 123\n")
 	if err := os.WriteFile(managedPath, managed, 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -120,8 +120,8 @@ func TestManagedScopeAndAuthenticationIsolation(t *testing.T) {
 	if err != nil || config.Targets[0].Credential.Type != "gh" {
 		t.Fatal("stale managed authentication applied to a new registration", err)
 	}
-	if _, err := ParseConfig(path, []byte(static+"    installationId: 456\n")); err == nil {
-		t.Fatal("manual installation ID was combined with managed target credentials")
+	if _, err := ParseConfig(path, []byte(static+"    credential:\n      installationId: 456\n")); err == nil {
+		t.Fatal("incomplete manual credential accepted")
 	}
 }
 
@@ -134,13 +134,13 @@ func TestManagedRegistrationMatching(t *testing.T) {
 		{Scope: "owner", ScaleSetName: "test"},
 	} {
 		target.Credential = Credential{Type: "github-app", ClientID: "app", PrivateKeyFile: "app.pem"}
-		target.InstallationID = int64(i + 1)
+		target.Credential.InstallationID = int64(i + 1)
 		managed.SetTarget(target)
 	}
 	replacement := managed.Targets[0]
 	replacement.Scope = "https://GITHUB.COM/OWNER/"
 	replacement.RunnerGroup = RunnerGroupName("")
-	replacement.InstallationID = 42
+	replacement.Credential.InstallationID = 42
 	managed.SetTarget(replacement)
 	if len(managed.Targets) != 3 {
 		t.Fatal("equivalent registration was appended instead of replaced")
@@ -158,7 +158,7 @@ func TestManagedRegistrationMatching(t *testing.T) {
 		t.Fatal(err)
 	}
 	for i, want := range []int64{42, 2, 3, 0} {
-		if config.Targets[i].InstallationID != want {
+		if config.Targets[i].Credential.InstallationID != want {
 			t.Fatal("managed authentication crossed registration boundaries", config.Targets)
 		}
 	}

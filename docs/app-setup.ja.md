@@ -5,7 +5,7 @@
 `ghalet app setup --scope OWNER/REPO --scale-set project` は [GitHub の Manifest フロー][manifest]で、
 個人または Organization が所有する非公開の GitHub App を作成します。
 事前の PAT、client secret、公開コールバックサービス、PEM のコピー＆ペーストは不要です。
-Linux / macOS で **GitHub.com の target 一つにつき一つの App** を扱います。
+Linux / macOS で **GitHub.com** に対応し、一回のセットアップで一つの target を検証します。
 保存先は[暗号化されていない通常ファイル](file-credentials.ja.md)です。
 `ghalet systemd app setup` は代わりにサービス用の暗号化認証情報を保存します。
 どちらもデーモンの起動や設定反映は行いません。
@@ -29,15 +29,23 @@ ghalet app setup --scope ORG --scale-set project --runner-group linux
 `--scope` と `--scale-set` は必須です。scope には GitHub.com の
 Organization / リポジトリの HTTPS URL も使えます。
 確認後に別の [managed ファイル](operations.ja.md#セットアップで管理する情報)へ認証情報を保存します。
-静的な設定ファイルの作成・書き換えは行いません。新しい target では表示された YAML を
-設定へ追加してください。設定ファイルがなければ、設定全体の案も表示します。
+デフォルトでは `installationId` を含む認証情報全体を `defaults.credential` に保存します。
+`--target` を指定すると、managed の target 固有の認証情報として保存します。
+どちらかの設定に `defaults.credential` が既に存在する場合は、App 作成前に停止し、
+`--target` または `--overwrite` の指定を促します。`--overwrite` は managed の共通認証を
+置き換え、静的設定の共通認証も削除して新しい共通認証を有効にします。
+共通認証を継承する target に影響しますが、target に明示した認証は引き続き優先します。
+`--yes` だけでは上書きを許可しません。
+target の scope・Scale Set・任意の runner group は、静的設定になければ追加し、
+設定ファイル自体がなければ作成します。
 正規化した scope・runner group・Scale Set が同じ既存 target を再利用します。
 `--scale-set` は GitHub 上の登録名と workflow の `runs-on` ラベル、
 `--runner-group` は Organization の runner group を指定します。
 group を省略するとデフォルトグループを使います。`--id` オプションはありません。
 認証情報のファイル名には登録情報から導出した SHA-256 キーを使うため、
 任意の ID を付けずに scope・group・Scale Set ごとに分離できます。
-登録先ごとに個別に実行し、既存 App の権限を広げる処理は行いません。
+既存 App の権限を広げる処理は行いません。同じインストールで必要なアクセス権を持つ
+他の target は、共通認証を継承して利用できます。
 
 1. 端末で target、App の所有者、必要な書き込み権限を確認します。
    リポジトリでは `Administration`、Organization では `Self-hosted runners` です。
@@ -50,7 +58,7 @@ group を省略するとデフォルトグループを使います。`--id` オ�
 4. 対象アカウントにインストールしてから端末へ戻ります。リポジトリの target では
    **Only select repositories** でそのリポジトリだけを選び、必要な承認を待ちます。
 5. CLI はインストールを検出し、App・アカウント・必要な書き込み権限を検証して、
-   target の managed 情報を表示します。`y` で保存するか、辞退して後から再開します。
+   認証情報の保存先と設定変更を表示します。`y` で保存するか、辞退して後から再開します。
    `--yes` が省略するのは最後の設定保存の確認だけで、GitHub 側の承認は省略しません。
 
 以下のブラウザ画面はサンプルデータを使っています。
@@ -59,9 +67,10 @@ group を省略するとデフォルトグループを使います。`--id` オ�
 
 ![GitHub App のインストールリンク](images/app-setup-install.png)
 
-他の target と `defaults.credential` は変更しません。managed の target エントリーに
-scope、Scale Set、runner group、`type: github-app`、`clientId`、
-`privateKeyFile`、`installationId` を保存します。
+credential に `type: github-app`、`clientId`、`privateKeyFile`、`installationId` を保存します。
+`--target` の場合は、静的設定の target と照合する scope・Scale Set・runner group も
+managed のエントリーに保存します。共通認証に保存する場合は、選択した target の既存の
+managed 認証を削除し、共通認証を継承するようにします。
 有効になるのは静的設定に記載された target だけで、その target に認証を明示していれば
 managed の情報より優先します。
 ユーザーの OAuth 認可や Webhook イベントは要求せず、Webhook の配信は無効です。
@@ -75,7 +84,7 @@ managed の情報より優先します。
 コマンド出力には含めません。インストールの検出には App JWT を使い、
 ユーザートークンやブラウザから渡された installation ID は使いません。
 
-保存した managed 情報を確認し、表示された静的設定があれば追加してから実行します。
+保存した設定を確認してから実行します。
 
 ```sh
 ghalet config validate
@@ -117,8 +126,7 @@ sudo systemctl enable --now ghalet
 設定先のデフォルトは `/etc/ghalet/config.yaml` です。`--config PATH` で変更できますが、
 サービス unit の `ExecStart` や設定先は変更しません。
 設定がなければ、パッケージ用の `runner.user: ghalet-runner` と
-`logs.root: /var/log/ghalet/runners` を含む案を表示します。
-検証・起動前に選択した config パスへ保存してください。セットアップでは書き込みません。
+`logs.root: /var/log/ghalet/runners` を含む設定ファイルを作成します。
 `/etc/ghalet/config.yaml` に対する managed 情報のデフォルト保存先は
 `/var/lib/ghalet/managed.yaml` です。別の config パスでは `managedFile` を明示するか、
 サービスと同じ `STATE_DIRECTORY` を一貫して使ってください。起動前に設定を確認してください。
@@ -128,7 +136,7 @@ SSH では上記のポート転送を使い、systemd コマンドに
 `--listen 127.0.0.1:8765` を追加して、手元のブラウザで URL を開いてください。
 
 鍵は平文の PEM を書かずに、`/etc/ghalet/credentials/KEY.cred` へ直接暗号化保存します。
-専用 drop-in が `LoadCredentialEncrypted` で読み込み、target の `privateKeyFile` は
+専用 drop-in が `LoadCredentialEncrypted` で読み込み、credential の `privateKeyFile` は
 `/run/credentials/ghalet.service/KEY` を参照します。再開用の公開情報は
 `/etc/ghalet/credentials/KEY.app.json` に保存します。`KEY` は登録情報から導出したキーです。
 再開時の復号はメモリ上だけで行います。
@@ -161,7 +169,9 @@ GitHub で App 作成後、認証情報の保存前にコールバックや交�
 エラーに保持した鍵のパスを表示します。むやみに App を再作成せず、
 既存 App の設定と認証情報の手動取り込みを使ってください。
 
-静的設定は読み取り専用やシンボリックリンクでも利用でき、内容・書式・権限を変更しません。
+既存の target 登録は重複追加しません。静的設定の変更が不要なら、内容はそのまま保持します。
+更新時もコメント・マッピングの順序・既存の権限・ファイルのシンボリックリンクは保持し、
+新しいファイルは `0600` で作成します。
 managed ファイルは実行ユーザー所有で、他ユーザーが書き込めない必要があります。
 managed の同時更新は拒否します。
 インストール権限の検証で runner group のアクセス設定は変更しません。

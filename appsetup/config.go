@@ -20,20 +20,6 @@ type preparedConfig struct {
 }
 
 func setupConfig(options Options) (preparedConfig, error) {
-	prepared, err := selectConfig(options)
-	if err != nil {
-		return preparedConfig{}, err
-	}
-	config, err := settings.ParseConfig(prepared.options.Config, prepared.proposed)
-	if err != nil {
-		return preparedConfig{}, err
-	}
-	prepared.managedPath = config.ManagedFile
-	prepared.managed, prepared.managedBefore, err = settings.ReadManaged(config.ManagedFile)
-	return prepared, err
-}
-
-func selectConfig(options Options) (preparedConfig, error) {
 	if options.Config == "" && options.Systemd {
 		options.Config = "/etc/ghalet/config.yaml"
 	}
@@ -58,25 +44,52 @@ func selectConfig(options Options) (preparedConfig, error) {
 	if err != nil {
 		return preparedConfig{}, err
 	}
+	managed, managedBefore, err := settings.ReadManaged(config.ManagedFile)
+	if err != nil {
+		return preparedConfig{}, err
+	}
+	var static settings.Config
+	editor, err := settings.NewEditor(data, &static)
+	if err != nil {
+		return preparedConfig{}, err
+	}
+	if !options.Target {
+		if (static.Defaults.Credential != nil || managed.Defaults.Credential != nil) && !options.Overwrite {
+			return preparedConfig{}, errors.New("defaults.credential already exists; use --target to save for this target or --overwrite to replace the default")
+		}
+		if static.Defaults.Credential != nil {
+			editor.RemoveDefaultCredential()
+			data, err = editor.Marshal()
+			if err != nil {
+				return preparedConfig{}, err
+			}
+		}
+	}
 	key, err := settings.TargetKey(options.Scope, options.RunnerGroup, options.ScaleSet)
 	if err != nil {
 		return preparedConfig{}, err
 	}
 	options.credentialName = key
+	prepared := preparedConfig{
+		options: options, before: before, proposed: data,
+		managedPath: config.ManagedFile, managed: managed, managedBefore: managedBefore,
+	}
 	for _, target := range config.Targets {
 		if target.ID == key {
-			return preparedConfig{options: options, before: before, proposed: data, target: target, targetExists: true}, nil
+			prepared.target, prepared.targetExists = target, true
+			return prepared, nil
 		}
 	}
 	data, err = appendTarget(data, options.Scope, options.RunnerGroup, options.ScaleSet)
 	if err != nil {
 		return preparedConfig{}, err
 	}
-	config, err = settings.ParseConfig(path, data)
+	config, err = settings.ParseConfigWithManaged(path, data, managed)
 	if err != nil {
 		return preparedConfig{}, err
 	}
-	return preparedConfig{options: options, before: before, proposed: data, target: config.Targets[len(config.Targets)-1]}, nil
+	prepared.proposed, prepared.target = data, config.Targets[len(config.Targets)-1]
+	return prepared, nil
 }
 
 func appendTarget(data []byte, scope, group, scaleSet string) ([]byte, error) {
@@ -99,15 +112,4 @@ func configSnapshot(path string) ([]byte, error) {
 		return nil, err
 	}
 	return os.ReadFile(path)
-}
-
-func targetConfig(data []byte, target string, state savedApp, installationID int64) ([]byte, error) {
-	editor, err := settings.NewEditor(data, nil)
-	if err != nil {
-		return nil, err
-	}
-	if err := editor.SetTargetApp(target, state.ClientID, state.KeyPath, installationID); err != nil {
-		return nil, err
-	}
-	return editor.Marshal()
 }

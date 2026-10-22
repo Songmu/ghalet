@@ -10,8 +10,8 @@ import (
 
 func TestSharedCredentialDefaults(t *testing.T) {
 	for _, tc := range []struct {
-		name, defaults, override, installation string
-		want                                   settings.Credential
+		name, defaults, override string
+		want                     settings.Credential
 	}{
 		{
 			name: "shared PAT", defaults: "type: pat\n    tokenEnv: SHARED_PAT",
@@ -31,12 +31,11 @@ func TestSharedCredentialDefaults(t *testing.T) {
 			want:     settings.Credential{Type: "pat", TokenEnv: "OTHER_PAT"},
 		},
 		{
-			name: "shared App", defaults: "type: github-app\n    clientId: app-client\n    privateKeyFile: /protected/app.pem",
-			installation: "    installationId: 123\n",
-			want:         settings.Credential{Type: "github-app", ClientID: "app-client", PrivateKeyFile: "/protected/app.pem"},
+			name: "shared App", defaults: "type: github-app\n    clientId: app-client\n    privateKeyFile: /protected/app.pem\n    installationId: 123",
+			want: settings.Credential{Type: "github-app", ClientID: "app-client", PrivateKeyFile: "/protected/app.pem", InstallationID: 123},
 		},
 		{
-			name: "PAT replaces App", defaults: "type: github-app\n    clientId: app-client\n    privateKeyFile: /protected/app.pem",
+			name: "PAT replaces App", defaults: "type: github-app\n    clientId: app-client\n    privateKeyFile: /protected/app.pem\n    installationId: 123",
 			override: "    credential:\n      type: pat\n      tokenEnv: OTHER_PAT\n",
 			want:     settings.Credential{Type: "pat", TokenEnv: "OTHER_PAT"},
 		},
@@ -47,8 +46,8 @@ func TestSharedCredentialDefaults(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			input := "defaults:\n  credential:\n    " + tc.defaults +
-				"\ntargets:\n  - scaleSet: one\n    scope: owner/one\n" + tc.override + tc.installation +
-				"  - scaleSet: two\n    scope: owner/two\n" + tc.override + tc.installation
+				"\ntargets:\n  - scaleSet: one\n    scope: owner/one\n" + tc.override +
+				"  - scaleSet: two\n    scope: owner/two\n" + tc.override
 			config, err := settings.LoadConfig(writeConfig(t, input))
 			if err != nil {
 				t.Fatal(err)

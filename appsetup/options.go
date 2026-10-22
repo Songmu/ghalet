@@ -12,11 +12,15 @@ import (
 type Options struct {
 	Scope, ScaleSet, RunnerGroup, Config, Listen string
 	Systemd, NoBrowser, Yes                      bool
+	Target, Overwrite                            bool
 	credentialName                               string
 }
 
 // Validate checks explicit input before creating an App or saving credentials.
 func (options Options) Validate() error {
+	if options.Target && options.Overwrite {
+		return errors.New("--target and --overwrite cannot be used together")
+	}
 	scope, err := normalizeScope(options.Scope)
 	if err != nil {
 		return err

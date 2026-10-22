@@ -81,13 +81,15 @@ target を一意に識別します。scope や runner group が異なれば同�
 ローカルの `id` は設定しません。正規化した登録情報から導出した SHA-256 キーを、
 ローカルステート・認証情報・診断の `targetId` に使います。
 status 出力には scope・runner group・Scale Set 名も含めます。
-App の `installationId` は credential ではなく target に属するため、
-複数のインストールで 1 つの App キーを共有できます。
+App の `installationId` は credential に属し、client ID と鍵のパスと一緒に継承します。
+異なるインストールでは、別々の credential から同じ鍵のパスを参照できます。
+旧形式の target 直下の `installationId` は `credential` 配下へ移動してください。
+共通のインストールを使う場合は `defaults.credential` にまとめられます。
 
 ### セットアップで管理する情報
 
-App セットアップと認証情報の登録は、静的な設定ファイルを書き換えません。
-永続的なセットアップ情報は、バージョン付きの別の managed ファイルに保存します。
+App セットアップは不足する target 登録を静的設定に追加し、認証情報の登録コマンドは
+静的設定を変更しません。どちらも認証情報は別の managed ファイルに保存します。
 シークレット本体は認証ファイルに保持し、どちらの YAML にも直接書きません。
 既存の手書き認証設定は、managed ファイルなしでも引き続き使えます。
 
@@ -113,14 +115,14 @@ managed ファイルは runner の実行・キャッシュ・ログ用ディレ�
 
 有効になるのは静的設定に記載した target だけです。managed の target は正規化した
 `scope`・`runnerGroup`・`scaleSet` の組で照合し、別の登録先へ認証を流用しません。
-target に `credential` または `installationId` を明示した場合、managed の target 認証は
-適用しません。それ以外は managed の credential と installation を一まとまりで使い、
+target に `credential` を明示した場合、managed の target 認証は適用しません。
+それ以外は managed の credential 全体を使い、
 共通設定より優先します。共通設定では静的な `defaults.credential` が managed 側より優先し、
 どちらもなければ `gh` を使います。認証設定をフィールド単位で混ぜることはありません。
 managed ファイル内の相対パスは、そのファイルのディレクトリ基準です。
 
 既存設定で生成された共通認証を使う場合は、静的な `defaults.credential` を意図的に削除してください。
-登録コマンドによる自動削除はしません。target の手書き認証も、managed 側を使うときだけ削除します。
+または `app setup --overwrite` を使ってください。target の手書き認証も、managed 側を使うときだけ削除します。
 managed ファイルがなければ空として扱い、不正な形式や未対応のバージョンはエラーにします。
 反映は起動時または明示的な `apply` 時だけで、systemd の認証情報には従来どおり再起動の制約があります。
 

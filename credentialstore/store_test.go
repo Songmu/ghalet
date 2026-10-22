@@ -83,6 +83,10 @@ func TestManagedAppDefaultClientID(t *testing.T) {
 		t.Fatal("App default without a client ID accepted")
 	}
 	options.ClientID = "existing"
+	if _, err := prepareCredentialConfig(options, "/runtime/app.pem", "missing"); err == nil || !strings.Contains(err.Error(), "--installation-id") {
+		t.Fatal("App default without an installation ID accepted", err)
+	}
+	options.InstallationID = 123
 	prepared, err := prepareCredentialConfig(options, "/runtime/app.pem", "missing")
 	if err != nil {
 		t.Fatal(err)
@@ -91,16 +95,22 @@ func TestManagedAppDefaultClientID(t *testing.T) {
 		t.Fatal(err)
 	}
 	options.ClientID = ""
+	options.InstallationID = 0
 	prepared, err = prepareCredentialConfig(options, "/runtime/new.pem", "missing")
 	if err != nil {
 		t.Fatal(err)
 	}
 	managed, err := settings.ParseManaged(prepared.data)
 	if err != nil || managed.Defaults.Credential.ClientID != "existing" ||
-		managed.Defaults.Credential.PrivateKeyFile != "/runtime/new.pem" {
-		t.Fatal("App client ID was not retained as a complete credential", err)
+		managed.Defaults.Credential.PrivateKeyFile != "/runtime/new.pem" || managed.Defaults.Credential.InstallationID != 123 {
+		t.Fatal("App identity was not retained as a complete credential", err)
 	}
-	static := []byte("managedFile: managed.yaml\ndefaults:\n  credential:\n    type: github-app\n    clientId: static\n    privateKeyFile: static.pem\ntargets: []\n")
+	options.ClientID = "different"
+	if _, err := prepareCredentialConfig(options, "/runtime/new.pem", "missing"); err == nil {
+		t.Fatal("installation ID was reused for a different App")
+	}
+	options.ClientID = ""
+	static := []byte("managedFile: managed.yaml\ndefaults:\n  credential:\n    type: github-app\n    clientId: static\n    privateKeyFile: static.pem\n    installationId: 456\ntargets: []\n")
 	if err := os.WriteFile(options.Config, static, 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -109,7 +119,7 @@ func TestManagedAppDefaultClientID(t *testing.T) {
 		t.Fatal(err)
 	}
 	managed, err = settings.ParseManaged(prepared.data)
-	if err != nil || managed.Defaults.Credential.ClientID != "static" {
+	if err != nil || managed.Defaults.Credential.ClientID != "static" || managed.Defaults.Credential.InstallationID != 456 {
 		t.Fatal("static App identity did not take precedence", err)
 	}
 }

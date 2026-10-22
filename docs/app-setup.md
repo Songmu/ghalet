@@ -6,7 +6,7 @@
 user-owned or organization-owned GitHub App using [GitHub's Manifest flow][manifest].
 No preexisting PAT, client
 secret, hosted callback service or PEM copy/paste is required. This wizard
-supports **GitHub.com and one target per App** on Linux/macOS.
+supports **GitHub.com** on Linux/macOS and verifies one target per setup.
 It stores an [ordinary, unencrypted credential file](file-credentials.md);
 `ghalet systemd app setup` stores an encrypted service credential instead.
 Neither command starts or reconfigures the daemon.
@@ -30,17 +30,24 @@ Select another configuration with `--config PATH`. The default is
 scope also accepts an HTTPS GitHub.com organization or repository URL.
 The wizard saves authentication in a separate
 [managed file](operations.md#managed-setup-information) after confirmation.
-It never creates or rewrites the static configuration. For a new target, add
-the printed YAML to your configuration; if no configuration exists, setup also
-prints a complete suggested configuration.
+It saves the complete credential, including `installationId`, in
+`defaults.credential` by default. Use `--target` to save target-specific managed
+authentication instead. If either configuration already has `defaults.credential`,
+setup stops before creating an App and asks you to choose `--target` or
+`--overwrite`. `--overwrite` replaces the managed default and removes any static
+default credential so the new default applies. Targets inheriting defaults are
+affected; explicit target credentials remain authoritative. `--yes` does not
+authorize overwriting defaults.
+Setup also adds the target's scope, scale set and optional runner group to the
+static configuration if missing, creating the file when necessary.
 Existing targets with the same normalized scope, runner group and scale set
 are reused. `--scale-set` selects the GitHub registration name and workflow
 `runs-on` label; `--runner-group` selects an organization runner group and
 defaults to the default group. There is no `--id` option.
 Credential filenames use a SHA-256 key derived from that registration, so
 different scopes, groups and scale sets remain separate without user-chosen IDs.
-Each registration is set up separately; the wizard does not broaden an
-existing App's permissions.
+The wizard does not broaden an existing App's permissions. Other targets can
+inherit the shared credential when the installation grants the required access.
 
 1. Review the target, App owner and requested write permission in the terminal:
    repository `Administration`, or organization `Self-hosted runners`.
@@ -55,7 +62,7 @@ existing App's permissions.
    target, choose **Only select repositories** and select that repository.
    Wait for any required approval.
 5. The CLI discovers the installation, verifies its App, account and required
-   write permission, then displays the target-specific managed information.
+   write permission, then displays the selected credential destination and configuration changes.
    Answer `y` to save, or decline and resume later. `--yes` skips only this
    final configuration confirmation, not GitHub's approvals.
 
@@ -65,9 +72,11 @@ The browser pages below use example data:
 
 ![GitHub App installation link](images/app-setup-install.png)
 
-Other targets and `defaults.credential` are not changed. The managed target entry
-gets its scope, scale set, runner group, `type: github-app`, `clientId`,
-`privateKeyFile` and `installationId`.
+The credential contains `type: github-app`, `clientId`, `privateKeyFile` and
+`installationId`. With `--target`, the managed entry also contains the scope,
+scale set and runner group used to match the static target. With default storage,
+any previous managed authentication for the selected target is removed so it
+inherits the shared credential.
 Only targets present in the static configuration become active. Explicit target
 authentication in that configuration takes precedence over the managed entry.
 No user OAuth authorization or webhook events are requested; webhook delivery
@@ -81,7 +90,7 @@ It checks the callback's random `state` and Host and does not expose the key in
 browser pages, URLs or command output. Installation discovery uses App JWTs,
 not a user token or an installation ID supplied by the browser.
 
-After reviewing the managed information and adding any printed static configuration:
+After reviewing the saved configuration:
 
 ```sh
 ghalet config validate
@@ -122,10 +131,9 @@ sudo systemctl enable --now ghalet
 
 The default configuration is `/etc/ghalet/config.yaml`; `--config PATH` selects
 another file but does not change the service unit's `ExecStart` or its config path.
-When no configuration exists, setup prints a suggestion including
+When no configuration exists, setup creates it with
 `runner.user: ghalet-runner` and `logs.root: /var/log/ghalet/runners` for the
-package service. Save it to the selected config path before validation/start;
-setup does not write it. Managed information defaults to
+package service. Managed information defaults to
 `/var/lib/ghalet/managed.yaml` for `/etc/ghalet/config.yaml`.
 For another config path, explicitly set `managedFile` or use the service's
 `STATE_DIRECTORY` consistently. Review the configuration before starting.
@@ -136,7 +144,7 @@ to the systemd command. Open the URLs in the browser on your own machine.
 
 The key is encrypted directly into `/etc/ghalet/credentials/KEY.cred`, without
 writing a plaintext PEM. A dedicated drop-in loads it with
-`LoadCredentialEncrypted`, and the target's `privateKeyFile` points to
+`LoadCredentialEncrypted`, and the credential's `privateKeyFile` points to
 `/run/credentials/ghalet.service/KEY`. Public resume metadata is
 `/etc/ghalet/credentials/KEY.app.json`. `KEY` is the derived registration key.
 Resume decrypts the key only into memory.
@@ -171,8 +179,10 @@ If a key was saved but metadata could not be written, the error reports the
 retained key path; use the existing App's settings and manual credential import
 rather than blindly creating another App.
 
-The static configuration may be read-only or symlinked; its contents, formatting
-and permissions are unchanged. The managed file must be owned by the current
+Existing target registrations are not duplicated. When the static file needs no
+changes, its bytes are left untouched. Updates preserve comments, mapping order,
+existing permissions and final symlinks. New files use `0600`.
+The managed file must be owned by the current
 user and not writable by others. Concurrent managed updates are rejected.
 Installation permission checks do not change runner group access policy.
 

@@ -28,7 +28,7 @@ App では暗号化されていない RSA PEM 秘密鍵（PKCS#1 または PKCS#
 
 ```sh
 ghalet credential set app-work --type github-app \
-  --client-id APP_CLIENT_ID --file /secure/app.pem
+  --client-id APP_CLIENT_ID --installation-id 12345678 --file /secure/app.pem
 ```
 
 保存先は `<StateDir>/credentials/NAME.pat` または `NAME.pem` です。
@@ -39,10 +39,11 @@ StateDir は `STATE_DIRECTORY`、未設定なら `$XDG_STATE_HOME/ghalet` また
 
 選択した設定に対応する [managed ファイル](operations.ja.md#セットアップで管理する情報)の
 `defaults.credential` に、`type: pat` / `tokenFile`、
-または `type: github-app` / `clientId` / `privateKeyFile` を保存します。
+または `type: github-app` / `clientId` / `privateKeyFile` / `installationId` を保存します。
 パスは絶対パスです。デフォルト設定は `~/.config/ghalet/config.yaml` で、
 `--config PATH` で変更できます。`--client-id` を省略すると、既存の App 共通設定の
-client ID を再利用します。各 App target の `installationId` は別途必要です。
+client ID を再利用します。`--installation-id` の省略時は、client ID が一致する既存の
+共通認証の installation ID だけを再利用し、それ以外は installation ID の指定が必要です。
 静的な設定ファイルは変更せず、そこに明示した共通設定と target の認証設定を優先します。
 
 `--no-default` は managed の共通設定を変更せずに保存します。表示されたパスを利用したい target に

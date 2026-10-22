@@ -52,6 +52,19 @@ func TestAppOptions(t *testing.T) {
 	if err != nil || options.Config != "override.yaml" {
 		t.Fatal(options, err)
 	}
+	for _, selected := range []string{"", "--target", "--overwrite"} {
+		args := []string{"--scope", "owner", "--scale-set", "build"}
+		if selected != "" {
+			args = append(args, selected)
+		}
+		options, err := parseAppOptions(args, "", &bytes.Buffer{}, false)
+		if err != nil || options.Target != (selected == "--target") || options.Overwrite != (selected == "--overwrite") {
+			t.Fatal("credential destination was not parsed", options, err)
+		}
+	}
+	if _, err := parseAppOptions([]string{"--scope", "owner", "--scale-set", "build", "--target", "--overwrite"}, "", &bytes.Buffer{}, false); err == nil {
+		t.Fatal("conflicting credential destinations accepted")
+	}
 }
 
 func TestAppScopeRequired(t *testing.T) {

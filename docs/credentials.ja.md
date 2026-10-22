@@ -90,13 +90,14 @@ sudo journalctl -u ghalet -f
 
 ```sh
 sudo ghalet systemd credential set app-work-key --type github-app \
-  --client-id APP_CLIENT_ID --file /secure/app.pem
+  --client-id APP_CLIENT_ID --installation-id 12345678 --file /secure/app.pem
 ```
 
-managed の共通設定を `type: github-app`、`clientId`、
+managed の共通設定を `type: github-app`、`clientId`、`installationId`、
 `privateKeyFile: /run/credentials/ghalet.service/app-work-key` に置き換えます。
 `--client-id` を省略した場合、既存の App 共通設定の client ID を再利用します。
-この設定を使う各 target には `installationId` が必要で、自動推測はしません。
+`--installation-id` を省略した場合は、client ID が一致する既存の共通認証の
+installation ID だけを再利用します。それ以外は installation ID の指定が必要です。
 installation token は既存の SDK が取得するため、手入力は不要です。
 
 managed の共通設定を変更せずに追加登録するには `--no-default` を指定します。
@@ -107,8 +108,8 @@ sudo ghalet systemd credential set secondary --prompt --no-default
 
 利用する target に `credential.type: pat` と
 `credential.tokenFile: /run/credentials/ghalet.service/secondary` を指定します。
-App キーでは代わりに `type: github-app`、`clientId`、`privateKeyFile` と、
-target の `installationId` を指定します。同じパスを複数 target で共有したり、
+App キーでは代わりに `type: github-app`、`clientId`、`privateKeyFile`、
+`installationId` をまとめて `credential` 内に指定します。同じパスを複数 target で共有したり、
 別名を参照したりできます。名前は先頭を英数字とする 1〜64 文字の ASCII 英数字・
 アンダースコア・ハイフンです。
 

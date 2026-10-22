@@ -68,7 +68,7 @@ func setupFixture(t *testing.T, scope, ownerType string) *fixture {
 	f := &fixture{
 		key: key, ownerType: ownerType, scope: scope, appOwner: "owner", permission: "write",
 		pem:     string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})),
-		options: Options{ScaleSet: "build", Scope: scope, Config: filepath.Join(root, "config.yaml"), Yes: true},
+		options: Options{ScaleSet: "build", Scope: scope, Config: filepath.Join(root, "config.yaml"), Yes: true, Target: true},
 	}
 	f.options.credentialName, err = settings.TargetKey(scope, "", "build")
 	if err != nil {
@@ -383,7 +383,7 @@ func TestManifestSetup(t *testing.T) {
 				t.Fatal(err)
 			}
 			target := config.Targets[0]
-			if result.InstallationID != 123 || target.InstallationID != 123 ||
+			if result.InstallationID != 123 || target.Credential.InstallationID != 123 ||
 				target.Credential.ClientID != "Iv1.test" || target.Credential.PrivateKeyFile != result.KeyPath ||
 				config.Targets[1].Credential.Type != "gh" || config.Defaults.Credential.Type != "gh" {
 				t.Fatal("target update changed unrelated credentials", config)
@@ -450,7 +450,7 @@ func TestSetupWithUnquotedNumericScaleSet(t *testing.T) {
 	}
 	want, _ := settings.TargetKey(f.options.Scope, "", "123")
 	if result.Target != want || config.Targets[0].ID != want ||
-		config.Targets[0].InstallationID != 123 || config.Targets[0].Credential.ClientID != "Iv1.test" ||
+		config.Targets[0].Credential.InstallationID != 123 || config.Targets[0].Credential.ClientID != "Iv1.test" ||
 		config.Targets[1].Credential.Type != "gh" || config.Defaults.Credential.Type != "gh" {
 		t.Fatal("numeric scale set did not select the correct configuration mapping")
 	}
