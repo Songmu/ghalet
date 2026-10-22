@@ -122,7 +122,7 @@ fi
 
 case "$format" in
   deb) apt-get purge -y ghalet ;;
-  rpm) dnf remove -y ghalet ;;
+  rpm) dnf remove -y --noautoremove ghalet ;;
 esac
 test ! -e /usr/bin/ghalet
 test ! -e /usr/lib/systemd/system/ghalet.service
