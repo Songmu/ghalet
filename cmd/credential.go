@@ -87,6 +87,7 @@ func parseCredentialOptionsFor(args []string, config string, errOut io.Writer, e
 	fs.BoolVar(&options.Stdin, "stdin", false, "read the secret from standard input")
 	fs.StringVar(&options.Config, "config", config, "static configuration whose managed defaults to update")
 	fs.StringVar(&options.ClientID, "client-id", "", "GitHub App client ID (not a secret)")
+	fs.Int64Var(&options.InstallationID, "installation-id", 0, "GitHub App installation ID")
 	fs.BoolVar(&options.NoDefault, "no-default", false, "register without changing managed defaults.credential")
 	fs.Usage = func() {
 		fmt.Fprintf(errOut, "Usage: ghalet %s set NAME [--prompt|--file PATH|--stdin] [options]\n", command)

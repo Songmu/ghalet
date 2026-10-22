@@ -79,7 +79,16 @@ func prepareCredentialConfig(options Options, runtimePath, missingMessage string
 		if clientID == "" {
 			return credentialConfigUpdate{}, errors.New("GitHub App defaults require --client-id or an existing defaults.credential.clientId")
 		}
-		credential = &settings.Credential{Type: options.Type, ClientID: clientID, PrivateKeyFile: runtimePath}
+		installationID := options.InstallationID
+		for _, existing := range []*settings.Credential{config.Defaults.Credential, managed.Defaults.Credential} {
+			if installationID == 0 && existing != nil && existing.Type == "github-app" && existing.ClientID == clientID {
+				installationID = existing.InstallationID
+			}
+		}
+		if installationID <= 0 {
+			return credentialConfigUpdate{}, errors.New("GitHub App defaults require --installation-id or an existing defaults.credential.installationId for the same client ID")
+		}
+		credential = &settings.Credential{Type: options.Type, ClientID: clientID, PrivateKeyFile: runtimePath, InstallationID: installationID}
 	}
 	managed.Defaults.Credential = credential
 	data, err := managed.Marshal()

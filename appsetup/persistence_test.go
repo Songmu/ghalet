@@ -3,6 +3,7 @@ package appsetup
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"errors"
 	"io"
 	"net/http"
@@ -17,7 +18,75 @@ import (
 
 	settings "github.com/Songmu/ghalet/config"
 	"github.com/Songmu/ghalet/credentialstore"
+	"github.com/Songmu/ghalet/fshelper"
 )
+
+func TestSetupAliasesShareConfigurationLock(t *testing.T) {
+	f := setupFixture(t, "owner/repo", "User")
+	before := []byte("targets: []\n")
+	if err := os.WriteFile(f.options.Config, before, 0600); err != nil {
+		t.Fatal(err)
+	}
+	var preparations []preparedConfig
+	var directories []string
+	for _, name := range []string{"first", "second"} {
+		options := f.options
+		options.Config = filepath.Join(filepath.Dir(f.options.Config), name+".yaml")
+		options.ScaleSet = name
+		if err := os.Symlink(f.options.Config, options.Config); err != nil {
+			t.Fatal(err)
+		}
+		prepared, err := setupConfig(options)
+		if err != nil {
+			t.Fatal(err)
+		}
+		preparations = append(preparations, prepared)
+		directory := filepath.Join(filepath.Dir(f.options.Config), name+"-credentials")
+		if err := os.Mkdir(directory, 0700); err != nil {
+			t.Fatal(err)
+		}
+		directories = append(directories, directory)
+	}
+	if preparations[0].managedPath == preparations[1].managedPath {
+		t.Fatal("test needs independent managed files")
+	}
+	s := service{readKey: func(context.Context, string) ([]byte, error) { return []byte("verified"), nil }}
+	verified := sha256.Sum256([]byte("verified"))
+	commitBoth := func() []error {
+		results := make(chan error, 2)
+		start := make(chan struct{})
+		for i, prepared := range preparations {
+			go func(i int, prepared preparedConfig) {
+				<-start
+				results <- s.commitSetup(t.Context(), prepared, directories[i], "", verified, []byte("{}\n"))
+			}(i, prepared)
+		}
+		close(start)
+		return []error{<-results, <-results}
+	}
+	lock, err := fshelper.LockFile(f.options.Config + ".lock")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lock.Close()
+	for _, err := range commitBoth() {
+		if !errors.Is(err, syscall.EWOULDBLOCK) {
+			t.Fatal("configuration alias bypassed the canonical lock", err)
+		}
+	}
+	lock.Close()
+	successes := 0
+	for _, err := range commitBoth() {
+		if err == nil {
+			successes++
+		}
+	}
+	current, err := os.ReadFile(f.options.Config)
+	if successes != 1 || err != nil ||
+		(!bytes.Equal(current, preparations[0].proposed) && !bytes.Equal(current, preparations[1].proposed)) {
+		t.Fatal("concurrent alias setups lost a successful registration", successes, err)
+	}
+}
 
 type cancelAfterConversion struct {
 	http.RoundTripper

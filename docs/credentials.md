@@ -96,13 +96,14 @@ Import one unencrypted RSA PEM private key (PKCS#1 or PKCS#8):
 
 ```sh
 sudo ghalet systemd credential set app-work-key --type github-app \
-  --client-id APP_CLIENT_ID --file /secure/app.pem
+  --client-id APP_CLIENT_ID --installation-id 12345678 --file /secure/app.pem
 ```
 
-This replaces the managed shared default with `type: github-app`, `clientId`, and
-`privateKeyFile: /run/credentials/ghalet.service/app-work-key`. An existing
-App default's client ID is reused if `--client-id` is omitted. Each target
-using it must set its own `installationId`; the command does not guess it.
+This replaces the managed shared default with `type: github-app`, `clientId`,
+`installationId`, and `privateKeyFile: /run/credentials/ghalet.service/app-work-key`.
+An existing App default's client ID is reused if `--client-id` is omitted.
+If `--installation-id` is omitted, the existing default's installation ID is
+reused only when its client ID matches. Otherwise an installation ID is required.
 Installation tokens are acquired by the existing SDK, not entered manually.
 
 Use `--no-default` to register another secret without modifying managed defaults:
@@ -113,8 +114,8 @@ sudo ghalet systemd credential set secondary --prompt --no-default
 
 Set the selected target's `credential.type: pat` and
 `credential.tokenFile: /run/credentials/ghalet.service/secondary`.
-App keys use `type: github-app`, `clientId`, `privateKeyFile`, and the
-target's `installationId` instead. Different targets can share a path or
+App keys use `type: github-app`, `clientId`, `privateKeyFile`, and
+`installationId` together inside `credential`. Different targets can share a path or
 reference different names. Names contain 1-64 ASCII letters, digits,
 underscores or hyphens, starting with a letter or digit.
 

@@ -87,13 +87,15 @@ The same scale set name can be used in different scopes or runner groups.
 No local `id` is configured. A SHA-256 key derived from the normalized
 registration identifies local state, credentials and diagnostic `targetId`
 fields; status output also includes the scope, runner group and scale set name.
-App `installationId` belongs to the target, not its credential, so multiple
-installations can share a single App key.
+App `installationId` belongs to the credential and is inherited with the App's
+client ID and key path. Different installations can reference the same key path
+in separate credentials. Move any old target-level `installationId` into its
+`credential` mapping; for a shared installation, put it in `defaults.credential`.
 
 ### Managed setup information
 
-App setup and credential registration never rewrite the static configuration.
-They save persistent setup information in a separate, versioned managed file;
+App setup adds missing target registrations to the static configuration;
+credential registration leaves it unchanged. Both save authentication in a separate managed file;
 secrets remain in credential files, not inline in either YAML document.
 Existing handwritten credentials continue to work without a managed file.
 
@@ -121,15 +123,15 @@ Back up the managed file along with credentials and App resume metadata.
 
 Only static targets become active. Managed target entries are matched by normalized
 scope, runner group and scale set; authentication is never reused for a different
-registration. Explicit target `credential` or `installationId` prevents
+registration. Explicit target `credential` prevents
 managed target authentication from being applied. Otherwise a managed target's
-credential and installation are used together, ahead of shared defaults.
+complete credential is used ahead of shared defaults.
 For shared defaults, static `defaults.credential` wins over the managed default;
 without either, authentication remains `gh`. Credentials are replaced as units,
 never merged field by field. Paths inside the managed file use its own directory.
 
 To adopt generated defaults for an existing configuration, remove the static
-`defaults.credential` deliberately; registration does not remove it for you.
+`defaults.credential` deliberately, or use `app setup --overwrite`.
 Likewise, remove a target's handwritten authentication only when choosing to use
 its managed entry. A missing managed file is treated as empty; malformed or
 unsupported files are errors. Changes take effect only at startup or explicit

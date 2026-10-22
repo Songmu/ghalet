@@ -121,11 +121,23 @@ func SyncDirectory(path string) error {
 // permissions to mode, syncs and closes it, and renames it over dest. It does not
 // create or validate the parent directory, or sync that directory after rename.
 func WriteFileAtomic(dest string, data []byte, mode os.FileMode) error {
+	return WriteFileAtomicWithOwner(dest, data, mode, -1, -1)
+}
+
+// WriteFileAtomicWithOwner sets the temporary file's owner before publishing it.
+// A uid or gid of -1 leaves that ownership component unchanged.
+func WriteFileAtomicWithOwner(dest string, data []byte, mode os.FileMode, uid, gid int) error {
 	f, err := os.CreateTemp(filepath.Dir(dest), ".download-*")
 	if err != nil {
 		return err
 	}
 	defer os.Remove(f.Name())
+	if uid != -1 || gid != -1 {
+		if err := f.Chown(uid, gid); err != nil {
+			f.Close()
+			return err
+		}
+	}
 	if err := f.Chmod(mode); err != nil {
 		f.Close()
 		return err

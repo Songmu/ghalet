@@ -57,6 +57,8 @@ func parseAppOptions(args []string, config string, errOut io.Writer, systemd boo
 	fs.StringVar(&options.Listen, "listen", "127.0.0.1:0", "loopback callback address; use a fixed port for SSH forwarding")
 	fs.BoolVar(&options.NoBrowser, "no-browser", systemd, "print browser URLs without opening them (default for systemd)")
 	fs.BoolVar(&options.Yes, "yes", false, "write the displayed managed information without a confirmation prompt")
+	fs.BoolVar(&options.Target, "target", false, "save the credential for this target instead of defaults")
+	fs.BoolVar(&options.Overwrite, "overwrite", false, "replace an existing defaults.credential")
 	fs.Usage = func() {
 		fmt.Fprintf(errOut, "Usage: ghalet %s setup --scope OWNER/REPO|ORG --scale-set NAME [options]\n", command)
 		fs.PrintDefaults()

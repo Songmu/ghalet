@@ -28,7 +28,7 @@ For an App, import an unencrypted RSA PEM key (PKCS#1 or PKCS#8):
 
 ```sh
 ghalet credential set app-work --type github-app \
-  --client-id APP_CLIENT_ID --file /secure/app.pem
+  --client-id APP_CLIENT_ID --installation-id 12345678 --file /secure/app.pem
 ```
 
 Files are placed in `<StateDir>/credentials/NAME.pat` or `NAME.pem`, with mode
@@ -40,11 +40,12 @@ removed by `ghalet gc`.
 
 The command writes `defaults.credential` to the selected configuration's
 [managed file](operations.md#managed-setup-information) with
-`type: pat` / `tokenFile`, or `type: github-app` / `clientId` / `privateKeyFile`.
+`type: pat` / `tokenFile`, or `type: github-app` / `clientId` / `privateKeyFile` / `installationId`.
 The paths are absolute. The default configuration is
 `~/.config/ghalet/config.yaml`; override it with `--config PATH`.
 An existing App default's client ID is reused if `--client-id` is omitted.
-Each App target still needs its own `installationId`.
+If `--installation-id` is omitted, it reuses the existing default's installation ID
+only when its client ID matches; otherwise an installation ID is required.
 The static configuration is never changed. Explicit static defaults and target
 credentials remain authoritative.
 

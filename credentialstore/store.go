@@ -27,6 +27,7 @@ const SystemdDropInDirectory = "/etc/systemd/system/ghalet.service.d"
 // Options selects a credential and its explicit secret input source.
 type Options struct {
 	Name, Type, File, Config, ClientID string
+	InstallationID                     int64
 	Prompt, Stdin, NoDefault           bool
 	PromptOutput                       io.Writer
 	NoReplace                          bool
@@ -60,6 +61,9 @@ func (options Options) Validate() error {
 	}
 	if options.Type == "pat" && options.ClientID != "" {
 		return errors.New("--client-id is only valid with --type github-app")
+	}
+	if options.InstallationID < 0 || (options.Type != "github-app" && options.InstallationID != 0) {
+		return errors.New("--installation-id must be positive and is only valid with --type github-app")
 	}
 	return nil
 }

@@ -49,7 +49,7 @@ func newScaleClient(ctx context.Context, target settings.Target, secret *logredu
 		return scaleset.NewClientWithGitHubApp(scaleset.ClientWithGitHubAppConfig{
 			GitHubConfigURL: target.URL, SystemInfo: info,
 			GitHubAppAuth: scaleset.GitHubAppAuth{
-				ClientID: credential.ClientID, InstallationID: target.InstallationID, PrivateKey: key,
+				ClientID: credential.ClientID, InstallationID: credential.InstallationID, PrivateKey: key,
 			},
 		}, options...)
 	}

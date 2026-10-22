@@ -155,7 +155,7 @@ OAuth の scope 更新で PAT の権限は増えません。
 7. インストールの設定ページを開き、URL 末尾の数値を **installation ID** として控えます。
    例は `https://github.com/organizations/ORG/settings/installations/12345678` または
    `https://github.com/settings/installations/12345678` です。
-   このインストールを使う各 target に `installationId: 12345678` を設定します。
+   このインストールの credential 内に `installationId: 12345678` を設定します。
 
 直接起動する場合は、ダウンロードした秘密鍵を所有者のみ読み取り可能にし
 （`chmod 600 /absolute/path/to/ghalet-app.pem`）、次のように設定します。
@@ -166,16 +166,16 @@ defaults:
     type: github-app
     clientId: Iv1.REPLACE_WITH_CLIENT_ID
     privateKeyFile: /absolute/path/to/ghalet-app.pem
+    installationId: 12345678
 
 targets:
   - scaleSet: project
     scope: OWNER/REPO
-    installationId: 12345678
 ```
 
 Organization の target では `scope` を `ORG` に変更し、その Organization の
 installation ID を使います。複数のインストールで App の client ID と鍵を共有できますが、
-各 target には所有者に対応する installation ID が必要です。
+各 credential には所有者に対応する installation ID が必要です。
 Installation token の取得・更新は ghalet の SDK が自動で行います。
 パッケージのサービスでは、鍵を設定ディレクトリへ直接保存する代わりに、
 [App キーの取り込み](credentials.ja.md#github-app-と追加の認証情報)を使ってください。
@@ -207,7 +207,7 @@ Linux / macOS で通常の PAT ファイルや App キーファイルを計画�
 2. 旧ファイルをアクセス制限した状態でロールバック用に保持し、設定先のファイルを
    新しい値でアトミックに置き換えます。所有者のみアクセス可能な権限と、
    デーモンの実行ユーザーによる読み取りを維持します。
-   App の鍵を更新しても `clientId` と target の `installationId` は変えません。
+   App の鍵を更新しても `credential.clientId` と `credential.installationId` は変えません。
 3. `ghalet apply --config /absolute/path/to/config.yaml` を実行します。
    全 target を drain し、パスが同じでも新しいクライアントがファイルを再読込します。
    [drain の期限](operations.ja.md#容量再試行停止)を考慮し、

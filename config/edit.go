@@ -68,8 +68,7 @@ func (editor *Editor) targets() ([]any, error) {
 	return nil, errors.New("configuration must contain targets")
 }
 
-// AppendTarget adds a target with an explicit empty credential, avoiding
-// inheritance of an unrelated default GitHub App installation.
+// AppendTarget adds a target that inherits the configured credential.
 func (editor *Editor) AppendTarget(scope, group, scaleSet string) error {
 	targets, err := editor.targets()
 	if err != nil {
@@ -77,7 +76,6 @@ func (editor *Editor) AppendTarget(scope, group, scaleSet string) error {
 	}
 	mapping := yaml.MapSlice{
 		{Key: "scope", Value: scope}, {Key: "scaleSet", Value: scaleSet},
-		{Key: "credential", Value: yaml.MapSlice{}},
 	}
 	if group != "" {
 		mapping = append(mapping, yaml.MapItem{Key: "runnerGroup", Value: group})
@@ -110,8 +108,9 @@ func (editor *Editor) SetTargetApp(id, clientID, keyPath string, installationID 
 		if key != id {
 			continue
 		}
-		setMapping(&mapping, "credential", appCredential(clientID, keyPath))
-		setMapping(&mapping, "installationId", installationID)
+		credential := appCredential(clientID, keyPath)
+		setMapping(&credential, "installationId", installationID)
+		setMapping(&mapping, "credential", credential)
 		targets[i] = mapping
 		found = true
 	}
@@ -122,12 +121,32 @@ func (editor *Editor) SetTargetApp(id, clientID, keyPath string, installationID 
 }
 
 // SetDefaultCredential replaces defaults while leaving explicit targets intact.
-func (editor *Editor) SetDefaultCredential(credentialType, clientID, path string) {
+func (editor *Editor) SetDefaultCredential(credentialType, clientID, path string, installationID int64) {
 	credential := yaml.MapSlice{{Key: "type", Value: credentialType}, {Key: "tokenFile", Value: path}}
 	if credentialType == "github-app" {
 		credential = appCredential(clientID, path)
+		setMapping(&credential, "installationId", installationID)
 	}
 	setMapping(&editor.document, "defaults", yaml.MapSlice{{Key: "credential", Value: credential}})
+}
+
+// RemoveDefaultCredential allows an explicitly selected managed default to apply.
+func (editor *Editor) RemoveDefaultCredential() {
+	for i := range editor.document {
+		if editor.document[i].Key != "defaults" {
+			continue
+		}
+		mapping, ok := editor.document[i].Value.(yaml.MapSlice)
+		if !ok {
+			continue
+		}
+		for j := range mapping {
+			if mapping[j].Key == "credential" {
+				editor.document[i].Value = append(mapping[:j], mapping[j+1:]...)
+				return
+			}
+		}
+	}
 }
 
 func appCredential(clientID, keyPath string) yaml.MapSlice {

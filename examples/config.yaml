@@ -27,7 +27,7 @@ targets:
     #   type: github-app
     #   clientId: "<app-client-id>"
     #   privateKeyFile: credentials/app.pem # chmod 600.
-    # installationId: 12345 # Required for github-app; per target.
+    #   installationId: 12345 # Required for github-app; inherited with credential.
 
     # runnerGroup: "" # Org only; empty uses default group.
     scaleSet: ghalet-runner
