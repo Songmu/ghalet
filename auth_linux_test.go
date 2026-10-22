@@ -101,6 +101,24 @@ func TestProtectedSystemdCredentialHelper(t *testing.T) {
 	}
 }
 
+func credentialReaderBinary(t *testing.T, dir string) string {
+	t.Helper()
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A non-root reader cannot traverse go test's or CI's private build paths.
+	reader, err := os.ReadFile(executable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "credential-test")
+	if err := os.WriteFile(path, reader, 0755); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
 func TestProtectedSystemdCredentialAccess(t *testing.T) {
 	if os.Geteuid() != 0 || os.Getenv("GHALET_TEST_SYSTEMD_CREDENTIALS") != "1" {
 		t.Skip("requires root on a disposable Linux host/container and GHALET_TEST_SYSTEMD_CREDENTIALS=1")
@@ -131,10 +149,7 @@ func TestProtectedSystemdCredentialAccess(t *testing.T) {
 	if err := os.Chmod(dir, 0755); err != nil {
 		t.Fatal(err)
 	}
-	executable, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
+	executable := credentialReaderBinary(t, dir)
 	for _, tc := range []struct {
 		name    string
 		want    bool
@@ -240,23 +255,10 @@ func TestProtectedSystemdEncryptedCredential(t *testing.T) {
 	if output, err := command.CombinedOutput(); err != nil {
 		t.Fatalf("encrypt dummy credential: %v\n%s", err, output)
 	}
-	executable, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
-	// The unit's non-root user must be able to execute the test binary even
-	// when go test placed the original under a private build directory.
-	reader, err := os.ReadFile(executable)
-	if err != nil {
-		t.Fatal(err)
-	}
 	if err := os.Chmod(dir, 0755); err != nil {
 		t.Fatal(err)
 	}
-	binary := filepath.Join(dir, "credential-test")
-	if err := os.WriteFile(binary, reader, 0755); err != nil {
-		t.Fatal(err)
-	}
+	binary := credentialReaderBinary(t, dir)
 	unit := "ghalet-credential-test-" + strconv.Itoa(os.Getpid()) + ".service"
 	command = exec.Command("systemd-run", "--quiet", "--wait", "--pipe", "--collect", "--unit="+unit,
 		"--property=User=nobody", "--property=LoadCredentialEncrypted=dummy:"+cipher,
