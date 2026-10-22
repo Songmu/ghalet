@@ -2,14 +2,59 @@ package appsetup
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 
 	settings "github.com/Songmu/ghalet/config"
 )
+
+func TestSetupRestoresManagedAfterStaticWriteFailure(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root can write to a read-only directory")
+	}
+	f := setupFixture(t, "owner/repo", "User")
+	directory := filepath.Join(filepath.Dir(f.options.Config), "readonly")
+	if err := os.Mkdir(directory, 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(directory, 0700) })
+	f.options.Config = filepath.Join(directory, "config.yaml")
+	f.options.Yes = false
+	path := filepath.Join(filepath.Dir(directory), "managed.yaml")
+	before := []byte("managedFile: " + path + "\ntargets: []\n")
+	if err := os.WriteFile(f.options.Config, before, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(f.options.Config+".lock", nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	managedBefore := []byte("defaults:\n  credential:\n    type: gh\n")
+	if err := settings.WriteManaged(path, nil, managedBefore); err != nil {
+		t.Fatal(err)
+	}
+	output := confirmationOutput{Writer: io.Discard, onPrompt: func() {
+		if err := os.Chmod(directory, 0500); err != nil {
+			t.Fatal(err)
+		}
+	}}
+	_, err := f.run(t.Context(), f.options, confirmationInput(t, "yes\n"), output)
+	if !errors.Is(err, os.ErrPermission) || f.conversions.Load() != 1 {
+		t.Fatal("setup did not reach the static write failure", err)
+	}
+	_, currentManaged, err := settings.ReadManaged(path)
+	if err != nil || !bytes.Equal(currentManaged, managedBefore) {
+		t.Fatal("failed static write did not restore managed configuration", err)
+	}
+	current, err := os.ReadFile(f.options.Config)
+	if err != nil || !bytes.Equal(current, before) {
+		t.Fatal("failed static write changed static configuration", err)
+	}
+}
 
 func TestSetupDefaultAddsStaticTarget(t *testing.T) {
 	for _, symlink := range []bool{false, true} {
@@ -22,6 +67,24 @@ func TestSetupDefaultAddsStaticTarget(t *testing.T) {
 			}
 			if err := os.Chmod(actual, 0640); err != nil {
 				t.Fatal(err)
+			}
+			info, err := os.Stat(actual)
+			if err != nil {
+				t.Fatal(err)
+			}
+			owner := *info.Sys().(*syscall.Stat_t)
+			groups, err := os.Getgroups()
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, group := range groups {
+				if group != int(owner.Gid) {
+					if err := os.Chown(actual, -1, group); err != nil {
+						t.Fatal(err)
+					}
+					owner.Gid = uint32(group)
+					break
+				}
 			}
 			if symlink {
 				f.options.Config = filepath.Join(filepath.Dir(actual), "linked.yaml")
@@ -40,9 +103,13 @@ func TestSetupDefaultAddsStaticTarget(t *testing.T) {
 			if err != nil || !bytes.Contains(data, []byte("# keep")) || bytes.Contains(data, []byte("credential:")) {
 				t.Fatal("static configuration lost comments or gained authentication", err)
 			}
-			info, err := os.Stat(actual)
+			info, err = os.Stat(actual)
 			if err != nil || info.Mode().Perm() != 0640 {
 				t.Fatal("configuration permissions changed", err)
+			}
+			stat := info.Sys().(*syscall.Stat_t)
+			if stat.Uid != owner.Uid || stat.Gid != owner.Gid {
+				t.Fatal("configuration ownership changed", stat, owner)
 			}
 			if symlink {
 				info, err := os.Lstat(f.options.Config)

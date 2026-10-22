@@ -271,6 +271,7 @@ func (s service) commitSetup(ctx context.Context, prepared preparedConfig, direc
 		return errors.New("configuration changed during setup; saved App is retained, rerun setup")
 	}
 	staticPath, mode := prepared.options.Config, os.FileMode(0600)
+	uid, gid := -1, -1
 	if prepared.before != nil {
 		staticPath, err = filepath.EvalSymlinks(staticPath)
 		if err != nil {
@@ -281,6 +282,11 @@ func (s service) commitSetup(ctx context.Context, prepared preparedConfig, direc
 			return err
 		}
 		mode = info.Mode().Perm()
+		stat, ok := info.Sys().(*syscall.Stat_t)
+		if !ok {
+			return errors.New("cannot preserve static configuration ownership")
+		}
+		uid, gid = int(stat.Uid), int(stat.Gid)
 	}
 	if err := settings.WriteManaged(prepared.managedPath, prepared.managedBefore, after); err != nil {
 		return err
@@ -288,7 +294,7 @@ func (s service) commitSetup(ctx context.Context, prepared preparedConfig, direc
 	if bytes.Equal(prepared.before, prepared.proposed) {
 		return nil
 	}
-	if err := fshelper.WriteFileAtomic(staticPath, prepared.proposed, mode); err != nil {
+	if err := fshelper.WriteFileAtomicWithOwner(staticPath, prepared.proposed, mode, uid, gid); err != nil {
 		// Keep both snapshots consistent if the static target could not be saved.
 		if prepared.managedBefore != nil {
 			return errors.Join(err, settings.WriteManaged(prepared.managedPath, after, prepared.managedBefore))

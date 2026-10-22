@@ -181,7 +181,7 @@ rather than blindly creating another App.
 
 Existing target registrations are not duplicated. When the static file needs no
 changes, its bytes are left untouched. Updates preserve comments, mapping order,
-existing permissions and final symlinks. New files use `0600`.
+existing ownership, permissions and final symlinks. New files use `0600`.
 The managed file must be owned by the current
 user and not writable by others. Concurrent managed updates are rejected.
 Installation permission checks do not change runner group access policy.
