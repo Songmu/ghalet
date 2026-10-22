@@ -1,5 +1,12 @@
 # Changelog
 
+## [v0.2.0](https://github.com/Songmu/ghalet/compare/v0.1.1...v0.2.0) - 2026-10-22
+
+- docs: separate user guides from contributor documentation by @Songmu in https://github.com/Songmu/ghalet/pull/76
+- Fix concurrent state access in the shutdown regression test by @Songmu in https://github.com/Songmu/ghalet/pull/79
+- Share complete App credentials through setup defaults by @Songmu in https://github.com/Songmu/ghalet/pull/78
+- Run the systemd controller as ghalet and jobs as ghalet-runner by @Songmu in https://github.com/Songmu/ghalet/pull/80
+
 ## [v0.1.1](https://github.com/Songmu/ghalet/compare/v0.1.0...v0.1.1) - 2026-10-21
 
 - Wait for daemon readiness when starting systemd services by @Songmu in https://github.com/Songmu/ghalet/pull/73
