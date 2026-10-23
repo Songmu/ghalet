@@ -132,17 +132,42 @@ func Inspect(state Group, table map[int]Entry) (bool, []ProcessIdentity, error) 
 		}
 		return false, nil, errors.New("launch boundary has no recorded process identity; manual inspection required")
 	}
+	verifiedLeader, err := verifyGroupLeader(state, table)
+	if err != nil {
+		return false, nil, err
+	}
+	members, err := liveGroupMembers(state, table, verifiedLeader)
+	if err != nil {
+		return false, nil, err
+	}
+	if len(members) == 0 {
+		if err := confirmGroupStopped(state.Process.PGID, table); err != nil {
+			return false, nil, err
+		}
+	}
+	if state.Done && len(members) > 0 {
+		return false, nil, errors.New("processes exist for a state already marked stopped")
+	}
+	sort.Slice(members, func(i, j int) bool { return members[i].PID < members[j].PID })
+	return len(members) > 0, members, nil
+}
+
+func verifyGroupLeader(state Group, table map[int]Entry) (bool, error) {
 	if state.Process.PID < 2 || state.Process.PGID != state.Process.PID || state.Process.UID != state.UID {
-		return false, nil, errors.New("state has an invalid process group or execution UID")
+		return false, errors.New("state has an invalid process group or execution UID")
 	}
 	leader, exists := table[state.Process.PID]
 	verifiedLeader := exists && SameProcess(state.Process, leader.ProcessIdentity) && !leader.Zombie
 	if exists && !SameProcess(state.Process, leader.ProcessIdentity) {
-		return false, nil, errors.New("PID was reused or identity changed; refusing to signal or clean")
+		return false, errors.New("PID was reused or identity changed; refusing to signal or clean")
 	}
 	if verifiedLeader && !leader.Exiting && !strings.Contains(leader.Command, state.Command) {
-		return false, nil, errors.New("process command does not match the recorded runner directory")
+		return false, errors.New("process command does not match the recorded runner directory")
 	}
+	return verifiedLeader, nil
+}
+
+func liveGroupMembers(state Group, table map[int]Entry, verifiedLeader bool) ([]ProcessIdentity, error) {
 	known := map[int]ProcessIdentity{}
 	for _, member := range state.Members {
 		known[member.PID] = member
@@ -156,38 +181,36 @@ func Inspect(state Group, table map[int]Entry) (bool, []ProcessIdentity, error) 
 			continue
 		}
 		if entry.UID != state.UID {
-			return false, nil, errors.New("process group contains an unexpected user")
+			return nil, errors.New("process group contains an unexpected user")
 		}
 		if !verifiedLeader && !SameProcess(known[entry.PID], entry.ProcessIdentity) {
-			return false, nil, errors.New("leader exited with unverified group members; inspect remaining processes manually")
+			return nil, errors.New("leader exited with unverified group members; inspect remaining processes manually")
 		}
 		members = append(members, entry.ProcessIdentity)
 	}
-	if len(members) == 0 {
-		// Neither an empty nor a zombie-only ps snapshot rules out a late fork.
-		probeErr := syscall.Kill(-state.Process.PGID, 0)
-		if errors.Is(probeErr, syscall.ESRCH) {
-			return false, nil, nil
-		}
-		stopped, err := kernelGroupStopped(state.Process.PGID, table)
-		if err != nil || !stopped {
-			if errors.Is(syscall.Kill(-state.Process.PGID, 0), syscall.ESRCH) {
-				return false, nil, nil
-			}
-			if err != nil {
-				return false, nil, fmt.Errorf("cannot verify zombie-only process group: %w", err)
-			}
-			if probeErr != nil {
-				return false, nil, fmt.Errorf("cannot confirm process group absence: %w", probeErr)
-			}
-			return false, nil, errors.New("kernel inspection cannot rule out live group members; retry inspection")
-		}
+	return members, nil
+}
+
+func confirmGroupStopped(pgid int, table map[int]Entry) error {
+	// Neither an empty nor a zombie-only ps snapshot rules out a late fork.
+	probeErr := syscall.Kill(-pgid, 0)
+	if errors.Is(probeErr, syscall.ESRCH) {
+		return nil
 	}
-	if state.Done && len(members) > 0 {
-		return false, nil, errors.New("processes exist for a state already marked stopped")
+	stopped, err := kernelGroupStopped(pgid, table)
+	if err != nil || !stopped {
+		if errors.Is(syscall.Kill(-pgid, 0), syscall.ESRCH) {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("cannot verify zombie-only process group: %w", err)
+		}
+		if probeErr != nil {
+			return fmt.Errorf("cannot confirm process group absence: %w", probeErr)
+		}
+		return errors.New("kernel inspection cannot rule out live group members; retry inspection")
 	}
-	sort.Slice(members, func(i, j int) bool { return members[i].PID < members[j].PID })
-	return len(members) > 0, members, nil
+	return nil
 }
 
 // Stop sends TERM, polls through a grace period, then sends KILL if needed.

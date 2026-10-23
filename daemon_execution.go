@@ -106,52 +106,11 @@ func (d *daemon) prepare(ctx context.Context, target *targetRuntime, run *active
 	state := run.State
 	config := run.Config
 	start := time.Now()
-	if err := d.distribution.Prepare(ctx, runnerdist.Config{
-		Version: config.Runner.Version, CacheRoot: config.Runner.CacheRoot,
-	}, state.RunnerDir); err != nil {
-		return fmt.Errorf("prepare runner: %w", err)
-	}
-	if err := fshelper.EnsureDirectory(state.Workspace, 0700); err != nil {
+	if err := d.prepareRunnerFiles(ctx, run); err != nil {
 		return err
 	}
-	if os.Geteuid() == 0 {
-		for _, dir := range []string{state.RunnerDir, state.Workspace} {
-			if err := filepath.WalkDir(dir, func(path string, entry os.DirEntry, err error) error {
-				if err != nil {
-					return err
-				}
-				return os.Lchown(path, d.user.UID, d.user.GID)
-			}); err != nil {
-				return err
-			}
-		}
-	} else if d.user.Sudo {
-		for _, dir := range []string{state.RunnerDir, state.Workspace} {
-			if err := shareRunnerDirectory(dir, d.user.GID); err != nil {
-				return err
-			}
-		}
-	}
-	check := exec.CommandContext(ctx, "/bin/sh", "-c", `test -d "$HOME" && test -w "$1" && test -x "$2"`, "ghalet-access", state.Workspace, filepath.Join(state.RunnerDir, "bin", "Runner.Listener"))
-	check.Dir, check.Env, check.SysProcAttr = state.RunnerDir, runnerEnvironment(config, d.user, ""), processAttributes(d.user)
-	var checkErr error
-	if d.user.Sudo {
-		checkErr = callRunnerUser(ctx, d.user, runnerUserRequest{
-			Operation: "check", RunnerDir: state.RunnerDir, Workspace: state.Workspace,
-			Environment: runnerEnvironment(config, d.user, ""),
-		})
-	} else {
-		checkErr = check.Run()
-	}
-	if err := checkErr; err != nil {
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		var exitErr *exec.ExitError
-		if !errors.As(err, &exitErr) {
-			return err
-		}
-		return fmt.Errorf("%w: execution user cannot access HOME, workspace or runner: %w", errUnsafeTarget, err)
+	if err := d.checkRunnerAccess(ctx, run); err != nil {
+		return err
 	}
 	if err := ctx.Err(); err != nil {
 		return err
@@ -185,6 +144,63 @@ func (d *daemon) prepare(ctx context.Context, target *targetRuntime, run *active
 		return err
 	}
 	slog.Info("Runner started", "event", "runner.started", "scope", d.secrets.Redact(state.ScopeURL), "targetId", d.secrets.Redact(state.TargetID), "runId", d.secrets.Redact(state.RunID), "durationMs", time.Since(start).Milliseconds())
+	return nil
+}
+
+func (d *daemon) prepareRunnerFiles(ctx context.Context, run *activeRun) error {
+	state, config := run.State, run.Config
+	if err := d.distribution.Prepare(ctx, runnerdist.Config{
+		Version: config.Runner.Version, CacheRoot: config.Runner.CacheRoot,
+	}, state.RunnerDir); err != nil {
+		return fmt.Errorf("prepare runner: %w", err)
+	}
+	if err := fshelper.EnsureDirectory(state.Workspace, 0700); err != nil {
+		return err
+	}
+	if os.Geteuid() == 0 {
+		for _, dir := range []string{state.RunnerDir, state.Workspace} {
+			if err := filepath.WalkDir(dir, func(path string, entry os.DirEntry, err error) error {
+				if err != nil {
+					return err
+				}
+				return os.Lchown(path, d.user.UID, d.user.GID)
+			}); err != nil {
+				return err
+			}
+		}
+	} else if d.user.Sudo {
+		for _, dir := range []string{state.RunnerDir, state.Workspace} {
+			if err := shareRunnerDirectory(dir, d.user.GID); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (d *daemon) checkRunnerAccess(ctx context.Context, run *activeRun) error {
+	state, config := run.State, run.Config
+	check := exec.CommandContext(ctx, "/bin/sh", "-c", `test -d "$HOME" && test -w "$1" && test -x "$2"`, "ghalet-access", state.Workspace, filepath.Join(state.RunnerDir, "bin", "Runner.Listener"))
+	check.Dir, check.Env, check.SysProcAttr = state.RunnerDir, runnerEnvironment(config, d.user, ""), processAttributes(d.user)
+	var checkErr error
+	if d.user.Sudo {
+		checkErr = callRunnerUser(ctx, d.user, runnerUserRequest{
+			Operation: "check", RunnerDir: state.RunnerDir, Workspace: state.Workspace,
+			Environment: runnerEnvironment(config, d.user, ""),
+		})
+	} else {
+		checkErr = check.Run()
+	}
+	if err := checkErr; err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		var exitErr *exec.ExitError
+		if !errors.As(err, &exitErr) {
+			return err
+		}
+		return fmt.Errorf("%w: execution user cannot access HOME, workspace or runner: %w", errUnsafeTarget, err)
+	}
 	return nil
 }
 
@@ -288,38 +304,10 @@ func (d *daemon) launch(ctx context.Context, run *activeRun, jit string) (retErr
 	// controller death closes the launch gate without exec.
 	pid := command.Process.Pid
 	if d.user.Sudo {
-		exitReport.SetReadDeadline(time.Now().Add(15 * time.Second))
-		output.SetWriteDeadline(time.Now().Add(15 * time.Second))
-		cancelRead := context.AfterFunc(ctx, func() {
-			exitReport.SetReadDeadline(time.Now())
-			output.SetWriteDeadline(time.Now())
-		})
-		var reported int64
-		_, err = io.Copy(output, requestInput)
-		if err == nil {
-			err = binary.Read(exitReport, binary.LittleEndian, &reported)
-		}
-		cancelRead()
-		exitReport.SetReadDeadline(time.Time{})
-		output.SetWriteDeadline(time.Time{})
-		if err == nil && (reported <= 1 || int64(int(reported)) != reported) {
-			err = errors.New("invalid sudo runner identity")
-		}
-		pid = int(reported)
-	}
-	var table map[int]procgroup.Entry
-	if err == nil {
-		table, err = procgroup.Snapshot(ctx, []procgroup.ProcessIdentity{{PID: pid}})
+		pid, err = receiveRunnerUserPID(ctx, output, exitReport, requestInput)
 	}
 	if err == nil {
-		var identity procgroup.ProcessIdentity
-		identity, err = procgroup.LaunchedIdentity(table, pid, d.user.UID)
-		if err == nil {
-			state.Process = identity
-			state.Members = []procgroup.ProcessIdentity{identity}
-			state.StartedAt = time.Now().UTC()
-			err = d.save(run)
-		}
+		err = d.recordLaunchedProcess(ctx, run, pid)
 	}
 	if err != nil {
 		output.Close()
@@ -364,6 +352,43 @@ func (d *daemon) launch(ctx context.Context, run *activeRun, jit string) (retErr
 		}
 	}()
 	return nil
+}
+
+func receiveRunnerUserPID(ctx context.Context, output, exitReport *os.File, request io.Reader) (int, error) {
+	exitReport.SetReadDeadline(time.Now().Add(15 * time.Second))
+	output.SetWriteDeadline(time.Now().Add(15 * time.Second))
+	cancelRead := context.AfterFunc(ctx, func() {
+		exitReport.SetReadDeadline(time.Now())
+		output.SetWriteDeadline(time.Now())
+	})
+	var reported int64
+	_, err := io.Copy(output, request)
+	if err == nil {
+		err = binary.Read(exitReport, binary.LittleEndian, &reported)
+	}
+	cancelRead()
+	exitReport.SetReadDeadline(time.Time{})
+	output.SetWriteDeadline(time.Time{})
+	if err == nil && (reported <= 1 || int64(int(reported)) != reported) {
+		err = errors.New("invalid sudo runner identity")
+	}
+	return int(reported), err
+}
+
+func (d *daemon) recordLaunchedProcess(ctx context.Context, run *activeRun, pid int) error {
+	table, err := procgroup.Snapshot(ctx, []procgroup.ProcessIdentity{{PID: pid}})
+	if err != nil {
+		return err
+	}
+	identity, err := procgroup.LaunchedIdentity(table, pid, d.user.UID)
+	if err != nil {
+		return err
+	}
+	state := run.State
+	state.Process = identity
+	state.Members = []procgroup.ProcessIdentity{identity}
+	state.StartedAt = time.Now().UTC()
+	return d.save(run)
 }
 
 func (d *daemon) startFailure(target *targetRuntime, err error) {
