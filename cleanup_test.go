@@ -1,6 +1,7 @@
 package ghalet
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"os"
@@ -81,41 +82,89 @@ func TestArchiveFailurePreservesOriginalAndReleasesProcessCapacity(t *testing.T)
 	}
 }
 
-func TestArchiveRetryRejectsUnsafeEntriesBeforeDeletingOriginals(t *testing.T) {
-	d, _ := testDaemon(t)
-	state := testState(t, d.config)
-	state.ProcessDone, state.Phase = true, "cleaning"
-	if err := d.store.save(state); err != nil {
-		t.Fatal(err)
-	}
-	if err := fshelper.EnsureDirectory(state.RunnerDir, 0700); err != nil {
-		t.Fatal(err)
-	}
-	source := filepath.Join(state.RunnerDir, "output.log")
-	if err := os.WriteFile(source, []byte("must survive a failed archive retry"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	if err := runnerlog.Archive(d.config.Logs.Root, runnerlog.Run{RunID: state.RunID, TargetID: state.TargetID, Scope: state.ScopeURL, RunnerDir: state.RunnerDir}, d.secrets); err != nil {
-		t.Fatal(err)
-	}
-	archive := filepath.Join(d.config.Logs.Root, "runs", state.RunID)
-	unsafe := filepath.Join(archive, "unsafe.log")
-	if err := os.Symlink(source, unsafe); err != nil {
-		t.Fatal(err)
-	}
-	run := &activeRun{State: state}
-	d.runs[state.RunID] = run
-	if err := d.cleanup(run); err == nil || !strings.Contains(err.Error(), "unsafe log archive entry") {
-		t.Fatal("existing archive bypassed durability verification", err)
-	}
-	if _, err := os.Stat(source); err != nil {
-		t.Fatal("failed archive retry removed original logs", err)
-	}
-	if err := os.Remove(unsafe); err != nil {
-		t.Fatal(err)
-	}
-	if response := d.gc(t.Context(), false); response.Error != "" || d.runs[state.RunID] != nil {
-		t.Fatal("archive cleanup did not resume after durability verification", response.Error)
+func TestArchiveRetryPreservesOriginalsUntilArchiveIsValid(t *testing.T) {
+	for _, failure := range []string{"symlink", "missing metadata", "invalid metadata", "wrong run", "wrong target"} {
+		t.Run(failure, func(t *testing.T) {
+			d, _ := testDaemon(t)
+			state := testState(t, d.config)
+			state.ProcessDone, state.Phase = true, "cleaning"
+			if err := d.store.save(state); err != nil {
+				t.Fatal(err)
+			}
+			if err := fshelper.EnsureDirectory(state.RunnerDir, 0700); err != nil {
+				t.Fatal(err)
+			}
+			source := filepath.Join(state.RunnerDir, "output.log")
+			const content = "must survive a failed archive retry"
+			if err := os.WriteFile(source, []byte(content), 0600); err != nil {
+				t.Fatal(err)
+			}
+			if err := runnerlog.Archive(d.config.Logs.Root, runnerlog.Run{RunID: state.RunID, TargetID: state.TargetID, Scope: state.ScopeURL, RunnerDir: state.RunnerDir}, d.secrets); err != nil {
+				t.Fatal(err)
+			}
+			archive := filepath.Join(d.config.Logs.Root, "runs", state.RunID)
+			metadataPath := filepath.Join(archive, "metadata.json")
+			original, err := os.ReadFile(metadataPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := "existing log archive is incomplete or belongs to another execution"
+			unsafe := filepath.Join(archive, "unsafe.log")
+			switch failure {
+			case "symlink":
+				want = "unsafe log archive entry"
+				err = os.Symlink(source, unsafe)
+			case "missing metadata":
+				err = os.Remove(metadataPath)
+			case "invalid metadata":
+				err = os.WriteFile(metadataPath, []byte("{"), 0600)
+			default:
+				var metadata runnerlog.Metadata
+				if err := json.Unmarshal(original, &metadata); err != nil {
+					t.Fatal(err)
+				}
+				if failure == "wrong run" {
+					metadata.RunID += "-other"
+				} else {
+					metadata.TargetID += "-other"
+				}
+				data, marshalErr := json.Marshal(metadata)
+				if marshalErr != nil {
+					t.Fatal(marshalErr)
+				}
+				err = os.WriteFile(metadataPath, data, 0600)
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			before, err := os.ReadFile(metadataPath)
+			if err != nil && !errors.Is(err, os.ErrNotExist) {
+				t.Fatal(err)
+			}
+			run := &activeRun{State: state}
+			d.runs[state.RunID] = run
+			if err := d.cleanup(run); err == nil || !strings.Contains(err.Error(), want) {
+				t.Fatal("existing archive bypassed validation", err)
+			}
+			if data, err := os.ReadFile(source); err != nil || string(data) != content || d.runs[state.RunID] != run {
+				t.Fatal("failed archive retry removed original logs or execution state", err)
+			}
+			if data, err := os.ReadFile(metadataPath); !bytes.Equal(data, before) ||
+				(failure == "missing metadata" && !errors.Is(err, os.ErrNotExist)) ||
+				(failure != "missing metadata" && err != nil) {
+				t.Fatal("failed archive retry replaced existing metadata", err)
+			}
+			if failure == "symlink" {
+				if err := os.Remove(unsafe); err != nil {
+					t.Fatal(err)
+				}
+			} else if err := os.WriteFile(metadataPath, original, 0600); err != nil {
+				t.Fatal(err)
+			}
+			if response := d.gc(t.Context(), false); response.Error != "" || d.runs[state.RunID] != nil {
+				t.Fatal("archive cleanup did not resume after repairing the archive", response.Error)
+			}
+		})
 	}
 }
 

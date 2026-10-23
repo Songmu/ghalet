@@ -17,42 +17,67 @@ func TestSetupRestoresManagedAfterStaticWriteFailure(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("root can write to a read-only directory")
 	}
-	f := setupFixture(t, "owner/repo", "User")
-	directory := filepath.Join(filepath.Dir(f.options.Config), "readonly")
-	if err := os.Mkdir(directory, 0700); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { os.Chmod(directory, 0700) })
-	f.options.Config = filepath.Join(directory, "config.yaml")
-	f.options.Yes = false
-	path := filepath.Join(filepath.Dir(directory), "managed.yaml")
-	before := []byte("managedFile: " + path + "\ntargets: []\n")
-	if err := os.WriteFile(f.options.Config, before, 0600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(f.options.Config+".lock", nil, 0600); err != nil {
-		t.Fatal(err)
-	}
-	managedBefore := []byte("defaults:\n  credential:\n    type: gh\n")
-	if err := settings.WriteManaged(path, nil, managedBefore); err != nil {
-		t.Fatal(err)
-	}
-	output := confirmationOutput{Writer: io.Discard, onPrompt: func() {
-		if err := os.Chmod(directory, 0500); err != nil {
-			t.Fatal(err)
-		}
-	}}
-	_, err := f.run(t.Context(), f.options, confirmationInput(t, "yes\n"), output)
-	if !errors.Is(err, os.ErrPermission) || f.conversions.Load() != 1 {
-		t.Fatal("setup did not reach the static write failure", err)
-	}
-	_, currentManaged, err := settings.ReadManaged(path)
-	if err != nil || !bytes.Equal(currentManaged, managedBefore) {
-		t.Fatal("failed static write did not restore managed configuration", err)
-	}
-	current, err := os.ReadFile(f.options.Config)
-	if err != nil || !bytes.Equal(current, before) {
-		t.Fatal("failed static write changed static configuration", err)
+	for _, state := range []string{"existing", "new"} {
+		t.Run(state, func(t *testing.T) {
+			f := setupFixture(t, "owner/repo", "User")
+			directory := filepath.Join(filepath.Dir(f.options.Config), "readonly")
+			if err := os.Mkdir(directory, 0700); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { os.Chmod(directory, 0700) })
+			f.options.Config = filepath.Join(directory, "config.yaml")
+			f.options.Yes = false
+			path := filepath.Join(filepath.Dir(directory), "managed.yaml")
+			before := []byte("managedFile: " + path + "\ntargets: []\n")
+			if err := os.WriteFile(f.options.Config, before, 0600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(f.options.Config+".lock", nil, 0600); err != nil {
+				t.Fatal(err)
+			}
+			var managedBefore []byte
+			if state == "existing" {
+				managedBefore = []byte("defaults:\n  credential:\n    type: gh\n")
+				if err := settings.WriteManaged(path, nil, managedBefore); err != nil {
+					t.Fatal(err)
+				}
+			}
+			output := confirmationOutput{Writer: io.Discard, onPrompt: func() {
+				if err := os.Chmod(directory, 0500); err != nil {
+					t.Fatal(err)
+				}
+			}}
+			_, err := f.run(t.Context(), f.options, confirmationInput(t, "yes\n"), output)
+			if !errors.Is(err, os.ErrPermission) || f.conversions.Load() != 1 {
+				t.Fatal("setup did not reach the static write failure", err)
+			}
+			managed, currentManaged, err := settings.ReadManaged(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if state == "existing" {
+				if !bytes.Equal(currentManaged, managedBefore) {
+					t.Fatal("failed static write did not restore managed configuration")
+				}
+			} else if managed.Defaults.Credential != nil || len(managed.Targets) != 0 {
+				t.Fatal("failed static write left new authentication active", managed)
+			}
+			current, err := os.ReadFile(f.options.Config)
+			if err != nil || !bytes.Equal(current, before) {
+				t.Fatal("failed static write changed static configuration", err)
+			}
+			if err := os.Chmod(directory, 0700); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := f.run(t.Context(), f.options, confirmationInput(t, "yes\n"), io.Discard); err != nil {
+				t.Fatal("setup could not resume after restoring write access", err)
+			}
+			config, err := settings.LoadConfig(f.options.Config)
+			if err != nil || len(config.Targets) != 1 || config.Targets[0].Credential.InstallationID != 123 ||
+				f.conversions.Load() != 1 {
+				t.Fatal("retry did not reuse the saved App and commit its target", err)
+			}
+		})
 	}
 }
 
