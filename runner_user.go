@@ -99,28 +99,7 @@ func runRunnerUser(input io.Reader, runner string) error {
 		command.Dir, command.Env = request.RunnerDir, request.Environment
 		return command.Run()
 	case "launch":
-		if runner == "" || runner != filepath.Join(request.RunnerDir, "bin", "Runner.Listener") {
-			return errors.New("runner command does not match the launch request")
-		}
-		if syscall.Getpgrp() != os.Getpid() {
-			if err := syscall.Setpgid(0, 0); err != nil {
-				return err
-			}
-		}
-		os.Clearenv()
-		for _, value := range request.Environment {
-			key, text, found := strings.Cut(value, "=")
-			if !found {
-				return errors.New("invalid runner environment")
-			}
-			if err := os.Setenv(key, text); err != nil {
-				return err
-			}
-		}
-		if err := binary.Write(os.Stdout, binary.LittleEndian, int64(os.Getpid())); err != nil {
-			return fmt.Errorf("report runner identity: %w", err)
-		}
-		return guardRunner(runner, reader, os.Stdout, nil, os.Stderr, os.Stderr)
+		return request.launch(runner, reader)
 	case "release":
 		for _, path := range []string{request.RunnerDir, request.Workspace} {
 			if err := releaseRunnerDirectory(path); err != nil {
@@ -129,28 +108,57 @@ func runRunnerUser(input io.Reader, runner string) error {
 		}
 		return nil
 	case "signal":
-		if request.Group.UID != os.Geteuid() ||
-			(request.Signal != syscall.SIGTERM && request.Signal != syscall.SIGKILL) {
-			return errors.New("invalid runner signal or execution user")
-		}
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-		defer cancel()
-		table, err := procgroup.Snapshot(ctx, []procgroup.ProcessIdentity{request.Group.Process})
-		if err != nil {
-			return err
-		}
-		alive, _, err := procgroup.Inspect(request.Group, table)
-		if err != nil || !alive {
-			return err
-		}
-		err = syscall.Kill(-request.Group.Process.PGID, request.Signal)
-		if errors.Is(err, syscall.ESRCH) {
-			return nil
-		}
-		return err
+		return request.signal()
 	default:
 		return errors.New("unknown runner operation")
 	}
+}
+
+func (request runnerUserRequest) launch(runner string, reader *bufio.Reader) error {
+	if runner == "" || runner != filepath.Join(request.RunnerDir, "bin", "Runner.Listener") {
+		return errors.New("runner command does not match the launch request")
+	}
+	if syscall.Getpgrp() != os.Getpid() {
+		if err := syscall.Setpgid(0, 0); err != nil {
+			return err
+		}
+	}
+	os.Clearenv()
+	for _, value := range request.Environment {
+		key, text, found := strings.Cut(value, "=")
+		if !found {
+			return errors.New("invalid runner environment")
+		}
+		if err := os.Setenv(key, text); err != nil {
+			return err
+		}
+	}
+	if err := binary.Write(os.Stdout, binary.LittleEndian, int64(os.Getpid())); err != nil {
+		return fmt.Errorf("report runner identity: %w", err)
+	}
+	return guardRunner(runner, reader, os.Stdout, nil, os.Stderr, os.Stderr)
+}
+
+func (request runnerUserRequest) signal() error {
+	if request.Group.UID != os.Geteuid() ||
+		(request.Signal != syscall.SIGTERM && request.Signal != syscall.SIGKILL) {
+		return errors.New("invalid runner signal or execution user")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	table, err := procgroup.Snapshot(ctx, []procgroup.ProcessIdentity{request.Group.Process})
+	if err != nil {
+		return err
+	}
+	alive, _, err := procgroup.Inspect(request.Group, table)
+	if err != nil || !alive {
+		return err
+	}
+	err = syscall.Kill(-request.Group.Process.PGID, request.Signal)
+	if errors.Is(err, syscall.ESRCH) {
+		return nil
+	}
+	return err
 }
 
 func runnerUserCommand(ctx context.Context, account executionUser, request runnerUserRequest) (*exec.Cmd, error) {
