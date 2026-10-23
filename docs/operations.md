@@ -1,9 +1,9 @@
 # Operations
 
-[日本語](operations.ja.md)
+[日本語](./operations.ja.md)
 
 This guide covers configuring, running and maintaining ghalet on a single
-trusted host. Start with [getting started](getting-started.md#quick-start) for setup and
+trusted host. Start with [getting started](./getting-started.md#quick-start) for setup and
 the [command overview](../README.md#commands).
 
 - [Configuration and credentials](#configuration-and-credentials)
@@ -159,10 +159,10 @@ including App private keys, must be owner-only regular files (normally
 can be referenced by an absolute `tokenFile` or `privateKeyFile` path under
 `/run/credentials/ghalet.service/` with the corresponding `LoadCredential=` or
 `LoadCredentialEncrypted=`. For encrypted registration, shared defaults and
-rotation, see [encrypted credentials](credentials.md).
+rotation, see [encrypted credentials](./credentials.md).
 Do not put secrets into `Environment=` or workflow files unnecessarily.
 
-See [authentication setup and minimum permissions](authentication.md) for
+See [authentication setup and minimum permissions](./authentication.md) for
 scope-specific permissions, PAT creation and GitHub App installation.
 Group access policy and App installation access are separate. Create groups
 and grant their repository access in GitHub first: ghalet never creates,
@@ -488,7 +488,7 @@ by a trusted workflow.
 ## Service deployment
 
 For packaged Linux installation or Docker Compose, see
-[packages and containers](distribution.md). The instructions below cover
+[packages and containers](./distribution.md). The instructions below cover
 manual service installation.
 
 For Linux, precreate dedicated `ghalet` and `ghalet-runner` users with accessible
@@ -557,16 +557,26 @@ environment. Successful tests do not establish job isolation.
 
 ## Trust boundary
 
-**Ephemeral registration is not isolation.** Use only trusted workflows in
-trusted repositories, never hostile fork PRs. Each runner has separate
-execution/work paths but shares an OS, execution user's HOME, caches, tools,
-network and existing privileges. Jobs can modify that shared environment.
-They may access the execution user's saved credentials, including GitHub CLI
-and keychain credentials; stripping token variables or supplying a job-scoped
-`GH_TOKEN` does not isolate that storage. Use a separate execution user to
-separate those credentials.
+ghalet registers each runner as **ephemeral** to handle one job. After
+confirming that the runner and its process group have stopped, ghalet cleans
+up its runner directory and workspace. If shutdown cannot be verified or
+cleanup fails, it retains the state and files. **Ephemeral registration is
+not isolation:** the runner is a native user process, not a per-job sandbox.
+Use only trusted workflows in trusted repositories, not fork PRs that could
+introduce untrusted code.
+
+Each runner has separate execution/work paths but shares an OS, execution
+user's HOME, caches, tools, network and existing privileges. Jobs can modify
+that shared environment. They may access the execution user's saved
+credentials, including GitHub CLI and keychain credentials.
+
+Stripping token variables or supplying a job-scoped `GH_TOKEN` does not isolate
+that storage. Use a separate execution user to separate those credentials.
+
 The default same-user model also exposes controller files/processes to jobs;
 file permissions, redaction and a private socket are not security boundaries
-against that user. No extra sudo or Docker socket is provided and root jobs
+against that user.
+
+No extra sudo or Docker socket is provided and root jobs
 are refused, but preexisting privileges are not stripped. Use a dedicated
 account/VM and appropriate host controls.

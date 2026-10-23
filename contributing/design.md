@@ -1,6 +1,6 @@
 # Runtime design
 
-[日本語](design.ja.md)
+[日本語](./design.ja.md)
 
 Implementation details and invariants for changes to ghalet's runtime.
 For configuration, recovery procedures, and operational guarantees, see

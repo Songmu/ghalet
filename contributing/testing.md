@@ -1,6 +1,6 @@
 # Testing
 
-[日本語](testing.ja.md)
+[日本語](./testing.ja.md)
 
 How to run automated tests and opt-in checks against the official runner
 and GitHub. Run commands from the repository root.

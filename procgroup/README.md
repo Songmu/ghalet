@@ -1,6 +1,6 @@
 # Process group verification
 
-[日本語](README.ja.md)
+[日本語](./README.ja.md)
 
 `procgroup` owns process identity, scoped snapshots, group inspection, and
 termination on Linux and macOS. It does not depend on daemon run state,

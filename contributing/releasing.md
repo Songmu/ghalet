@@ -1,6 +1,6 @@
 # Packaging and releases
 
-[日本語](releasing.ja.md)
+[日本語](./releasing.ja.md)
 
 This guide covers building and publishing ghalet distributions.
 For installing and updating published packages or containers, use the
@@ -41,7 +41,7 @@ checksums/provenance, then a separate job publishes and attests the GHCR image.
 The version comes from `version.go`, which tagpr updates.
 The separate [`test-packaging.yaml`](../.github/workflows/test-packaging.yaml)
 workflow builds and tests packages/images without publishing or receiving
-registry credentials. See [testing](testing.md#automated-tests) for coverage
+registry credentials. See [testing](./testing.md#automated-tests) for coverage
 and verification limits.
 
 After the first image publication, the repository owner must check the GHCR

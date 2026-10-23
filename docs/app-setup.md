@@ -1,13 +1,14 @@
 # GitHub App setup wizard
 
-[日本語](app-setup.ja.md)
+[日本語](./app-setup.ja.md)
 
 `ghalet app setup --scope OWNER/REPO --scale-set project` creates a private,
 user-owned or organization-owned GitHub App using [GitHub's Manifest flow][manifest].
-No preexisting PAT, client
-secret, hosted callback service or PEM copy/paste is required. This wizard
-supports **GitHub.com** on Linux/macOS and verifies one target per setup.
-It stores an [ordinary, unencrypted credential file](file-credentials.md);
+No preexisting PAT, client secret, hosted callback service or PEM copy/paste
+is required.
+
+This wizard supports **GitHub.com** on Linux/macOS and verifies one target per setup.
+It stores an [ordinary, unencrypted credential file](./file-credentials.md);
 `ghalet systemd app setup` stores an encrypted service credential instead.
 Neither command starts or reconfigures the daemon.
 
@@ -29,7 +30,7 @@ Select another configuration with `--config PATH`. The default is
 `~/.config/ghalet/config.yaml`. `--scope` and `--scale-set` are required;
 scope also accepts an HTTPS GitHub.com organization or repository URL.
 The wizard saves authentication in a separate
-[managed file](operations.md#managed-setup-information) after confirmation.
+[managed file](./operations.md#managed-setup-information) after confirmation.
 It saves the complete credential, including `installationId`, in
 `defaults.credential` by default. Use `--target` to save target-specific managed
 authentication instead. If either configuration already has `defaults.credential`,
@@ -68,9 +69,9 @@ inherit the shared credential when the installation grants the required access.
 
 The browser pages below use example data:
 
-![GitHub App creation page](images/app-setup-create.png)
+![GitHub App creation page](./images/app-setup-create.png)
 
-![GitHub App installation link](images/app-setup-install.png)
+![GitHub App installation link](./images/app-setup-install.png)
 
 The credential contains `type: github-app`, `clientId`, `privateKeyFile` and
 `installationId`. With `--target`, the managed entry also contains the scope,
@@ -97,7 +98,7 @@ ghalet config validate
 ghalet run
 ```
 
-For an existing daemon, use [`ghalet apply`](operations.md#applying-configuration)
+For an existing daemon, use [`ghalet apply`](./operations.md#applying-configuration)
 explicitly instead of starting another one. A successful setup verifies the
 installation and its permissions, not live runner/job execution.
 
@@ -154,7 +155,7 @@ If drop-in creation or unit reload fails, they are retained; fix the reported
 problem and rerun the same setup command to retry without creating another App.
 An already running service requires a normal stop, successful-shutdown check,
 and start to receive updated credentials; `apply` does not refresh systemd credentials.
-See [encrypted credentials](credentials.md) for host-key protection, backups
+See [encrypted credentials](./credentials.md) for host-key protection, backups
 and rotation.
 
 ## Resume and credential storage
@@ -163,7 +164,7 @@ For ordinary setup, the key is stored as `<StateDir>/credentials/KEY.pem`; `KEY.
 the public App identity, scope and key path so setup can resume. Both files are
 `0600` under the `0700` credential directory. The JSON does not contain the PEM,
 client secret or webhook secret. Protect the PEM and its backups as described
-in [ordinary credential files](file-credentials.md).
+in [ordinary credential files](./file-credentials.md).
 
 Each attempt waits up to 15 minutes. Rerun the same command, configuration,
 scope, scale set and runner group after interruption, declined confirmation or
@@ -187,13 +188,13 @@ user and not writable by others. Concurrent managed updates are rejected.
 Installation permission checks do not change runner group access policy.
 
 For an existing App key, use
-[`ghalet systemd credential set`](credentials.md#github-apps-and-additional-credentials)
+[`ghalet systemd credential set`](./credentials.md#github-apps-and-additional-credentials)
 instead of creating another App. It updates the managed shared default unless
 `--no-default` is set; explicit target credentials still take precedence.
 
 App private keys do not expire. Installation-token renewal is automatic;
 exchange the key only when required by policy or suspected compromise.
-See [authentication and rotation](authentication.md#rotate-credentials).
+See [authentication and rotation](./authentication.md#rotate-credentials).
 This feature does not establish isolation from jobs running as the same user.
 
 [manifest]: https://docs.github.com/en/apps/sharing-github-apps/registering-a-github-app-from-a-manifest

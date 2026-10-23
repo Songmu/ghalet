@@ -1,16 +1,16 @@
 # Ordinary credential files
 
-[日本語](file-credentials.ja.md)
+[日本語](./file-credentials.ja.md)
 
 `ghalet credential set` imports a named PAT or GitHub App private key on Linux
 or macOS without systemd or root. It writes **unencrypted, owner-only files**,
 not a keychain or encrypted vault. For GitHub permissions and credential creation,
-see [authentication setup](authentication.md). For the packaged service's
-encrypted storage, use [systemd credentials](credentials.md) instead.
+see [authentication setup](./authentication.md). For the packaged service's
+encrypted storage, use [systemd credentials](./credentials.md) instead.
 
 ## Register a credential
 
-Create the [configuration](getting-started.md#quick-start) first, then run as the
+Create the [configuration](./getting-started.md#quick-start) first, then run as the
 user that runs the daemon:
 
 ```sh
@@ -39,7 +39,7 @@ daemon. Credential files are separate from `runs/` and `logs/` and are not
 removed by `ghalet gc`.
 
 The command writes `defaults.credential` to the selected configuration's
-[managed file](operations.md#managed-setup-information) with
+[managed file](./operations.md#managed-setup-information) with
 `type: pat` / `tokenFile`, or `type: github-app` / `clientId` / `privateKeyFile` / `installationId`.
 The paths are absolute. The default configuration is
 `~/.config/ghalet/config.yaml`; override it with `--config PATH`.
@@ -51,18 +51,18 @@ credentials remain authoritative.
 
 Use `--no-default` to save a credential without modifying managed defaults,
 then reference its reported path in the desired target. Names follow the same
-rules as [systemd credential names](credentials.md#github-apps-and-additional-credentials).
+rules as [systemd credential names](./credentials.md#github-apps-and-additional-credentials).
 Existing unsafe permissions or symlinks are rejected rather than silently fixed.
 
 The daemon is never started, restarted or reconfigured automatically.
 Run `ghalet config validate`, then start it or use
-[`ghalet apply`](operations.md#applying-configuration) explicitly.
+[`ghalet apply`](./operations.md#applying-configuration) explicitly.
 
 ## Replacement and rollback
 
 Create a new PAT before the old one expires. App keys do not expire; replace
 them when required by policy or suspected compromise, rather than for token
-renewal. See [credential rotation](authentication.md#rotate-credentials).
+renewal. See [credential rotation](./authentication.md#rotate-credentials).
 
 For a planned replacement, keep the name, type and App identity unchanged:
 
@@ -80,5 +80,5 @@ If registration fails during file updates, it attempts to restore prior files
 and explicitly reports restoration errors.
 
 Owner-only permissions do not protect against root or jobs running as the same
-OS user. Keep the [trusted-host boundary](operations.md#trust-boundary); use a
+OS user. Keep the [trusted-host boundary](./operations.md#trust-boundary); use a
 separate execution user where appropriate. Backups also contain plaintext secrets.

@@ -1,13 +1,13 @@
 # Linux packages and containers
 
-[日本語](distribution.ja.md)
+[日本語](./distribution.ja.md)
 
 Release tags publish amd64 and arm64 binaries, `.deb` and `.rpm` packages,
 and the multi-platform image `ghcr.io/songmu/ghalet:TAG`.
 Archives, `install.sh`, and `go install` are also available.
 APT/DNF repositories are not provided.
 For Homebrew installation and macOS service integration, see the
-[getting started](getting-started.md#installation).
+[getting started](./getting-started.md#installation).
 
 ## Debian and RPM packages
 
@@ -60,7 +60,7 @@ managed file without changing the static configuration. Add its printed target
 YAML to the config; if the config is missing, save the complete suggestion
 (including the package runner user and log path) before validation/start.
 Follow the printed browser URLs; for SSH use the
-port forwarding in [App setup](app-setup.md#ssh-and-manual-browser-operation).
+port forwarding in [App setup](./app-setup.md#ssh-and-manual-browser-operation).
 
 To use a PAT instead, copy and edit the package example:
 
@@ -77,14 +77,14 @@ Replace `OWNER/REPO` in the configuration and supply a PAT with the
 appropriate runner administration permissions. Registration writes its
 reference to the managed file's `defaults.credential`, shared by targets without
 other authentication. Static credentials remain authoritative; see
-[managed setup information](operations.md#managed-setup-information).
+[managed setup information](./operations.md#managed-setup-information).
 Package installation and upgrades never request secrets; App setup or credential registration
 is a separate, explicit command. For App keys, multiple credentials, automation,
-and rotation, see [encrypted credentials](credentials.md).
+and rotation, see [encrypted credentials](./credentials.md).
 Do not put credentials inline in YAML or in shell command arguments.
 On older systemd installations, configure an owner-only PAT file with
 `defaults.credential.tokenFile` instead; see
-[operations](operations.md#configuration-and-credentials).
+[operations](./operations.md#configuration-and-credentials).
 
 The unit uses `StateDirectory=ghalet` and `CacheDirectory=ghalet`,
 which supply `STATE_DIRECTORY` and `CACHE_DIRECTORY`. Executions go under
@@ -117,7 +117,7 @@ scale sets.
 
 The unit uses `KillMode=mixed` and a 15-minute outer stop deadline.
 Increase that deadline if changing the default 10-minute drain timeout.
-See [service deployment](operations.md#service-deployment) for shutdown
+See [service deployment](./operations.md#service-deployment) for shutdown
 and crash-cleanup semantics.
 
 ## Docker Compose
