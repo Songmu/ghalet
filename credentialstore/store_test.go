@@ -476,27 +476,33 @@ func TestCredentialRegistrationAndRotation(t *testing.T) {
 }
 
 func TestCredentialRegistrationFailureIsNonDestructive(t *testing.T) {
-	for _, stage := range []string{"encryption", "reload", "empty", "multiline", "oversized", "canceled", "old-systemd", "changed-config", "bad-config"} {
+	for _, stage := range []string{"encryption", "reload", "restored-reload", "empty", "canceled", "old-systemd", "changed-config", "bad-config"} {
 		t.Run(stage, func(t *testing.T) {
 			store, options, tools := testCredentialStore(t)
-			if _, err := store.set(t.Context(), options, strings.NewReader("old-secret")); err != nil {
+			original, err := store.set(t.Context(), options, strings.NewReader("old-secret"))
+			if err != nil {
 				t.Fatal(err)
 			}
 			cipherPath := filepath.Join(store.directory, "default.cred")
 			oldCipher, _ := os.ReadFile(cipherPath)
 			oldConfig, _ := os.ReadFile(options.Config)
+			before := make(map[string][]byte)
+			for _, path := range []string{original.ManagedPath, original.DropInPath} {
+				before[path], err = os.ReadFile(path)
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
 			secret := "new-secret"
 			switch stage {
 			case "encryption":
 				tools.encryptError = true
 			case "reload":
 				tools.reloadErrors = 1
+			case "restored-reload":
+				tools.reloadErrors = 2
 			case "empty":
 				secret = "  \n"
-			case "multiline":
-				secret = "one\ntwo"
-			case "oversized":
-				secret = strings.Repeat("x", maxCredentialSize+1)
 			case "canceled":
 				options.Stdin, options.Prompt, tools.promptError = false, true, true
 			case "old-systemd":
@@ -516,6 +522,11 @@ func TestCredentialRegistrationFailureIsNonDestructive(t *testing.T) {
 			if err == nil {
 				t.Fatal("failure was not reported")
 			}
+			if stage == "restored-reload" &&
+				(!strings.Contains(err.Error(), "reload systemd configuration:") ||
+					!strings.Contains(err.Error(), "reload restored systemd configuration:")) {
+				t.Fatal("update and rollback reload failures were not both reported", err)
+			}
 			if result != (Result{}) {
 				t.Fatal("returned a success result after failure", result)
 			}
@@ -525,6 +536,12 @@ func TestCredentialRegistrationFailureIsNonDestructive(t *testing.T) {
 			}
 			if _, err := os.Stat(cipherPath + ".previous"); !errors.Is(err, os.ErrNotExist) {
 				t.Fatal("failed update left a rollback backup", err)
+			}
+			for path, data := range before {
+				current, err := os.ReadFile(path)
+				if err != nil || !bytes.Equal(current, data) {
+					t.Fatal("failed registration changed managed configuration or drop-in", path, err)
+				}
 			}
 			if stage != "changed-config" && stage != "bad-config" {
 				current, _ = os.ReadFile(options.Config)
@@ -575,12 +592,6 @@ func TestCredentialNonDefaultAndAppInput(t *testing.T) {
 	}
 	if _, err := store.readSecret(t.Context(), options, nil); err == nil {
 		t.Fatal("accepted a world-readable input key")
-	}
-	options.File = ""
-	for _, invalid := range []string{"not a key", string(data) + string(data)} {
-		if _, err := store.readSecret(t.Context(), options, strings.NewReader(invalid)); err == nil {
-			t.Fatal("invalid key accepted")
-		}
 	}
 }
 

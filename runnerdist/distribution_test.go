@@ -2,8 +2,11 @@ package runnerdist
 
 import (
 	"archive/tar"
+	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -107,22 +110,99 @@ func seedDistribution(t *testing.T, c Config, script string) {
 	}
 }
 
-func TestVerifiedDistributionAndIndependentExecutions(t *testing.T) {
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
+	return f(request)
+}
+
+func TestPreparationDownloadsVerifiesAndReusesCache(t *testing.T) {
+	archive := filepath.Join(testDirectory(t), "runner.tar.gz")
+	script := "#!/bin/sh\nexit 0\n"
+	writeArchive(t, archive, []archiveEntry{{name: "bin/Runner.Listener", body: script}})
+	data, err := os.ReadFile(archive)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(data)
+	for _, mismatch := range []bool{false, true} {
+		t.Run(fmt.Sprintf("checksum-mismatch=%t", mismatch), func(t *testing.T) {
+			c := testConfig(t)
+			platform, err := runnerPlatform(runtime.GOOS, runtime.GOARCH)
+			if err != nil {
+				t.Fatal(err)
+			}
+			name := "actions-runner-" + platform + "-" + c.Version + ".tar.gz"
+			digest := hex.EncodeToString(sum[:])
+			if mismatch {
+				digest = strings.Repeat("0", 64)
+			}
+			metadataURL := "https://api.github.com/repos/actions/runner/releases/tags/v" + c.Version
+			downloadURL := "https://github.com/actions/runner/releases/download/v" + c.Version + "/" + name
+			var requests []string
+			distribution := New(5 * time.Second)
+			distribution.client.Transport = roundTripFunc(func(request *http.Request) (*http.Response, error) {
+				url := request.URL.String()
+				requests = append(requests, url)
+				var body io.Reader
+				switch url {
+				case metadataURL:
+					body = strings.NewReader(fmt.Sprintf(`{"assets":[{"name":%q,"digest":"sha256:%s"}]}`, name, digest))
+				case downloadURL:
+					body = bytes.NewReader(data)
+				default:
+					return nil, fmt.Errorf("unexpected request %s", url)
+				}
+				return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(body), Header: make(http.Header)}, nil
+			})
+			dest := filepath.Join(testDirectory(t), "first")
+			err = distribution.Prepare(t.Context(), c, dest)
+			if mismatch {
+				if err == nil || !strings.Contains(err.Error(), "checksum mismatch") {
+					t.Fatal("downloaded archive bypassed verification", err)
+				}
+				if _, err := os.Stat(dest); !errors.Is(err, os.ErrNotExist) {
+					t.Fatal("unverified archive was extracted", err)
+				}
+			} else {
+				if err != nil {
+					t.Fatal(err)
+				}
+				checksum, err := os.ReadFile(filepath.Join(c.CacheRoot, name+".sha256"))
+				if err != nil || strings.TrimSpace(string(checksum)) != digest {
+					t.Fatal("official digest was not cached", err)
+				}
+				for _, directory := range []string{dest, filepath.Join(testDirectory(t), "second")} {
+					if directory != dest {
+						if err := distribution.Prepare(t.Context(), c, directory); err != nil {
+							t.Fatal(err)
+						}
+					}
+					listener := filepath.Join(directory, "bin", "Runner.Listener")
+					if content, err := os.ReadFile(listener); err != nil || string(content) != script {
+						t.Fatal("execution did not contain an independent verified runner", err)
+					}
+					if err := os.WriteFile(listener, []byte("job modification"), 0700); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			if len(requests) != 2 || requests[0] != metadataURL || requests[1] != downloadURL {
+				t.Fatal("preparation skipped download or did not reuse its verified cache", requests)
+			}
+		})
+	}
+}
+
+func TestPreparationRejectsCorruptCache(t *testing.T) {
 	c := testConfig(t)
 	seedDistribution(t, c, "#!/bin/sh\nexit 0\n")
 	distribution := New(10 * time.Minute)
-	for _, run := range []string{"first", "second"} {
-		dest := filepath.Join(testDirectory(t), run)
-		if err := distribution.Prepare(t.Context(), c, dest); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(filepath.Join(dest, "bin/Runner.Listener"), []byte("job modification"), 0700); err != nil {
-			t.Fatal(err)
-		}
-	}
 	platform, _ := runnerPlatform(runtime.GOOS, runtime.GOARCH)
 	archive := filepath.Join(c.CacheRoot, "actions-runner-"+platform+"-"+c.Version+".tar.gz")
-	os.WriteFile(archive, []byte("corrupt"), 0600)
+	if err := os.WriteFile(archive, []byte("corrupt"), 0600); err != nil {
+		t.Fatal(err)
+	}
 	if err := distribution.Prepare(t.Context(), c, filepath.Join(testDirectory(t), "third")); err == nil || !strings.Contains(err.Error(), "checksum mismatch") {
 		t.Fatal("corrupt cache was accepted or silently replaced:", err)
 	}

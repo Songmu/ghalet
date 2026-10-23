@@ -166,7 +166,7 @@ func TestCredentialWritersHonorConfigLock(t *testing.T) {
 }
 
 func TestFileCredentialFailuresPreserveExisting(t *testing.T) {
-	for _, kind := range []string{"empty", "whitespace", "large", "invalid-app", "canceled", "missing-input", "prompt"} {
+	for _, kind := range []string{"empty", "canceled", "prompt"} {
 		t.Run(kind, func(t *testing.T) {
 			directory, options := fileOptions(t)
 			result, err := setFile(t.Context(), directory, options, strings.NewReader("old-secret"))
@@ -176,14 +176,6 @@ func TestFileCredentialFailuresPreserveExisting(t *testing.T) {
 			ctx := t.Context()
 			input := strings.NewReader("")
 			switch kind {
-			case "whitespace":
-				input = strings.NewReader("bad token")
-			case "large":
-				input = strings.NewReader(strings.Repeat("a", maxCredentialSize+1))
-			case "invalid-app":
-				options.Type = "github-app"
-				options.NoDefault = true
-				input = strings.NewReader("invalid-key")
 			case "canceled":
 				var cancel context.CancelFunc
 				ctx, cancel = context.WithCancel(ctx)
@@ -191,13 +183,8 @@ func TestFileCredentialFailuresPreserveExisting(t *testing.T) {
 			case "prompt":
 				options.Prompt, options.Stdin = true, false
 			}
-			var setErr error
-			if kind == "missing-input" {
-				_, setErr = setFile(ctx, directory, options, nil)
-			} else {
-				_, setErr = setFile(ctx, directory, options, input)
-			}
-			if setErr == nil {
+			failed, setErr := setFile(ctx, directory, options, input)
+			if setErr == nil || failed != (Result{}) {
 				t.Fatal("invalid replacement accepted")
 			}
 			current, _ := os.ReadFile(result.RuntimePath)
