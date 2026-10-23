@@ -35,14 +35,29 @@ intended for standalone, dedicated hosts, such as:
 - Single-purpose VMs
 - Home servers, such as a Mac mini or a spare laptop
 
-ghalet manages GitHub Actions Runner Scale Sets on Linux and macOS.
-Each runner handles one job, then exits; ghalet cleans up its runner directory
-and workspace. It scales **runner processes on one host**, not the hosts themselves.
-It does not orchestrate multiple machines or provision per-job VMs or
-containers. **Ephemeral registration is not job isolation:** jobs share the
-execution user's HOME, tools, caches and privileges. Use only trusted
-workflows, not untrusted fork PRs or hostile code. Docker actions, job
-containers and service containers are unsupported.
+ghalet manages GitHub Actions Runner Scale Sets on Linux and macOS. It starts
+runner processes on demand and cleans up their runner directories and workspaces
+after confirming they have stopped.
+
+## Design philosophy and comparison with Actions Runner Controller
+
+When choosing an autoscaler for self-hosted runners, first consider the official
+[Actions Runner Controller (ARC)](https://github.com/actions/actions-runner-controller).
+ARC manages Runner Scale Sets on Kubernetes and is a natural choice if you
+already operate a Kubernetes cluster.
+
+ghalet instead manages Runner Scale Sets with a single, lightweight Go daemon.
+It runs on one host without Kubernetes or an external database. If you do not
+need multi-host orchestration, this keeps setup, operation and stored state
+small. It scales **runner processes on one host**; scaling the hosts themselves
+is out of scope.
+
+Runners start as native OS processes; ghalet does not create VMs or containers.
+Each runner is registered as **ephemeral** and executes a job,
+but this does not isolate the execution environment: jobs running as the same
+user share HOME, tools, caches and privileges. Use only trusted workflows,
+not untrusted fork PRs or hostile code. We recommend setting `runner.user` to
+a dedicated, non-root OS account with limited privileges.
 
 ## Installation
 
@@ -74,8 +89,9 @@ For ongoing operation, use systemd on Linux or launchd on macOS.
 
 ## Commands
 
-All commands accept `--config PATH`. A **target** is one configured
-repository or organization registration, identified locally by its `id`.
+All commands accept `--config PATH`. A **target** is one Runner Scale Set
+registration, identified by its scope, runner group and scale set name.
+The local `targetId` is derived from that registration, not configured.
 
 | Command | Purpose |
 | --- | --- |
@@ -93,7 +109,7 @@ repository or organization registration, identified locally by its `id`.
 
 `ghalet --version` prints the installed version. Management responses are
 JSON, except for the App/credential setup instructions. `systemd app setup` and `systemd credential set`
-defaults to `/etc/ghalet/config.yaml`. Without `--config`, `status`, `doctor`,
+default to `/etc/ghalet/config.yaml`. Without `--config`, `status`, `doctor`,
 `apply`, and `gc` automatically select the single accessible daemon; multiple
 daemons require an explicit config. With none found, the per-user default
 `~/.config/ghalet/config.yaml` is used, as it is for `run` and `config validate`.

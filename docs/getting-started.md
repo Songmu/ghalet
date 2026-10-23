@@ -26,9 +26,10 @@ installation, configuration, and updates.
 
 Add the installation directory to your `PATH`. Install the build tools your
 workflows need and the official runner's OS prerequisites on the host.
-Run ghalet as a non-root user; root jobs are refused. See
-[operations](./operations.md#direct-execution-and-environment) for execution
-users and environment settings.
+Normally, run ghalet as a non-root user. If you run the daemon as root, you
+must set `runner.user` to an existing non-root account; root runner jobs are
+refused. See [operations](./operations.md#direct-execution-and-environment)
+for execution users and environment settings.
 
 ## Quick start
 
@@ -38,8 +39,10 @@ Run the host commands as the non-root user who will run ghalet.
 For ongoing operation, run ghalet as a service under systemd on Linux or
 launchd on macOS (`brew services` for Homebrew installations).
 The steps below first verify foreground operation before switching to a service.
-See [the packaged service setup](./distribution.md#debian-and-rpm-packages)
-for Linux or [the Homebrew service](#homebrew-service-macos-only) for macOS.
+For service setup, see:
+
+- Linux: [the packaged service setup](./distribution.md#debian-and-rpm-packages).
+- macOS: [the Homebrew service](#homebrew-service-macos-only).
 
 ### 1. Authenticate with GitHub
 

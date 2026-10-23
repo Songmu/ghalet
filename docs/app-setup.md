@@ -4,9 +4,10 @@
 
 `ghalet app setup --scope OWNER/REPO --scale-set project` creates a private,
 user-owned or organization-owned GitHub App using [GitHub's Manifest flow][manifest].
-No preexisting PAT, client
-secret, hosted callback service or PEM copy/paste is required. This wizard
-supports **GitHub.com** on Linux/macOS and verifies one target per setup.
+No preexisting PAT, client secret, hosted callback service or PEM copy/paste
+is required.
+
+This wizard supports **GitHub.com** on Linux/macOS and verifies one target per setup.
 It stores an [ordinary, unencrypted credential file](./file-credentials.md);
 `ghalet systemd app setup` stores an encrypted service credential instead.
 Neither command starts or reconfigures the daemon.

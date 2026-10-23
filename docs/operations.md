@@ -557,16 +557,26 @@ environment. Successful tests do not establish job isolation.
 
 ## Trust boundary
 
-**Ephemeral registration is not isolation.** Use only trusted workflows in
-trusted repositories, never hostile fork PRs. Each runner has separate
-execution/work paths but shares an OS, execution user's HOME, caches, tools,
-network and existing privileges. Jobs can modify that shared environment.
-They may access the execution user's saved credentials, including GitHub CLI
-and keychain credentials; stripping token variables or supplying a job-scoped
-`GH_TOKEN` does not isolate that storage. Use a separate execution user to
-separate those credentials.
+ghalet registers each runner as **ephemeral** to handle one job. After
+confirming that the runner and its process group have stopped, ghalet cleans
+up its runner directory and workspace. If shutdown cannot be verified or
+cleanup fails, it retains the state and files. **Ephemeral registration is
+not isolation:** the runner is a native user process, not a per-job sandbox.
+Use only trusted workflows in trusted repositories, not fork PRs that could
+introduce untrusted code.
+
+Each runner has separate execution/work paths but shares an OS, execution
+user's HOME, caches, tools, network and existing privileges. Jobs can modify
+that shared environment. They may access the execution user's saved
+credentials, including GitHub CLI and keychain credentials.
+
+Stripping token variables or supplying a job-scoped `GH_TOKEN` does not isolate
+that storage. Use a separate execution user to separate those credentials.
+
 The default same-user model also exposes controller files/processes to jobs;
 file permissions, redaction and a private socket are not security boundaries
-against that user. No extra sudo or Docker socket is provided and root jobs
+against that user.
+
+No extra sudo or Docker socket is provided and root jobs
 are refused, but preexisting privileges are not stripped. Use a dedicated
 account/VM and appropriate host controls.

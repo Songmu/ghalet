@@ -2,14 +2,11 @@
 
 [English](./index.md)
 
-ghalet は Linux / macOS 向けの軽量な GitHub Actions Self-hosted runner
-コントローラーです。単一の Go デーモンがオンデマンドにrunnerプロセスを起動します。
-複数のリポジトリ・Organizationにまたがったrunnerのスケール管理が可能です。
+ghalet は Linux / macOS 向けの軽量な GitHub Actions Self-hosted runner コントローラーです。単一の Go デーモンがネイティブの runner プロセスをオンデマンドに起動し、複数のリポジトリ・Organization にまたがって runner のスケール管理を行います。
 
 ![ghalet が単一ホスト上で、全体と target ごとの上限に従い runner をオンデマンドに起動する構成図](./images/ghalet-overview.png)
 
-専用ビルドマシン、単一用途の VM、自宅サーバーなど、信頼できる専用ホストでの運用を想定しています。runner
-間の厳密な隔離は行わないため、信頼できる workflow のみに使用してください。
+専用ビルドマシン、単一用途の VM、自宅サーバーなど、信頼できる専用ホストでの運用を想定しています。runner 間の厳密な隔離は行わないため、信頼できる workflow のみに使用してください。
 
 ## はじめに
 

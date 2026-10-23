@@ -2,9 +2,8 @@
 
 [English](./getting-started.md)
 
-専用の Linux / macOS ホストへのインストールから、最初の GitHub Actions ジョブを
-実行するまでの手順です。runner はジョブの厳密な隔離を提供しないため、
-信頼できる workflow のみに使用してください。
+専用の Linux / macOS ホストへのインストールから、最初の GitHub Actions ジョブを実行するまでの手順です。runner はジョブの厳密な隔離を保証しないため、信頼できる workflow のみに使用してください。
+
 [信頼境界](./operations.ja.md#信頼境界)も参照してください。
 
 ## インストール
@@ -21,25 +20,22 @@ brew install Songmu/tap/ghalet
 go install github.com/Songmu/ghalet/cmd/ghalet@latest
 ```
 
-systemd unit を含む Linux 向け `.deb` / `.rpm` パッケージと、
-GHCR のコンテナイメージも利用できます。
-導入・設定・更新の手順は[パッケージとコンテナ](./distribution.ja.md)を参照してください。
+systemd unit を含む Linux 向け `.deb` / `.rpm` パッケージと、GHCR のコンテナイメージも利用できます。導入・設定・更新の手順は[パッケージとコンテナ](./distribution.ja.md)を参照してください。
 
-インストール先を `PATH` に追加してください。workflow で使うビルドツールと、
-公式 runner が要求する OS の依存パッケージをホストに用意してください。
-ghalet は非 root ユーザーで起動します。root でのジョブ実行は拒否されます。
-実行ユーザーと環境の設定は[運用ガイド](./operations.ja.md#直接実行と環境)を参照してください。
+インストール先を `PATH` に追加してください。workflow で使うビルドツールと、公式 runner が要求する OS の依存パッケージをホストに用意してください。
+
+通常は ghalet を非 root ユーザーで起動します。デーモンを root で起動する場合は、`runner.user` に既存の非 root ユーザーを指定する必要があります。root での runner ジョブ実行は拒否されます。実行ユーザーと環境の設定は[運用ガイド](./operations.ja.md#直接実行と環境)を参照してください。
 
 ## クイックスタート
 
-以下は、1つのリポジトリで runner を動かす手順です。
-ghalet を起動する非 root ユーザーで実行してください。
+以下は、1つのリポジトリで runner を動かす手順です。ghalet を起動する非 root ユーザーで実行してください。
 
-継続運用では、Linux は systemd、macOS は launchd（Homebrew では `brew services`）で
-サービスとして常駐させる構成を基本とします。
-以下ではまずフォアグラウンドで動作を確認し、その後に常駐化します。
-Linux は[パッケージのサービス設定](./distribution.ja.md#debian--rpm-パッケージ)、
-macOS は[Homebrew での常駐化](#homebrew-での常駐化macos-のみ)を参照してください。
+継続運用では、Linux は systemd、macOS は launchd（Homebrew では `brew services`）でサービスとして常駐させる構成を基本とします。以下ではまずフォアグラウンドで動作を確認し、その後に常駐化します。
+
+常駐化の手順は以下を参照してください。
+
+- Linux: [パッケージのサービス設定](./distribution.ja.md#debian--rpm-パッケージ)。
+- macOS: [Homebrew での常駐化](#homebrew-での常駐化macos-のみ)。
 
 ### 1. GitHub に認証する
 

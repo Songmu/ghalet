@@ -2,13 +2,9 @@
 
 [English](./app-setup.md)
 
-`ghalet app setup --scope OWNER/REPO --scale-set project` は [GitHub の Manifest フロー][manifest]で、
-個人または Organization が所有する非公開の GitHub App を作成します。
-事前の PAT、client secret、公開コールバックサービス、PEM のコピー＆ペーストは不要です。
-Linux / macOS で **GitHub.com** に対応し、一回のセットアップで一つの target を検証します。
-保存先は[暗号化されていない通常ファイル](./file-credentials.ja.md)です。
-`ghalet systemd app setup` は代わりにサービス用の暗号化認証情報を保存します。
-どちらもデーモンの起動や設定反映は行いません。
+`ghalet app setup --scope OWNER/REPO --scale-set project` は [GitHub の Manifest フロー][manifest]で、個人または Organization が所有する非公開の GitHub App を作成します。事前の PAT、client secret、公開コールバックサービス、PEM のコピー＆ペーストは不要です。
+
+Linux / macOS で **GitHub.com** に対応し、一回のセットアップで一つの target を検証します。保存先は[暗号化されていない通常ファイル](./file-credentials.ja.md)です。`ghalet systemd app setup` は代わりにサービス用の暗号化認証情報を保存します。どちらもデーモンの起動や設定反映は行いません。
 
 ## ローカルでのセットアップ
 
@@ -24,13 +20,7 @@ ghalet app setup --scope OWNER/REPO --scale-set project --config ./config.yaml
 ghalet app setup --scope ORG --scale-set project --runner-group linux
 ```
 
-別の設定ファイルには `--config PATH` を使います。
-デフォルトは `~/.config/ghalet/config.yaml` です。
-`--scope` と `--scale-set` は必須です。scope には GitHub.com の
-Organization / リポジトリの HTTPS URL も使えます。
-確認後に別の [managed ファイル](./operations.ja.md#セットアップで管理する情報)へ認証情報を保存します。
-デフォルトでは `installationId` を含む認証情報全体を `defaults.credential` に保存します。
-`--target` を指定すると、managed の target 固有の認証情報として保存します。
+別の設定ファイルには `--config PATH` を使います。デフォルトは `~/.config/ghalet/config.yaml` です。`--scope` と `--scale-set` は必須です。scope には GitHub.com の Organization / リポジトリの HTTPS URL も使えます。確認後に別の [managed ファイル](./operations.ja.md#セットアップで管理する情報)へ認証情報を保存します。デフォルトでは `installationId` を含む認証情報全体を `defaults.credential` に保存します。`--target` を指定すると、managed の target 固有の認証情報として保存します。
 どちらかの設定に `defaults.credential` が既に存在する場合は、App 作成前に停止し、
 `--target` または `--overwrite` の指定を促します。`--overwrite` は managed の共通認証を
 置き換え、静的設定の共通認証も削除して新しい共通認証を有効にします。
