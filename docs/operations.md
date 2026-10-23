@@ -368,8 +368,8 @@ capacity. Concurrent apply requests are rejected; shutdown interrupts apply.
 If the CLI disconnects or times out, the daemon continues the request; inspect
 `status` and `doctor` before retrying.
 
-Execution-user and managed-directory changes require a normal stop/restart
-and are rejected before drain.
+Execution-user, managed-directory, and [telemetry](telemetry.md) changes require
+a normal stop/restart and are rejected before drain.
 Environment variables and systemd's decrypted credential files belong to the
 running service; the provided units require a restart to refresh those inputs. Ordinary
 credential files are reread when apply creates new clients.

@@ -10,10 +10,12 @@ import (
 	"testing"
 	"time"
 
+	settings "github.com/Songmu/ghalet/config"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
+	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 )
 
 func metricEnvironment(t *testing.T) {
@@ -23,6 +25,7 @@ func metricEnvironment(t *testing.T) {
 		"OTEL_SERVICE_NAME", "OTEL_EXPORTER_OTLP_PROTOCOL", "OTEL_EXPORTER_OTLP_METRICS_PROTOCOL",
 		"OTEL_EXPORTER_OTLP_ENDPOINT", "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT",
 		"OTEL_EXPORTER_OTLP_HEADERS", "OTEL_EXPORTER_OTLP_METRICS_HEADERS",
+		"OTEL_METRIC_EXPORT_TIMEOUT", "OTEL_EXPORTER_OTLP_TIMEOUT", "OTEL_EXPORTER_OTLP_METRICS_TIMEOUT",
 	} {
 		t.Setenv(name, "")
 	}
@@ -33,9 +36,12 @@ func TestOptionalMetrics(t *testing.T) {
 	for _, tc := range []struct {
 		name, exporter, disabled, protocol, metricsProtocol string
 		wantErr                                             bool
+		configExporter                                      string
 	}{
 		{name: "default"},
 		{name: "none", exporter: "none"},
+		{name: "environment disables file configuration", exporter: "none", configExporter: "otlp"},
+		{name: "SDK disables file configuration", disabled: "true", configExporter: "invalid"},
 		{name: "SDK disabled takes precedence", exporter: "invalid", disabled: "TRUE", protocol: "grpc"},
 		{name: "unsupported exporter", exporter: "console", wantErr: true},
 		{name: "unsupported protocol", exporter: "otlp", protocol: "grpc", wantErr: true},
@@ -48,7 +54,8 @@ func TestOptionalMetrics(t *testing.T) {
 			t.Setenv("OTEL_EXPORTER_OTLP_PROTOCOL", tc.protocol)
 			t.Setenv("OTEL_EXPORTER_OTLP_METRICS_PROTOCOL", tc.metricsProtocol)
 			t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://127.0.0.1:1")
-			m, err := New(t.Context(), "test", func() Snapshot {
+			config := settings.TelemetryConfig{Metrics: settings.MetricsConfig{Exporter: tc.configExporter}}
+			m, err := New(t.Context(), "test", config, func() Snapshot {
 				t.Error("disabled metrics collected a snapshot")
 				return Snapshot{}
 			})
@@ -57,7 +64,7 @@ func TestOptionalMetrics(t *testing.T) {
 			}
 			m.StartRunner("target").Ready()
 			m.StartRunner("target").Fail(errors.New("failure"))
-			m.CleanupFailed("target")
+			m.CleanupFailed("target", errors.New("failure"))
 			if err := m.Close(); err != nil {
 				t.Fatal(err)
 			}
@@ -69,7 +76,11 @@ func TestMetricContract(t *testing.T) {
 	reader := sdkmetric.NewManualReader()
 	provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
 	defer provider.Shutdown(t.Context())
-	snapshot := Snapshot{Capacity: 3, Occupied: 2, Runners: map[Runner]int64{{"target", "idle"}: 1}}
+	snapshot := Snapshot{
+		Capacity: 3, Occupied: 2,
+		Runners: map[Runner]int64{{"target", "idle"}: 1},
+		Workers: map[Runner]int64{{"target", "available"}: 1},
+	}
 	m, err := newMetrics(provider, "test", func() Snapshot { return snapshot })
 	if err != nil {
 		t.Fatal(err)
@@ -85,8 +96,8 @@ func TestMetricContract(t *testing.T) {
 	canceled := m.StartRunner("target")
 	canceled.Fail(context.Canceled)
 	canceled.Ready()
-	m.CleanupFailed("target")
-	m.CleanupFailed("target")
+	m.CleanupFailed("target", context.DeadlineExceeded)
+	m.CleanupFailed("target", context.DeadlineExceeded)
 	var data metricdata.ResourceMetrics
 	if err := reader.Collect(t.Context(), &data); err != nil {
 		t.Fatal(err)
@@ -94,7 +105,7 @@ func TestMetricContract(t *testing.T) {
 	seen := map[string]bool{}
 	target := attribute.NewSet(attribute.String("ghalet.target.id", "target"))
 	for _, scope := range data.ScopeMetrics {
-		if scope.Scope.Name != "github.com/Songmu/ghalet" || scope.Scope.Version != "test" {
+		if scope.Scope.Name != "github.com/Songmu/ghalet" || scope.Scope.Version != "test" || scope.Scope.SchemaURL != semconv.SchemaURL {
 			t.Fatalf("unexpected scope: %+v", scope.Scope)
 		}
 		for _, metric := range scope.Metrics {
@@ -115,21 +126,49 @@ func TestMetricContract(t *testing.T) {
 					!got[0].Attributes.Equals(&target) {
 					t.Fatalf("invalid readiness measurement: %+v", metric)
 				}
+			case "cicd.system.errors":
+				got := metric.Data.(metricdata.Sum[int64])
+				if metric.Unit != "{error}" || !got.IsMonotonic || len(got.DataPoints) != 2 {
+					t.Fatalf("invalid system errors: %+v", metric)
+				}
+				for _, point := range got.DataPoints {
+					operation, _ := point.Attributes.Value("ghalet.operation")
+					want, kind := int64(1), "_OTHER"
+					if operation.AsString() == "runner.cleanup" {
+						want, kind = 2, "timeout"
+					} else if operation.AsString() != "runner.start" {
+						t.Fatalf("unexpected operation: %v", operation)
+					}
+					attrs := attribute.NewSet(
+						attribute.String("ghalet.target.id", "target"),
+						attribute.String("ghalet.operation", operation.AsString()),
+						semconv.CICDSystemComponent("controller"), semconv.ErrorTypeKey.String(kind),
+					)
+					if point.Value != want || !point.Attributes.Equals(&attrs) {
+						t.Fatalf("invalid failure classification: %+v", point)
+					}
+				}
 			default:
 				got := metric.Data.(metricdata.Sum[int64])
 				want := int64(1)
 				if metric.Name == "ghalet.runner.start.attempts" {
 					want = 3
-				} else if metric.Name == "ghalet.cleanup.failures" {
-					want = 2
 				}
 				if len(got.DataPoints) != 1 || got.DataPoints[0].Value != want ||
-					got.IsMonotonic != (metric.Name != "ghalet.runner.count") {
+					got.IsMonotonic != (metric.Name == "ghalet.runner.start.attempts") {
 					t.Fatalf("invalid counter: %+v", metric)
 				}
 				attrs := []attribute.KeyValue{attribute.String("ghalet.target.id", "target")}
-				if metric.Name == "ghalet.runner.count" {
+				if metric.Name == "ghalet.execution.count" {
+					if metric.Unit != "{execution}" {
+						t.Fatalf("invalid execution unit: %s", metric.Unit)
+					}
 					attrs = append(attrs, attribute.String("ghalet.runner.state", "idle"))
+				} else if metric.Name == "cicd.worker.count" {
+					if metric.Unit != "{worker}" {
+						t.Fatalf("invalid worker unit: %s", metric.Unit)
+					}
+					attrs = append(attrs, semconv.CICDWorkerStateAvailable)
 				}
 				wantAttributes := attribute.NewSet(attrs...)
 				if !got.DataPoints[0].Attributes.Equals(&wantAttributes) {
@@ -139,13 +178,16 @@ func TestMetricContract(t *testing.T) {
 		}
 	}
 	for _, name := range []string{
-		"ghalet.capacity.limit", "ghalet.capacity.occupied", "ghalet.runner.count",
-		"ghalet.runner.start.attempts", "ghalet.runner.start.failures",
-		"ghalet.runner.startup.duration", "ghalet.cleanup.failures",
+		"ghalet.capacity.limit", "ghalet.capacity.occupied", "ghalet.execution.count",
+		"ghalet.runner.start.attempts", "cicd.worker.count",
+		"ghalet.runner.startup.duration", "cicd.system.errors",
 	} {
 		if !seen[name] {
 			t.Fatalf("missing metric %s: %v", name, seen)
 		}
+	}
+	if len(seen) != 7 {
+		t.Fatalf("unexpected metric instruments: %v", seen)
 	}
 	snapshot = Snapshot{}
 	if err := reader.Collect(t.Context(), &data); err != nil {
@@ -153,7 +195,7 @@ func TestMetricContract(t *testing.T) {
 	}
 	for _, scope := range data.ScopeMetrics {
 		for _, metric := range scope.Metrics {
-			if metric.Name == "ghalet.runner.count" {
+			if metric.Name == "ghalet.execution.count" || metric.Name == "cicd.worker.count" {
 				t.Fatal("removed runner series remained observable")
 			}
 		}
@@ -179,7 +221,7 @@ func TestExportFailureIsBoundedAndRedacted(t *testing.T) {
 			t.Setenv("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT", server.URL+"/metrics?token=endpoint-secret")
 			t.Setenv("OTEL_EXPORTER_OTLP_METRICS_TIMEOUT", "60000")
 			original := otel.GetMeterProvider()
-			m, err := New(t.Context(), "test", func() Snapshot { return Snapshot{Capacity: 1} })
+			m, err := New(t.Context(), "test", settings.TelemetryConfig{}, func() Snapshot { return Snapshot{Capacity: 1} })
 			if err != nil {
 				t.Fatal(err)
 			}

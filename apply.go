@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"reflect"
 	"strings"
 	"time"
 
@@ -260,6 +261,9 @@ func targetError(target *targetRuntime) string {
 
 func (d *daemon) validateApply(next *settings.Config) error {
 	current := d.config
+	if !reflect.DeepEqual(next.Telemetry, current.Telemetry) {
+		return errors.New("changing telemetry settings requires a normal stop/restart")
+	}
 	if next.Runner.User != current.Runner.User ||
 		next.Runner.WorkRoot != current.Runner.WorkRoot ||
 		next.Runner.CacheRoot != current.Runner.CacheRoot ||

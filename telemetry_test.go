@@ -5,10 +5,15 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"reflect"
+	"strings"
 	"testing"
+	"time"
 
+	settings "github.com/Songmu/ghalet/config"
 	"github.com/Songmu/ghalet/telemetry"
+	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 	collectormetrics "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
 	"google.golang.org/protobuf/proto"
 )
@@ -18,11 +23,11 @@ func TestTelemetrySnapshot(t *testing.T) {
 	d.problems = []Problem{{Reason: "unidentified reservation"}}
 	d.runs = map[string]*activeRun{
 		"preparing": {State: &RunState{TargetID: "target"}, Preparing: true},
-		"idle":      {State: &RunState{TargetID: "target", Ready: true}},
-		"busy":      {State: &RunState{TargetID: "target", Ready: true, Busy: true}},
-		"exiting":   {State: &RunState{TargetID: "target", Ready: true, Phase: "exiting"}},
-		"cleaning":  {State: &RunState{TargetID: "target", Ready: true, ProcessDone: true}},
-		"uncertain": {State: &RunState{TargetID: "target", Ready: true, ProcessDone: true}, Uncertain: true},
+		"idle":      {State: &RunState{TargetID: "target", RunnerID: 1, Ready: true}},
+		"busy":      {State: &RunState{TargetID: "target", RunnerID: 2, Ready: true, Busy: true}},
+		"exiting":   {State: &RunState{TargetID: "target", RunnerID: 3, Ready: true, Phase: "exiting"}},
+		"cleaning":  {State: &RunState{TargetID: "target", RunnerID: 4, Ready: true, ProcessDone: true}},
+		"uncertain": {State: &RunState{TargetID: "target", RunnerID: 5, Ready: true, ProcessDone: true}, Uncertain: true},
 	}
 	snapshot := d.telemetrySnapshot()
 	want := map[telemetry.Runner]int64{}
@@ -32,9 +37,164 @@ func TestTelemetrySnapshot(t *testing.T) {
 	if snapshot.Capacity != int64(d.config.Capacity.MaxRunners) || snapshot.Occupied != 6 || !reflect.DeepEqual(snapshot.Runners, want) {
 		t.Fatalf("unexpected snapshot: %+v", snapshot)
 	}
+	wantWorkers := map[telemetry.Runner]int64{
+		{TargetID: "target", State: "available"}: 1,
+		{TargetID: "target", State: "busy"}:      1,
+	}
+	if !reflect.DeepEqual(snapshot.Workers, wantWorkers) {
+		t.Fatalf("retained executions misclassified as online workers: %v", snapshot.Workers)
+	}
+	d.runs["busy"].InspectFailures = 1
+	if d.telemetrySnapshot().Workers[telemetry.Runner{TargetID: "target", State: "busy"}] != 0 {
+		t.Fatal("worker with failed inspection counted as online")
+	}
 	delete(d.runs, "idle")
 	if snapshot.Runners[telemetry.Runner{TargetID: "target", State: "idle"}] != 1 {
 		t.Fatal("snapshot aliases daemon state")
+	}
+}
+
+func TestTelemetryConfiguration(t *testing.T) {
+	for _, tc := range []struct {
+		name, yaml string
+		wantErr    bool
+	}{
+		{name: "default"},
+		{name: "file settings", yaml: "telemetry:\n  serviceName: configured-ghalet\n" +
+			"  resourceAttributes:\n    deployment.environment.name: test\n" +
+			"  metrics:\n    exporter: otlp\n    endpoint: http://127.0.0.1:4318/v1/metrics\n" +
+			"    interval: 500ms\n    timeout: 2s\n"},
+		{name: "unsupported exporter", yaml: "telemetry:\n  metrics:\n    exporter: console\n", wantErr: true},
+		{name: "invalid endpoint", yaml: "telemetry:\n  metrics:\n    endpoint: localhost:4318\n", wantErr: true},
+		{name: "endpoint credentials", yaml: "telemetry:\n  metrics:\n    endpoint: https://user:secret@collector/v1/metrics\n", wantErr: true},
+		{name: "zero interval", yaml: "telemetry:\n  metrics:\n    interval: 0s\n", wantErr: true},
+		{name: "negative timeout", yaml: "telemetry:\n  metrics:\n    timeout: -1s\n", wantErr: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			config, err := settings.LoadConfig(writeConfig(t, "targets: []\n"+tc.yaml))
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("unexpected configuration validation: %v", err)
+			}
+			if tc.name == "file settings" {
+				got := config.Telemetry
+				if got.ServiceName != "configured-ghalet" || got.ResourceAttributes["deployment.environment.name"] != "test" ||
+					got.Metrics.Exporter != "otlp" || got.Metrics.Endpoint != "http://127.0.0.1:4318/v1/metrics" ||
+					got.Metrics.Interval == nil || time.Duration(*got.Metrics.Interval) != 500*time.Millisecond ||
+					got.Metrics.Timeout == nil || time.Duration(*got.Metrics.Timeout) != 2*time.Second {
+					t.Fatalf("lost file configuration: %+v", got)
+				}
+			}
+		})
+	}
+}
+
+func TestTelemetryFileExport(t *testing.T) {
+	for _, endpoint := range []string{"file", "general environment", "signal environment"} {
+		t.Run(endpoint, func(t *testing.T) {
+			for _, name := range []string{
+				"OTEL_SDK_DISABLED", "OTEL_METRICS_EXPORTER", "OTEL_RESOURCE_ATTRIBUTES", "OTEL_SERVICE_NAME",
+				"OTEL_EXPORTER_OTLP_ENDPOINT", "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT",
+				"OTEL_EXPORTER_OTLP_PROTOCOL", "OTEL_EXPORTER_OTLP_METRICS_PROTOCOL",
+				"OTEL_EXPORTER_OTLP_HEADERS", "OTEL_EXPORTER_OTLP_METRICS_HEADERS",
+				"OTEL_METRIC_EXPORT_INTERVAL", "OTEL_METRIC_EXPORT_TIMEOUT",
+				"OTEL_EXPORTER_OTLP_TIMEOUT", "OTEL_EXPORTER_OTLP_METRICS_TIMEOUT",
+			} {
+				t.Setenv(name, "")
+			}
+			requests := make(chan *collectormetrics.ExportMetricsServiceRequest, 1)
+			wantPath := "/file/metrics"
+			if endpoint == "general environment" {
+				wantPath = "/base/v1/metrics"
+			} else if endpoint == "signal environment" {
+				wantPath = "/signal/metrics"
+			}
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != wantPath {
+					t.Errorf("endpoint precedence: got %q, want %q", r.URL.Path, wantPath)
+				}
+				data, err := io.ReadAll(r.Body)
+				if err != nil {
+					t.Error(err)
+					return
+				}
+				request := &collectormetrics.ExportMetricsServiceRequest{}
+				if err := proto.Unmarshal(data, request); err != nil {
+					t.Error(err)
+					return
+				}
+				select {
+				case requests <- request:
+				default:
+				}
+				w.Header().Set("Content-Type", "application/x-protobuf")
+			}))
+			defer server.Close()
+			if endpoint != "file" {
+				t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", server.URL+"/base")
+			}
+			wantService := "file-service"
+			if endpoint == "general environment" {
+				t.Setenv("OTEL_RESOURCE_ATTRIBUTES", "service.name=environment-service")
+				wantService = "environment-service"
+			}
+			if endpoint == "signal environment" {
+				t.Setenv("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT", server.URL+"/signal/metrics")
+			}
+			config, err := settings.LoadConfig(writeConfig(t, "targets: []\ntelemetry:\n"+
+				"  serviceName: file-service\n  resourceAttributes:\n    deployment.environment.name: test\n    service.name: attribute-service\n"+
+				"  metrics:\n    exporter: otlp\n    endpoint: "+server.URL+"/file/metrics\n    interval: 20ms\n    timeout: 250ms\n"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			m, err := telemetry.New(t.Context(), Version, config.Telemetry, func() telemetry.Snapshot {
+				return telemetry.Snapshot{Capacity: 1}
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer m.Close()
+			select {
+			case request := <-requests:
+				if len(request.ResourceMetrics) != 1 {
+					t.Fatalf("missing configured resource: %v", request)
+				}
+				resource := request.ResourceMetrics[0]
+				attrs := map[string]string{}
+				for _, attr := range resource.Resource.Attributes {
+					attrs[attr.Key] = attr.Value.GetStringValue()
+				}
+				if resource.SchemaUrl != semconv.SchemaURL || attrs["service.name"] != wantService ||
+					attrs["service.version"] != Version || attrs["service.instance.id"] == "" ||
+					attrs["deployment.environment.name"] != "test" {
+					t.Fatalf("invalid file-configured resource: %v", resource)
+				}
+			case <-time.After(3 * time.Second):
+				t.Fatal("file exporter or export interval was not applied")
+			}
+			if os.Getenv("OTEL_METRICS_EXPORTER") != "" || os.Getenv("OTEL_SERVICE_NAME") != "" {
+				t.Fatal("file configuration was applied through global environment mutation")
+			}
+		})
+	}
+}
+
+func TestTelemetryApplyRequiresRestart(t *testing.T) {
+	d, _ := testDaemon(t)
+	interval := settings.Duration(time.Minute)
+	d.config.Telemetry = settings.TelemetryConfig{
+		Metrics:            settings.MetricsConfig{Exporter: "otlp", Interval: &interval},
+		ResourceAttributes: map[string]string{"deployment.environment.name": "test"},
+	}
+	next := nextConfig(d)
+	equalInterval := interval
+	next.Telemetry.Metrics.Interval = &equalInterval
+	next.Telemetry.ResourceAttributes = map[string]string{"deployment.environment.name": "test"}
+	if err := d.validateApply(next); err != nil {
+		t.Fatalf("equivalent telemetry settings require restart: %v", err)
+	}
+	next.Telemetry.ResourceAttributes["deployment.environment.name"] = "changed"
+	if err := d.validateApply(next); err == nil || !strings.Contains(err.Error(), "stop/restart") {
+		t.Fatalf("telemetry change silently accepted by apply: %v", err)
 	}
 }
 
@@ -72,7 +232,13 @@ func TestDaemonOTLPMetrics(t *testing.T) {
 	} {
 		t.Setenv(name, value)
 	}
-	m, err := telemetry.New(t.Context(), Version, d.telemetrySnapshot)
+	d.config.Telemetry.Metrics.Exporter = "none"
+	d.config.Telemetry.Metrics.Endpoint = "http://127.0.0.1:1/file/metrics"
+	d.config.Telemetry.ServiceName = "file-service"
+	d.config.Telemetry.ResourceAttributes = map[string]string{
+		"deployment.environment.name": "file", "service.version": "wrong", "service.instance.id": "wrong",
+	}
+	m, err := telemetry.New(t.Context(), Version, d.config.Telemetry, d.telemetrySnapshot)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,20 +277,22 @@ func TestDaemonOTLPMetrics(t *testing.T) {
 			attributes[attr.Key] = attr.Value.GetStringValue()
 		}
 		if attributes["service.name"] != "test-ghalet" || attributes["service.version"] != Version ||
-			attributes["service.instance.id"] == "" || attributes["deployment.environment.name"] != "test" {
+			attributes["service.instance.id"] == "" || attributes["service.instance.id"] == "wrong" ||
+			attributes["deployment.environment.name"] != "test" {
 			t.Fatalf("unexpected resource: %v", attributes)
 		}
 		for _, scope := range resource.ScopeMetrics {
 			for _, metric := range scope.Metrics {
 				found[metric.Name] = true
 				switch metric.Name {
-				case "ghalet.runner.start.attempts", "ghalet.runner.start.failures", "ghalet.cleanup.failures":
-					want := int64(1)
-					if metric.Name == "ghalet.runner.start.attempts" {
-						want = 2
-					}
-					if points := metric.GetSum().DataPoints; len(points) != 1 || points[0].GetAsInt() != want {
+				case "ghalet.runner.start.attempts":
+					if points := metric.GetSum().DataPoints; len(points) != 1 || points[0].GetAsInt() != 2 {
 						t.Fatalf("unexpected %s: %v", metric.Name, metric)
+					}
+				case "cicd.system.errors":
+					points := metric.GetSum().DataPoints
+					if len(points) != 2 || points[0].GetAsInt() != 1 || points[1].GetAsInt() != 1 {
+						t.Fatalf("startup/cleanup errors not counted: %v", metric)
 					}
 				case "ghalet.runner.startup.duration":
 					if points := metric.GetHistogram().DataPoints; len(points) != 1 || points[0].Count != 1 {
@@ -134,7 +302,7 @@ func TestDaemonOTLPMetrics(t *testing.T) {
 			}
 		}
 	}
-	if len(found) != 7 {
-		t.Fatalf("missing metrics: %v", found)
+	if len(found) != 6 || found["cicd.worker.count"] {
+		t.Fatalf("missing metrics or stopped worker counted as online: %v", found)
 	}
 }

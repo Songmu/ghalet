@@ -50,3 +50,14 @@ targets:
 #   preserve: true # Archive logs before cleanup.
 #   retention: 7d # Log retention (d, h, m, s).
 #   root: /absolute/path/to/logs # Default: $STATE_DIRECTORY/logs or the XDG state directory's logs.
+
+# telemetry: # Disabled by default; changes require a stop/restart.
+#   serviceName: ghalet
+#   resourceAttributes:
+#     deployment.environment.name: production
+#   metrics:
+#     exporter: otlp # Explicit opt-in; OTel environment settings take precedence.
+#     endpoint: http://127.0.0.1:4318/v1/metrics # Full metrics URL.
+#     interval: 60s
+#     timeout: 10s
+# Use OTEL_EXPORTER_OTLP_METRICS_HEADERS for authentication, not inline secrets.

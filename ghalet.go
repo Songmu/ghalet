@@ -145,7 +145,7 @@ func RunDaemon(ctx context.Context, config *settings.Config) error {
 	if err := d.initialize(ctx, false); err != nil {
 		return err
 	}
-	metrics, err := telemetry.New(ctx, Version, d.telemetrySnapshot)
+	metrics, err := telemetry.New(ctx, Version, config.Telemetry, d.telemetrySnapshot)
 	if err != nil {
 		return err
 	}

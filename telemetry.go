@@ -11,6 +11,7 @@ func (d *daemon) telemetrySnapshot() telemetry.Snapshot {
 		Capacity: int64(d.config.Capacity.MaxRunners),
 		Occupied: int64(d.occupied()),
 		Runners:  make(map[telemetry.Runner]int64),
+		Workers:  make(map[telemetry.Runner]int64),
 	}
 	for _, run := range d.runs {
 		state := "preparing"
@@ -27,7 +28,16 @@ func (d *daemon) telemetrySnapshot() telemetry.Snapshot {
 		case run.State.Ready:
 			state = "idle"
 		}
-		snapshot.Runners[telemetry.Runner{TargetID: d.runTargetID(run), State: state}]++
+		targetID := d.runTargetID(run)
+		snapshot.Runners[telemetry.Runner{TargetID: targetID, State: state}]++
+		if (state == "idle" || state == "busy") && run.State.Ready &&
+			run.State.RunnerID > 0 && run.InspectFailures == 0 {
+			workerState := "available"
+			if state == "busy" {
+				workerState = "busy"
+			}
+			snapshot.Workers[telemetry.Runner{TargetID: targetID, State: workerState}]++
+		}
 	}
 	return snapshot
 }

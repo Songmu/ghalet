@@ -119,6 +119,40 @@ properties:
           Log directory. Defaults to $STATE_DIRECTORY/logs when set,
           otherwise $XDG_STATE_HOME/ghalet/logs when XDG_STATE_HOME is
           absolute, or ~/.local/state/ghalet/logs.
+  telemetry:
+    type: object
+    description: Optional daemon metrics. Changes require a normal stop/restart; nonempty OTel environment variables override these defaults.
+    properties:
+      serviceName:
+        type: string
+        default: ghalet
+        description: Service resource name. Overrides resourceAttributes.service.name; OTel environment settings take precedence.
+      resourceAttributes:
+        type: object
+        additionalProperties:
+          type: string
+        description: Explicit resource attributes, without secrets. ghalet assigns service.version and service.instance.id.
+      metrics:
+        type: object
+        properties:
+          exporter:
+            type: string
+            enum:
+              - none
+              - otlp
+            default: none
+            description: Explicitly opt in to OTLP/HTTP protobuf. OTEL_SDK_DISABLED=true always disables telemetry.
+          endpoint:
+            type: string
+            format: uri
+            pattern: "^https?://"
+            description: Full metrics URL, including its path. No credentials, query or fragment; use OTel header environment variables for authentication.
+          interval:
+            $ref: "#/$defs/duration"
+            description: Export interval, at least 1ms. Defaults to the SDK interval of 60s.
+          timeout:
+            $ref: "#/$defs/duration"
+            description: Collection/export and HTTP timeouts, at least 1ms. When omitted, SDK defaults apply (30s for collection/export, 10s for HTTP).
 $defs:
   runnerLimit:
     type: integer

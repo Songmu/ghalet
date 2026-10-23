@@ -11,7 +11,28 @@ commands, including offline `gc`, do not initialize telemetry.
 
 ## Enable metrics
 
-Set the environment of the process running `ghalet run`:
+Enable metrics in the configuration file:
+
+```yaml
+telemetry:
+  serviceName: ghalet
+  resourceAttributes:
+    deployment.environment.name: production
+  metrics:
+    exporter: otlp
+    endpoint: http://127.0.0.1:4318/v1/metrics
+    interval: 60s
+    timeout: 10s
+```
+
+`endpoint` is a full metrics URL, including the path. `interval` and `timeout`
+use the configuration's duration syntax and must be at least `1ms`.
+`timeout` supplies both the collection/export and HTTP timeouts; if omitted,
+their SDK defaults are 30s and 10s respectively. Resource values must be
+strings. Do not put credentials in URLs or resource attributes; use the
+standard header environment variables below for authentication.
+
+Alternatively, set the environment of the process running `ghalet run`:
 
 ```sh
 OTEL_METRICS_EXPORTER=otlp \
@@ -27,22 +48,31 @@ not implemented.
 For systemd, set these variables in a service drop-in, run
 `systemctl daemon-reload`, and restart the service. For launchd, use the
 service's `EnvironmentVariables` and reload it. Changing the shell environment
-or running `ghalet apply` does not change the running daemon's telemetry.
+does not change the running daemon's telemetry. Configuration-file changes
+also require a normal stop/restart; `ghalet apply` rejects telemetry changes.
 See [service deployment](operations.md#service-deployment).
+
+Nonempty environment variables override the corresponding file settings.
+For endpoints, precedence is metrics-specific environment, general environment,
+file, then SDK default. `OTEL_METRICS_EXPORTER=none` disables file-enabled
+metrics, and `OTEL_SDK_DISABLED=true` takes precedence over both sources.
+The file's `serviceName` overrides `resourceAttributes.service.name`;
+environment resource attributes override matching file attributes, and
+`OTEL_SERVICE_NAME` takes precedence for the service name.
 
 | Variable | Behavior |
 | --- | --- |
-| `OTEL_METRICS_EXPORTER` | Unset, empty, or `none` disables metrics. Explicit `otlp` enables them. Other values are startup errors. |
+| `OTEL_METRICS_EXPORTER` | `otlp` enables metrics; `none` disables them. Unset or empty uses the file setting, which defaults to disabled. Other values are startup errors. |
 | `OTEL_SDK_DISABLED` | Case-insensitive `true` disables metrics, taking precedence over exporter settings. |
 | `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` | Full metrics URL, including its path. Overrides the general endpoint. |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | Base URL; defaults to `http://localhost:4318`, with `/v1/metrics` appended. |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | Base URL, with `/v1/metrics` appended. Without an environment or file endpoint, this Go exporter's default is `https://localhost:4318/v1/metrics`. |
 | `OTEL_EXPORTER_OTLP_METRICS_PROTOCOL` | Overrides `OTEL_EXPORTER_OTLP_PROTOCOL`. Unset defaults to `http/protobuf`; other protocols are rejected when metrics are enabled. |
 | `OTEL_EXPORTER_OTLP_METRICS_HEADERS` | Authentication headers; overrides `OTEL_EXPORTER_OTLP_HEADERS`. |
 | `OTEL_METRIC_EXPORT_INTERVAL` | Export interval in milliseconds; the SDK default is 60000. |
 | `OTEL_METRIC_EXPORT_TIMEOUT` | Collection/export timeout in milliseconds; the SDK default is 30000. |
 | `OTEL_EXPORTER_OTLP_METRICS_TIMEOUT` | HTTP request timeout in milliseconds; overrides `OTEL_EXPORTER_OTLP_TIMEOUT`, whose default is 10000. |
 | `OTEL_RESOURCE_ATTRIBUTES` | Explicit resource attributes, such as `deployment.environment.name=production`. Do not include secrets. |
-| `OTEL_SERVICE_NAME` | Overrides the default service name, `ghalet`. |
+| `OTEL_SERVICE_NAME` | Overrides the file/environment resource service name; the default is `ghalet`. |
 
 The SDK's standard OTLP/HTTP configuration also supports compression, TLS
 certificates, and metric temporality. See the
@@ -50,29 +80,46 @@ certificates, and metric temporality. See the
 No environment variables enable metrics implicitly: setting only an endpoint
 does not opt in.
 
-The resource includes ghalet's `service.version` and a fresh
+Following the [service resource conventions](https://opentelemetry.io/docs/specs/semconv/resource/service/),
+the resource includes ghalet's `service.version` and a fresh
 `service.instance.id` for each daemon start. These two attributes are assigned
-by ghalet rather than inherited from `OTEL_RESOURCE_ATTRIBUTES`.
+by ghalet rather than inherited from file or environment attributes.
 Controller environment variables are not automatically copied to runner jobs.
 OTLP authentication-header variables cannot be configured through `runner.env`.
 
 ## Metrics
 
-These are ghalet-specific instrument names, not standard CI/CD metrics.
+Where meanings match, instruments follow the
+[CI/CD semantic conventions](https://opentelemetry.io/docs/specs/semconv/cicd/cicd-metrics/):
+`cicd.worker.count` and `cicd.system.errors` (currently Release Candidate).
+Resource and instrumentation scopes identify semantic schema `1.43.0`.
+The other instruments remain ghalet-specific, following the
+[general metrics conventions](https://opentelemetry.io/docs/specs/semconv/general/metrics/).
 Target-scoped measurements use `ghalet.target.id`, the same derived target key
-shown by `status`. Only runner counts also have `ghalet.runner.state`.
+shown by `status`.
 
 | Instrument | Type | Unit | Meaning |
 | --- | --- | --- | --- |
 | `ghalet.capacity.limit` | Gauge | `{slot}` | Configured host-wide runner capacity. |
 | `ghalet.capacity.occupied` | Gauge | `{slot}` | Occupied capacity, including retained diagnostic reservations. |
-| `ghalet.runner.count` | Non-monotonic sum | `{runner}` | Retained execution records, grouped by target and exclusive state. |
+| `cicd.worker.count` | Non-monotonic sum | `{worker}` | Known online workers managed by this daemon, grouped by target and `cicd.worker.state` (`available` or `busy`). |
+| `cicd.system.errors` | Counter | `{error}` | Controller startup/cleanup failures, with `cicd.system.component=controller`, `error.type`, and `ghalet.operation`. |
+| `ghalet.execution.count` | Non-monotonic sum | `{execution}` | Retained execution records, grouped by target and exclusive `ghalet.runner.state`. |
 | `ghalet.runner.start.attempts` | Counter | `{attempt}` | Runner reservation attempts, including warm-pool starts. |
-| `ghalet.runner.start.failures` | Counter | `{failure}` | Attempts that fail before readiness; cancellation is excluded. |
 | `ghalet.runner.startup.duration` | Histogram | `s` | Reservation to first observed readiness, recorded once per successful startup. |
-| `ghalet.cleanup.failures` | Counter | `{failure}` | Failed cleanup attempts; each failed retry counts again. |
 
-Runner states are classified in this order: `uncertain`, `preparing`,
+Worker counts include only ready, registered runners without failed process
+inspection. `idle` maps to `available`; `busy` maps to `busy`. Preparing,
+stopping, cleanup, and uncertain records are excluded. ghalet does not infer
+`offline` workers from retained execution records or inventory remote workers.
+
+System errors cover `ghalet.operation=runner.start` (one pre-readiness failure
+per startup, excluding cancellation) and `runner.cleanup` (each failed attempt,
+including retries). They do not cover every daemon error or workflow failures.
+The low-cardinality `error.type` values are `timeout`, `permission_denied`,
+`not_found`, `canceled` (cleanup only), and `_OTHER`. Error text is never used.
+
+Execution states are classified in this order: `uncertain`, `preparing`,
 `cleaning` (process stopped), `exiting`, `busy`, `idle` (ready); an execution
 not yet ready falls back to `preparing`. States are mutually exclusive.
 Counts include retained cleanup records, so their sum need not equal occupied
@@ -82,7 +129,9 @@ The startup histogram's bucket boundaries, in seconds, are
 `0.1, 0.5, 1, 2, 5, 10, 30, 60, 120, 300, 600`.
 Startup measurements are not reconstructed for recovered executions.
 Runner readiness and exit are not workflow results; no workflow success rate
-is inferred.
+is inferred. Runner startup time is not `cicd.pipeline.run.duration`, and
+execution records are not `cicd.pipeline.run.active`; those require pipeline
+identity and lifecycle information that these measurements do not provide.
 
 Counters and histograms reset on daemon restart, not on `apply`; counters
 appear after their first measurement. Removed runner-state series disappear

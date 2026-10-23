@@ -518,7 +518,7 @@ func (d *daemon) cleanup(run *activeRun) error {
 	d.finishExit(run)
 	run.CleanupTried = true
 	fail := func(err error, retryable bool) error {
-		d.metrics.Load().CleanupFailed(run.State.TargetID)
+		d.metrics.Load().CleanupFailed(run.State.TargetID, err)
 		run.CleanupRetryAt = time.Time{}
 		run.State.Error = d.secrets.Redact(err.Error())
 		if d.save(run) == nil && retryable && d.ctx.Err() == nil {
