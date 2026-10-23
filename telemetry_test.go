@@ -75,8 +75,10 @@ func TestTelemetrySnapshot(t *testing.T) {
 }
 
 func TestTelemetryStartupTimeout(t *testing.T) {
-	for _, outcome := range []string{"cleanup succeeds", "cleanup fails", "assignment wins"} {
+	for _, outcome := range []string{"cleanup succeeds", "cleanup fails", "assignment wins", "assignment wins with save failure"} {
 		t.Run(outcome, func(t *testing.T) {
+			assignmentWins := strings.HasPrefix(outcome, "assignment wins")
+			saveFails := outcome == "assignment wins with save failure"
 			clearTelemetryEnvironment(t)
 			d, api := testDaemon(t)
 			cleanupProcesses(t, d)
@@ -121,16 +123,45 @@ func TestTelemetryStartupTimeout(t *testing.T) {
 				if err := os.WriteFile(d.config.Logs.Root, []byte("not a directory"), 0600); err != nil {
 					t.Fatal(err)
 				}
-			} else if outcome == "assignment wins" {
+			} else if assignmentWins {
 				api.removeErr = scaleset.JobStillRunningError
+			}
+			if saveFails {
+				target.Failures, target.StartError = 2, "previous startup failure"
+				path := filepath.Join(filepath.Dir(state.RunnerDir), "state.json")
+				if err := os.Remove(path); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Mkdir(path, 0700); err != nil {
+					t.Fatal(err)
+				}
+				t.Cleanup(func() {
+					if err := os.Remove(path); err != nil {
+						t.Error(err)
+					}
+				})
 			}
 			d.mu.Lock()
 			state.StartedAt = time.Now().Add(-3 * time.Minute)
-			d.reconcile()
+			if saveFails {
+				d.runIO(run, func(work *activeRun) error {
+					d.enforceStartupTimeout(work)
+					return nil
+				})
+			} else {
+				d.reconcile()
+			}
 			d.mu.Unlock()
 			settleRuns(d)
-			if outcome == "assignment wins" {
-				if !state.Ready || !state.Busy || state.ProcessDone || target.Failures != 0 {
+			if assignmentWins {
+				wantFailures := 0
+				if saveFails {
+					wantFailures = 2
+					if !run.Uncertain || target.Fault == "" || target.StartError != "previous startup failure" {
+						t.Fatal("failed persistence lost its diagnostics or reset startup backoff")
+					}
+				}
+				if !state.Ready || !state.Busy || state.ProcessDone || target.Failures != wantFailures {
 					t.Fatal("assignment arbitration did not preserve the ready runner")
 				}
 			} else if target.Failures != 1 || !state.ProcessDone ||
@@ -167,7 +198,7 @@ func TestTelemetryStartupTimeout(t *testing.T) {
 				}
 			}
 			wantTimeouts, wantReadiness := uint64(1), uint64(0)
-			if outcome == "assignment wins" {
+			if assignmentWins {
 				wantTimeouts, wantReadiness = 0, 1
 			}
 			if timeouts != wantTimeouts || readiness != wantReadiness {

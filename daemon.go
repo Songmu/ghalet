@@ -364,8 +364,10 @@ func (d *daemon) runIO(run *activeRun, operation func(*activeRun) error) <-chan 
 		if result.persistError != "" && work.Target != nil {
 			work.Target.Fault = result.persistError
 		}
-		if result.readySaved && work.Target != nil {
+		if state.Ready {
 			run.startup.Ready()
+		}
+		if result.readySaved && work.Target != nil {
 			work.Target.StartError, work.Target.Failures = "", 0
 		}
 		if result.startError != nil && work.Target != nil {
