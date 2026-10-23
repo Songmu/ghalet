@@ -276,29 +276,9 @@ func (s service) commitSetup(ctx context.Context, prepared preparedConfig, direc
 	if (prepared.before == nil && err == nil) || !bytes.Equal(current, prepared.before) {
 		return errors.New("configuration changed during setup; saved App is retained, rerun setup")
 	}
-	mode := os.FileMode(0600)
-	uid, gid := -1, -1
-	if prepared.before != nil {
-		info, err := os.Stat(configPath)
-		if err != nil {
-			return err
-		}
-		mode = info.Mode().Perm()
-		stat, ok := info.Sys().(*syscall.Stat_t)
-		if !ok {
-			return errors.New("cannot preserve static configuration ownership")
-		}
-		uid, gid = int(stat.Uid), int(stat.Gid)
-	} else if prepared.options.Systemd {
-		info, err := os.Stat(filepath.Dir(configPath))
-		if err != nil {
-			return err
-		}
-		stat, ok := info.Sys().(*syscall.Stat_t)
-		if !ok {
-			return errors.New("cannot identify static configuration group")
-		}
-		mode, gid = 0640, int(stat.Gid)
+	mode, uid, gid, err := prepared.staticConfigOwnership(configPath)
+	if err != nil {
+		return err
 	}
 	if err := settings.WriteManaged(prepared.managedPath, prepared.managedBefore, after); err != nil {
 		return err
@@ -307,15 +287,47 @@ func (s service) commitSetup(ctx context.Context, prepared preparedConfig, direc
 		return nil
 	}
 	if err := fshelper.WriteFileAtomicWithOwner(configPath, prepared.proposed, mode, uid, gid); err != nil {
-		// Keep both snapshots consistent if the static target could not be saved.
-		if prepared.managedBefore != nil {
-			return errors.Join(err, settings.WriteManaged(prepared.managedPath, after, prepared.managedBefore))
-		}
-		empty, marshalErr := (&settings.Managed{}).Marshal()
-		if marshalErr != nil {
-			return errors.Join(err, marshalErr)
-		}
-		return errors.Join(err, settings.WriteManaged(prepared.managedPath, after, empty))
+		return prepared.restoreManaged(after, err)
 	}
 	return nil
+}
+
+func (prepared preparedConfig) staticConfigOwnership(configPath string) (os.FileMode, int, int, error) {
+	mode := os.FileMode(0600)
+	uid, gid := -1, -1
+	if prepared.before != nil {
+		info, err := os.Stat(configPath)
+		if err != nil {
+			return 0, 0, 0, err
+		}
+		mode = info.Mode().Perm()
+		stat, ok := info.Sys().(*syscall.Stat_t)
+		if !ok {
+			return 0, 0, 0, errors.New("cannot preserve static configuration ownership")
+		}
+		uid, gid = int(stat.Uid), int(stat.Gid)
+	} else if prepared.options.Systemd {
+		info, err := os.Stat(filepath.Dir(configPath))
+		if err != nil {
+			return 0, 0, 0, err
+		}
+		stat, ok := info.Sys().(*syscall.Stat_t)
+		if !ok {
+			return 0, 0, 0, errors.New("cannot identify static configuration group")
+		}
+		mode, gid = 0640, int(stat.Gid)
+	}
+	return mode, uid, gid, nil
+}
+
+func (prepared preparedConfig) restoreManaged(after []byte, cause error) error {
+	// Keep both snapshots consistent if the static target could not be saved.
+	if prepared.managedBefore != nil {
+		return errors.Join(cause, settings.WriteManaged(prepared.managedPath, after, prepared.managedBefore))
+	}
+	empty, err := (&settings.Managed{}).Marshal()
+	if err != nil {
+		return errors.Join(cause, err)
+	}
+	return errors.Join(cause, settings.WriteManaged(prepared.managedPath, after, empty))
 }
