@@ -526,7 +526,7 @@ func (c *Config) SecretEnv(name string) bool {
 	}
 	switch strings.ToUpper(name) {
 	case "GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN",
-		"ACTIONS_RUNNER_INPUT_JITCONFIG":
+		"ACTIONS_RUNNER_INPUT_JITCONFIG", "OTEL_EXPORTER_OTLP_HEADERS", "OTEL_EXPORTER_OTLP_METRICS_HEADERS":
 		return true
 	}
 	if c.Defaults.Credential != nil && name != "" && c.Defaults.Credential.TokenEnv == name {

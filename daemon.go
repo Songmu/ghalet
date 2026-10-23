@@ -10,12 +10,14 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	settings "github.com/Songmu/ghalet/config"
 	"github.com/Songmu/ghalet/logreduct"
 	"github.com/Songmu/ghalet/procgroup"
 	"github.com/Songmu/ghalet/runnerdist"
+	"github.com/Songmu/ghalet/telemetry"
 	"github.com/actions/scaleset"
 	"github.com/actions/scaleset/listener"
 )
@@ -59,6 +61,7 @@ func permanentTargetFailure(err error) bool {
 }
 
 type activeRun struct {
+	startup         *telemetry.Startup
 	ioDone          chan struct{}
 	generation      uint64
 	events          []runEvent
@@ -173,6 +176,7 @@ type runEvent struct {
 }
 
 type daemon struct {
+	metrics          atomic.Pointer[telemetry.Metrics]
 	mu               sync.Mutex
 	retentionMu      sync.Mutex
 	config           *settings.Config
@@ -360,9 +364,11 @@ func (d *daemon) runIO(run *activeRun, operation func(*activeRun) error) <-chan 
 			work.Target.Fault = result.persistError
 		}
 		if result.readySaved && work.Target != nil {
+			run.startup.Ready()
 			work.Target.StartError, work.Target.Failures = "", 0
 		}
 		if result.startError != nil && work.Target != nil {
+			run.startup.Fail(result.startError)
 			d.startFailure(work.Target, result.startError)
 		}
 		if err != nil {

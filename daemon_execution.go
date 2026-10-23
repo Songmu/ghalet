@@ -24,8 +24,10 @@ import (
 )
 
 func (d *daemon) reserve(target *targetRuntime) error {
+	startup := d.metrics.Load().StartRunner(target.Config.ID)
 	id, err := newID()
 	if err != nil {
+		startup.Fail(err)
 		return err
 	}
 	dir := filepath.Join(d.config.Runner.WorkRoot, target.Config.ID, id)
@@ -36,7 +38,7 @@ func (d *daemon) reserve(target *targetRuntime) error {
 		RunnerName: "runner-" + id, User: d.user.Name, UID: d.user.UID, Home: d.user.Home,
 		RunnerDir: filepath.Join(dir, "runner"), Workspace: filepath.Join(dir, "work"), Phase: "preparing",
 	}
-	run := &activeRun{State: state, Preparing: true, Target: target, Config: d.config}
+	run := &activeRun{State: state, Preparing: true, Target: target, Config: d.config, startup: startup}
 	d.runs[id] = run
 	ctx, cancel := context.WithTimeout(d.ctx, preparationTimeout)
 	run.Cancel = cancel
@@ -62,6 +64,7 @@ func (d *daemon) reserve(target *targetRuntime) error {
 		}
 		work.Preparing = false
 		if err != nil {
+			work.startup.Fail(err)
 			work.State.Error = d.secrets.Redact(err.Error())
 			if work.Uncertain {
 				err = errors.Join(errUnsafeTarget, err)
@@ -515,6 +518,7 @@ func (d *daemon) cleanup(run *activeRun) error {
 	d.finishExit(run)
 	run.CleanupTried = true
 	fail := func(err error, retryable bool) error {
+		d.metrics.Load().CleanupFailed(run.State.TargetID)
 		run.CleanupRetryAt = time.Time{}
 		run.State.Error = d.secrets.Redact(err.Error())
 		if d.save(run) == nil && retryable && d.ctx.Err() == nil {

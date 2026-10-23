@@ -8,6 +8,7 @@ import (
 	"os"
 
 	settings "github.com/Songmu/ghalet/config"
+	"github.com/Songmu/ghalet/telemetry"
 )
 
 // OperationError reports a management failure returned with the daemon's results.
@@ -137,10 +138,18 @@ func RunDaemon(ctx context.Context, config *settings.Config) error {
 	defer func() {
 		d.cancel()
 		d.workers.Wait()
+		if err := d.metrics.Load().Close(); err != nil {
+			slog.Warn("Telemetry shutdown incomplete", "event", "telemetry.shutdown_failed")
+		}
 	}()
 	if err := d.initialize(ctx, false); err != nil {
 		return err
 	}
+	metrics, err := telemetry.New(ctx, Version, d.telemetrySnapshot)
+	if err != nil {
+		return err
+	}
+	d.metrics.Store(metrics)
 	if err := ctx.Err(); err != nil {
 		return err
 	}

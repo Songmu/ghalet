@@ -266,6 +266,8 @@ func TestRunnerEnvironment(t *testing.T) {
 		"ACTIONS_RUNNER_INPUT_OLD": "secret", "RUNNER_ALLOW_RUNASROOT": "1",
 		"actions_runner_input_help": "true", "Actions_Runner_Input_Help": "true",
 		"actions_runner_input_jitconfig": "inherited-jit",
+		"OTEL_METRICS_EXPORTER":          "otlp", "OTEL_EXPORTER_OTLP_ENDPOINT": "http://collector.invalid",
+		"OTEL_EXPORTER_OTLP_HEADERS": "Authorization=Bearer%20collector-secret",
 	} {
 		t.Setenv(key, value)
 	}

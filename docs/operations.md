@@ -12,6 +12,7 @@ the [command overview](../README.md#commands).
 - [Applying configuration](#applying-configuration)
 - [Diagnosis and garbage collection](#diagnosis-and-garbage-collection)
 - [Logs](#logs)
+- [OpenTelemetry metrics](telemetry.md)
 - [Service deployment](#service-deployment)
 - [Deployment verification](#deployment-verification)
 - [Trust boundary](#trust-boundary)
