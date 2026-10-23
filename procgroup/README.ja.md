@@ -1,6 +1,6 @@
 # プロセスグループの検証
 
-[English](README.md)
+[English](./README.md)
 
 `procgroup` は Linux と macOS のプロセス識別、対象を絞ったスナップショット、
 グループの検査と停止を担当します。デーモンの実行状態、設定、実行ユーザーの解決、

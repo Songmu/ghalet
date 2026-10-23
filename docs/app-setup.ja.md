@@ -1,12 +1,12 @@
 # GitHub App のセットアップウィザード
 
-[English](app-setup.md)
+[English](./app-setup.md)
 
 `ghalet app setup --scope OWNER/REPO --scale-set project` は [GitHub の Manifest フロー][manifest]で、
 個人または Organization が所有する非公開の GitHub App を作成します。
 事前の PAT、client secret、公開コールバックサービス、PEM のコピー＆ペーストは不要です。
 Linux / macOS で **GitHub.com** に対応し、一回のセットアップで一つの target を検証します。
-保存先は[暗号化されていない通常ファイル](file-credentials.ja.md)です。
+保存先は[暗号化されていない通常ファイル](./file-credentials.ja.md)です。
 `ghalet systemd app setup` は代わりにサービス用の暗号化認証情報を保存します。
 どちらもデーモンの起動や設定反映は行いません。
 
@@ -28,7 +28,7 @@ ghalet app setup --scope ORG --scale-set project --runner-group linux
 デフォルトは `~/.config/ghalet/config.yaml` です。
 `--scope` と `--scale-set` は必須です。scope には GitHub.com の
 Organization / リポジトリの HTTPS URL も使えます。
-確認後に別の [managed ファイル](operations.ja.md#セットアップで管理する情報)へ認証情報を保存します。
+確認後に別の [managed ファイル](./operations.ja.md#セットアップで管理する情報)へ認証情報を保存します。
 デフォルトでは `installationId` を含む認証情報全体を `defaults.credential` に保存します。
 `--target` を指定すると、managed の target 固有の認証情報として保存します。
 どちらかの設定に `defaults.credential` が既に存在する場合は、App 作成前に停止し、
@@ -63,9 +63,9 @@ group を省略するとデフォルトグループを使います。`--id` オ�
 
 以下のブラウザ画面はサンプルデータを使っています。
 
-![GitHub App の作成画面](images/app-setup-create.png)
+![GitHub App の作成画面](./images/app-setup-create.png)
 
-![GitHub App のインストールリンク](images/app-setup-install.png)
+![GitHub App のインストールリンク](./images/app-setup-install.png)
 
 credential に `type: github-app`、`clientId`、`privateKeyFile`、`installationId` を保存します。
 `--target` の場合は、静的設定の target と照合する scope・Scale Set・runner group も
@@ -92,7 +92,7 @@ ghalet run
 ```
 
 既存デーモンには別のデーモンを起動せず、
-[`ghalet apply`](operations.ja.md#設定反映) を明示的に実行してください。
+[`ghalet apply`](./operations.ja.md#設定反映) を明示的に実行してください。
 セットアップ成功はインストールと権限の確認であり、実際の runner・ジョブの実行確認ではありません。
 
 ## SSH とブラウザの手動操作
@@ -146,7 +146,7 @@ drop-in の作成や unit の再読込に失敗しても保持するため、表
 同じコマンドを再実行すれば、App を作り直さずに登録を再試行できます。
 起動済みのサービスには通常停止・正常終了の確認・起動で認証情報を渡してください。
 `apply` では systemd の認証情報は更新されません。
-ホスト鍵の保護、バックアップ、ローテーションは[暗号化した認証情報](credentials.ja.md)を
+ホスト鍵の保護、バックアップ、ローテーションは[暗号化した認証情報](./credentials.ja.md)を
 参照してください。
 
 ## 再開と認証情報の保存
@@ -155,7 +155,7 @@ drop-in の作成や unit の再読込に失敗しても保持するため、表
 scope・鍵のパスを保持して再開できるようにします。
 両方とも `0600` で、認証ディレクトリは `0700` です。
 JSON に PEM、client secret、webhook secret は保存しません。
-PEM とバックアップは[通常ファイルの認証情報](file-credentials.ja.md)の説明どおり保護してください。
+PEM とバックアップは[通常ファイルの認証情報](./file-credentials.ja.md)の説明どおり保護してください。
 
 一回の待機時間は最大 15 分です。中断、設定保存の辞退、インストールの承認後は、
 同じコマンド・設定・scope・Scale Set・runner group で再実行します。
@@ -177,13 +177,13 @@ managed の同時更新は拒否します。
 インストール権限の検証で runner group のアクセス設定は変更しません。
 
 既存 App の鍵には、新しい App を作らず
-[`ghalet systemd credential set`](credentials.ja.md#github-app-と追加の認証情報)を使います。
+[`ghalet systemd credential set`](./credentials.ja.md#github-app-と追加の認証情報)を使います。
 `--no-default` を指定しなければ managed の共通設定を更新しますが、
 target に明示された認証設定が引き続き優先されます。
 
 App の秘密鍵は有効期限がなく、installation token は自動更新します。
 鍵はポリシーや漏えいの疑いに応じて交換します。
-[認証情報とローテーション](authentication.ja.md#認証情報のローテーション)も参照してください。
+[認証情報とローテーション](./authentication.ja.md#認証情報のローテーション)も参照してください。
 この機能で、同じユーザーのジョブから認証情報を隔離することはできません。
 
 [manifest]: https://docs.github.com/ja/apps/sharing-github-apps/registering-a-github-app-from-a-manifest

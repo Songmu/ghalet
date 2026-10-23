@@ -1,6 +1,6 @@
 # パッケージングとリリース
 
-[English](releasing.md)
+[English](./releasing.md)
 
 ghalet の配布物のビルドと公開に関するガイドです。
 公開済みのパッケージやコンテナの導入・更新は
@@ -42,7 +42,7 @@ Dockerfile は、バイナリとライセンス文書だけを含む明示的な
 独立した [`test-packaging.yaml`](../.github/workflows/test-packaging.yaml) は
 パッケージとイメージをビルド・検証しますが、公開は行わず、
 レジストリの認証情報も受け取りません。
-検証範囲と限界は[テスト](testing.ja.md#自動テスト)を参照してください。
+検証範囲と限界は[テスト](./testing.ja.md#自動テスト)を参照してください。
 
 初回のイメージ公開後、リポジトリ所有者は GHCR のパッケージ設定を確認し、
 匿名で pull できるようにパッケージを Public にする必要があります。

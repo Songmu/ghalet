@@ -1,13 +1,13 @@
 # ghalet の開発者ガイド
 
-[English](CONTRIBUTING.md)
+[English](./CONTRIBUTING.md)
 
 ghalet 自体の変更、テスト、リリースに関するガイドです。
-導入と運用は[利用者向けドキュメント](docs/index.ja.md)を参照してください。
+導入と運用は[利用者向けドキュメント](./docs/index.ja.md)を参照してください。
 
 ## 開発
 
-[go.mod](go.mod) に指定した Go を用意し、Linux または macOS を使います。
+[go.mod](./go.mod) に指定した Go を用意し、Linux または macOS を使います。
 リポジトリルートで、非 root ユーザーとして実行してください。
 
 ```sh
@@ -20,15 +20,15 @@ go vet ./...
 Apple Silicon の Lima VM で未公開の変更を試す場合は、
 `GOOS=linux GOARCH=arm64 go build -o /tmp/ghalet-linux-arm64 ./cmd/ghalet` で
 クロスコンパイルし、`limactl copy` でバイナリをゲストへコピーしてください。
-VM の構築は[サービスとしての常駐化](docs/operations.ja.md#サービスとしての常駐化)を参照してください。
+VM の構築は[サービスとしての常駐化](./docs/operations.ja.md#サービスとしての常駐化)を参照してください。
 
-- [テスト](contributing/testing.ja.md): 自動テストの範囲、公式 runner の
+- [テスト](./contributing/testing.ja.md): 自動テストの範囲、公式 runner の
   スモークテスト、GitHub 上の受け入れテスト、検証の限界。
-- [実行時の設計](contributing/design.ja.md): スケジューリング、プロセス監視、
+- [実行時の設計](./contributing/design.ja.md): スケジューリング、プロセス監視、
   復旧、永続化、マスキングの不変条件。
-- [パッケージングとリリース](contributing/releasing.ja.md): 配布物のビルド、
+- [パッケージングとリリース](./contributing/releasing.ja.md): 配布物のビルド、
   公開、依存関係の更新。
-- [ドキュメントサイト](docs/site/README.ja.md): ローカルビルド、
+- [ドキュメントサイト](./docs/site/README.ja.md): ローカルビルド、
   プレビュー、GitHub Pages への公開。
 
 GitHub Actions の依存を変更した後は `gh actions-lock` を実行し、
@@ -58,4 +58,4 @@ workflow と一緒に `.github/workflows/actions.lock` をコミットしてく�
 
 各手順の正本は一か所にまとめ、重複させずリンクで参照します。
 英語と日本語は同じ変更で更新し、言語切替と同じ言語への参照もそろえてください。
-サイトに関わる変更は[サイトビルド](docs/site/README.ja.md#ローカルビルド)で検証します。
+サイトに関わる変更は[サイトビルド](./docs/site/README.ja.md#ローカルビルド)で検証します。

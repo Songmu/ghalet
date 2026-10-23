@@ -1,15 +1,15 @@
 # systemd 用の暗号化した認証情報
 
-[English](credentials.md)
+[English](./credentials.md)
 
 PAT の作成、GitHub App の登録、GitHub の最小権限は
-[認証のセットアップ](authentication.ja.md)を参照してください。
+[認証のセットアップ](./authentication.ja.md)を参照してください。
 このガイドでは、Linux パッケージのサービス用に認証情報を保存する方法を説明します。
 systemd を使わず Linux / macOS で直接起動する場合は、
-[通常ファイルへの保存](file-credentials.ja.md)を使ってください。
+[通常ファイルへの保存](./file-credentials.ja.md)を使ってください。
 
 新しい App の作成から鍵の暗号化保存までを一続きに行うには、
-[`ghalet systemd app setup --scope OWNER/REPO --scale-set project`](app-setup.ja.md#パッケージの-systemd-サービス)を
+[`ghalet systemd app setup --scope OWNER/REPO --scale-set project`](./app-setup.ja.md#パッケージの-systemd-サービス)を
 使います。以下のコマンドは既存の PAT・App キーの取り込み用です。
 
 `ghalet systemd credential set` は、パッケージの `ghalet.service` 用に名前付きの
@@ -20,7 +20,7 @@ PAT または GitHub App の秘密鍵を登録します。Linux、root 権限、
 
 ## PAT の登録
 
-先に[パッケージの設定](distribution.ja.md#debian--rpm-パッケージ)をコピーして、
+先に[パッケージの設定](./distribution.ja.md#debian--rpm-パッケージ)をコピーして、
 target の scope などを編集してから PAT を登録します。
 
 ```sh
@@ -59,7 +59,7 @@ LoadCredentialEncrypted=default:/etc/ghalet/credentials/default.cred
 `/etc/ghalet/config.yaml` は書き換えません。静的な共通設定と target の明示的な認証を優先します。
 別の設定は `--config PATH` で指定できますが、unit の `ExecStart` は変更しません。
 保存先の変更、独自の systemd 設定、優先順位は
-[セットアップで管理する情報](operations.ja.md#セットアップで管理する情報)を参照してください。
+[セットアップで管理する情報](./operations.ja.md#セットアップで管理する情報)を参照してください。
 
 ```yaml
 # /var/lib/ghalet/managed.yaml
@@ -70,7 +70,7 @@ defaults:
 ```
 
 `credential` を省略した target だけが共通設定を継承し、`credential: {}` は `gh` を
-選びます。上書きの規則は[認証情報の継承](operations.ja.md#設定と認証情報)を参照してください。
+選びます。上書きの規則は[認証情報の継承](./operations.ja.md#設定と認証情報)を参照してください。
 
 検証と起動は明示的に実行します。
 
@@ -143,7 +143,7 @@ App キーの場合は、`--prompt` の代わりに
 
 `apply` で再読込する通常の認証情報ファイルと異なり、systemd の暗号化認証情報は
 サービス起動時にのみ更新します。上の手順どおり通常停止と正常終了の確認を行い、
-[強制終了や不完全な drain](operations.ja.md#容量再試行停止)は解消してから起動してください。
+[強制終了や不完全な drain](./operations.ja.md#容量再試行停止)は解消してから起動してください。
 同じ認証情報を共有する全 target が一緒に切り替わります。
 対象 target 全てで認証と runner の動作を確認したら、旧 PAT を失効させるか旧 App
 キーを削除し、ロールバック用の暗号文も削除します。

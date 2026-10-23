@@ -1,6 +1,6 @@
 # Documentation site
 
-[日本語](README.ja.md)
+[日本語](./README.ja.md)
 
 The site follows the Hugo/Hextra setup in Songmu/tagpr. The Markdown files under
 `docs/` are the user documentation sources, readable directly in the repository.
@@ -22,8 +22,8 @@ Renovate tracks Hugo releases and proposes updates to `.hugo-version`;
 the Pages workflow reads that same file.
 
 Install the extended Hugo version in
-[`docs/site/.hugo-version`](.hugo-version) and Go as specified in
-[`docs/site/go.mod`](go.mod), then run from the repository root:
+[`docs/site/.hugo-version`](./.hugo-version) and Go as specified in
+[`docs/site/go.mod`](./go.mod), then run from the repository root:
 
 ```sh
 bash docs/site/build.sh

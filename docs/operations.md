@@ -1,9 +1,9 @@
 # Operations
 
-[日本語](operations.ja.md)
+[日本語](./operations.ja.md)
 
 This guide covers configuring, running and maintaining ghalet on a single
-trusted host. Start with [getting started](getting-started.md#quick-start) for setup and
+trusted host. Start with [getting started](./getting-started.md#quick-start) for setup and
 the [command overview](../README.md#commands).
 
 - [Configuration and credentials](#configuration-and-credentials)
@@ -159,10 +159,10 @@ including App private keys, must be owner-only regular files (normally
 can be referenced by an absolute `tokenFile` or `privateKeyFile` path under
 `/run/credentials/ghalet.service/` with the corresponding `LoadCredential=` or
 `LoadCredentialEncrypted=`. For encrypted registration, shared defaults and
-rotation, see [encrypted credentials](credentials.md).
+rotation, see [encrypted credentials](./credentials.md).
 Do not put secrets into `Environment=` or workflow files unnecessarily.
 
-See [authentication setup and minimum permissions](authentication.md) for
+See [authentication setup and minimum permissions](./authentication.md) for
 scope-specific permissions, PAT creation and GitHub App installation.
 Group access policy and App installation access are separate. Create groups
 and grant their repository access in GitHub first: ghalet never creates,
@@ -488,7 +488,7 @@ by a trusted workflow.
 ## Service deployment
 
 For packaged Linux installation or Docker Compose, see
-[packages and containers](distribution.md). The instructions below cover
+[packages and containers](./distribution.md). The instructions below cover
 manual service installation.
 
 For Linux, precreate dedicated `ghalet` and `ghalet-runner` users with accessible

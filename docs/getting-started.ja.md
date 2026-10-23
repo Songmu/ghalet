@@ -1,11 +1,11 @@
 # 導入ガイド
 
-[English](getting-started.md)
+[English](./getting-started.md)
 
 専用の Linux / macOS ホストへのインストールから、最初の GitHub Actions ジョブを
 実行するまでの手順です。runner はジョブの厳密な隔離を提供しないため、
 信頼できる workflow のみに使用してください。
-[信頼境界](operations.ja.md#信頼境界)も参照してください。
+[信頼境界](./operations.ja.md#信頼境界)も参照してください。
 
 ## インストール
 
@@ -23,12 +23,12 @@ go install github.com/Songmu/ghalet/cmd/ghalet@latest
 
 systemd unit を含む Linux 向け `.deb` / `.rpm` パッケージと、
 GHCR のコンテナイメージも利用できます。
-導入・設定・更新の手順は[パッケージとコンテナ](distribution.ja.md)を参照してください。
+導入・設定・更新の手順は[パッケージとコンテナ](./distribution.ja.md)を参照してください。
 
 インストール先を `PATH` に追加してください。workflow で使うビルドツールと、
 公式 runner が要求する OS の依存パッケージをホストに用意してください。
 ghalet は非 root ユーザーで起動します。root でのジョブ実行は拒否されます。
-実行ユーザーと環境の設定は[運用ガイド](operations.ja.md#直接実行と環境)を参照してください。
+実行ユーザーと環境の設定は[運用ガイド](./operations.ja.md#直接実行と環境)を参照してください。
 
 ## クイックスタート
 
@@ -38,20 +38,20 @@ ghalet を起動する非 root ユーザーで実行してください。
 継続運用では、Linux は systemd、macOS は launchd（Homebrew では `brew services`）で
 サービスとして常駐させる構成を基本とします。
 以下ではまずフォアグラウンドで動作を確認し、その後に常駐化します。
-Linux は[パッケージのサービス設定](distribution.ja.md#debian--rpm-パッケージ)、
+Linux は[パッケージのサービス設定](./distribution.ja.md#debian--rpm-パッケージ)、
 macOS は[Homebrew での常駐化](#homebrew-での常駐化macos-のみ)を参照してください。
 
 ### 1. GitHub に認証する
 
 GitHub CLI（`gh`）を用意し、対象リポジトリの runner を管理できるアカウントでログインします。
-必要な権限は[認証のセットアップ](authentication.ja.md)を参照してください。
+必要な権限は[認証のセットアップ](./authentication.ja.md)を参照してください。
 
 ```sh
 gh auth login
 ```
 
 この手順では `gh` のログインを使います。PAT や GitHub App を使う場合も、
-[認証のセットアップ](authentication.ja.md)を参照してください。
+[認証のセットアップ](./authentication.ja.md)を参照してください。
 
 ### 2. runner の設定を作成する
 

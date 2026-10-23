@@ -1,6 +1,6 @@
 # ドキュメントサイト
 
-[English](README.md)
+[English](./README.md)
 
 Songmu/tagpr と同じ Hugo / Hextra 構成を使い、リポジトリ上でも読める `docs/` の
 Markdown を利用者向けドキュメントの正とします。`docs/index.md` と `docs/index.ja.md` を
@@ -19,8 +19,8 @@ README や設定例などのリポジトリ内ファイルへのリンクは Git
 Renovate が Hugo のリリースを追跡して `.hugo-version` の更新を提案し、
 Pages workflow も同じファイルを参照します。
 
-[`docs/site/.hugo-version`](.hugo-version) に指定した extended 版 Hugo と、
-[`docs/site/go.mod`](go.mod) に指定した Go を用意し、
+[`docs/site/.hugo-version`](./.hugo-version) に指定した extended 版 Hugo と、
+[`docs/site/go.mod`](./go.mod) に指定した Go を用意し、
 リポジトリルートで実行します。
 
 ```sh

@@ -1,6 +1,6 @@
 # Authentication setup and minimum permissions
 
-[日本語](authentication.ja.md)
+[日本語](./authentication.ja.md)
 
 This guide covers issuing credentials for ghalet's repository and organization
 targets on GitHub.com. Prefer a GitHub App for a long-lived service, or a
@@ -21,7 +21,7 @@ for a simple dedicated setup, and `gh` for an existing interactive environment.
 See GitHub's [PAT guidance][pat-guide], [App overview][app-overview] and
 [installation authentication guide][app-installation].
 None of these methods isolates jobs from credentials accessible to their OS
-user; retain the [trusted-host boundary](operations.md#trust-boundary).
+user; retain the [trusted-host boundary](./operations.md#trust-boundary).
 
 ## Minimum permissions
 
@@ -74,11 +74,11 @@ Follow [GitHub's PAT creation guide][pat-guide]:
 4. Leave other permissions unset, then generate the token. If organization
    approval is required, wait for approval before using it.
 5. Store the value securely when it is displayed. For the packaged Linux
-   service, use the [encrypted PAT registration procedure](credentials.md#register-a-pat).
+   service, use the [encrypted PAT registration procedure](./credentials.md#register-a-pat).
 
 For direct execution on Linux or macOS, put the PAT in an owner-only regular
 file readable by the daemon user, then reference it without copying the value
-into YAML. [`ghalet credential set`](file-credentials.md) can import the file
+into YAML. [`ghalet credential set`](./file-credentials.md) can import the file
 and configure this reference automatically:
 
 ```sh
@@ -120,13 +120,13 @@ These commands add scopes to the CLI login, which may already have other scopes;
 they do not create a dedicated least-privilege token. If GitHub CLI is supplied a
 PAT instead, change that PAT's permissions or replace it; refreshing OAuth scopes
 does not upgrade a PAT. See the [GitHub CLI scope refresh reference][gh-refresh]
-and [service-user authentication](operations.md#configuration-and-credentials)
+and [service-user authentication](./operations.md#configuration-and-credentials)
 for keychain and service-environment considerations.
 
 ## Create and install a GitHub App
 
 For guided creation, key storage and installation discovery, use
-[`ghalet app setup --scope OWNER/REPO --scale-set project`](app-setup.md), or
+[`ghalet app setup --scope OWNER/REPO --scale-set project`](./app-setup.md), or
 `ghalet systemd app setup` for the packaged service. To register an App manually, follow the
 steps below.
 
@@ -179,11 +179,11 @@ For an organization target, change `scope` to `ORG` and use that organization's
 installation ID. Multiple installations can share the App's client ID and key,
 but each credential must specify the installation ID for its owner.
 ghalet's SDK obtains and renews installation tokens automatically.
-For the packaged service, follow [App key import](credentials.md#github-apps-and-additional-credentials)
+For the packaged service, follow [App key import](./credentials.md#github-apps-and-additional-credentials)
 instead of storing the key directly in the configuration directory.
 Protect the key: it can authenticate as any installation of that App.
 See [GitHub's private-key guidance][app-keys] and the
-[credential rotation procedure](credentials.md#rotation-and-rollback).
+[credential rotation procedure](./credentials.md#rotation-and-rollback).
 
 ## Rotate credentials
 
@@ -197,7 +197,7 @@ PATs still need replacement before expiration: the SDK's renewal of Actions
 service credentials does not extend a PAT's expiration or replace a revoked token.
 
 When replacing the packaged service's encrypted credentials, use
-[systemd rotation and rollback](credentials.md#rotation-and-rollback):
+[systemd rotation and rollback](./credentials.md#rotation-and-rollback):
 register the replacement under the same name with `--no-default`, then stop
 normally, confirm successful shutdown, and start the service. `apply` cannot
 refresh systemd's decrypted credential files.
@@ -214,7 +214,7 @@ For planned replacement of ordinary PAT files or App key files on Linux/macOS:
    `credential.clientId` and `credential.installationId` values.
 3. Run `ghalet apply --config /absolute/path/to/config.yaml`. It drains all
    targets and creates new clients that reread the files, even if their paths
-   have not changed. Plan for the [drain deadline](operations.md#capacity-retries-and-shutdown);
+   have not changed. Plan for the [drain deadline](./operations.md#capacity-retries-and-shutdown);
    rotation is not guaranteed to be interruption-free.
 4. Check the apply result, `ghalet doctor`, daemon logs and a trusted test job
    for **every target sharing that credential**. Only after success, revoke
@@ -237,7 +237,7 @@ stop/start; changing the stored login or running `apply` alone does not replace
 that environment token. Only when no environment token overrides the stored
 login, replace or reauthorize the login as the daemon user and run `apply`
 so new clients obtain the current token.
-See [configuration apply](operations.md#applying-configuration).
+See [configuration apply](./operations.md#applying-configuration).
 If a credential is exposed, revoke it immediately rather than using the routine
 overlap procedure; restore service with a clean replacement.
 

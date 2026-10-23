@@ -1,6 +1,6 @@
 # 実行時の設計
 
-[English](design.md)
+[English](./design.md)
 
 ghalet の実行時の処理を変更する際に必要な実装詳細と不変条件です。
 設定、復旧手順、運用上の保証は[運用ガイド](../docs/operations.ja.md)、

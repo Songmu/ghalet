@@ -1,13 +1,13 @@
 # Contributing to ghalet
 
-[日本語](CONTRIBUTING.ja.md)
+[日本語](./CONTRIBUTING.ja.md)
 
 This guide is for changing, testing, and releasing ghalet itself.
-For installation and operation, use the [user documentation](docs/index.md).
+For installation and operation, use the [user documentation](./docs/index.md).
 
 ## Development
 
-Use Linux or macOS with the Go version specified in [go.mod](go.mod).
+Use Linux or macOS with the Go version specified in [go.mod](./go.mod).
 Run from the repository root as a non-root user:
 
 ```sh
@@ -20,15 +20,15 @@ The resulting `./ghalet` binary can be used with a dedicated test configuration.
 For testing unpublished changes in the Apple Silicon Lima VM, cross-compile
 with `GOOS=linux GOARCH=arm64 go build -o /tmp/ghalet-linux-arm64 ./cmd/ghalet`
 and copy the binary into the guest with `limactl copy`.
-See [service deployment](docs/operations.md#service-deployment) for the VM setup.
+See [service deployment](./docs/operations.md#service-deployment) for the VM setup.
 
-- [Testing](contributing/testing.md): automated coverage, official runner
+- [Testing](./contributing/testing.md): automated coverage, official runner
   smoke tests, live GitHub acceptance, and verification limits.
-- [Runtime design](contributing/design.md): scheduling, process supervision,
+- [Runtime design](./contributing/design.md): scheduling, process supervision,
   recovery, persistence, and redaction invariants.
-- [Packaging and releases](contributing/releasing.md): distribution builds,
+- [Packaging and releases](./contributing/releasing.md): distribution builds,
   publication, and dependency updates.
-- [Documentation site](docs/site/README.md): local builds, previews,
+- [Documentation site](./docs/site/README.md): local builds, previews,
   and GitHub Pages deployment.
 
 After changing GitHub Actions dependencies, run `gh actions-lock` and commit
@@ -63,4 +63,4 @@ operational guidance.
 Maintain one authoritative description of each procedure and link to it instead
 of duplicating it. Update English and Japanese documentation together, including
 language switchers and same-language cross-references. Validate site changes with
-the [site build](docs/site/README.md#local-build).
+the [site build](./docs/site/README.md#local-build).

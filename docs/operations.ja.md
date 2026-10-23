@@ -1,9 +1,9 @@
 # 運用ガイド
 
-[English](operations.md)
+[English](./operations.md)
 
 このガイドでは、信頼できる単一ホスト上での ghalet の設定・実行・保守を説明します。
-最初のセットアップは[導入ガイド](getting-started.ja.md#クイックスタート)、
+最初のセットアップは[導入ガイド](./getting-started.ja.md#クイックスタート)、
 各サブコマンドの用途は[コマンド一覧](../README.ja.md#コマンド)を参照してください。
 
 - [設定と認証情報](#設定と認証情報)
@@ -148,10 +148,10 @@ systemd の credential は、対応する `LoadCredential=` または
 `/run/credentials/ghalet.service/` 以下の絶対パスを `tokenFile` または
 `privateKeyFile` に指定して参照できます。不要に `Environment=` や workflow
 ファイルへシークレットを置かないでください。暗号化登録、共通設定、ローテーションは
-[暗号化した認証情報](credentials.ja.md)を参照してください。
+[暗号化した認証情報](./credentials.ja.md)を参照してください。
 
 scope 別の権限、PAT の作成、GitHub App のインストールは
-[認証のセットアップと最小権限](authentication.ja.md)を参照してください。
+[認証のセットアップと最小権限](./authentication.ja.md)を参照してください。
 group のアクセス設定と App のインストール範囲は別です。
 group の作成とリポジトリへのアクセス許可は、先に GitHub 側で行ってください。
 ghalet は runner group の作成・アクセス設定変更・削除を行いません。
@@ -454,7 +454,7 @@ runner 開始イベントとアーカイブのメタデータの `scope` は登�
 ## サービスとしての常駐化
 
 Linux パッケージや Docker Compose で導入する場合は、
-[パッケージとコンテナ](distribution.ja.md)を参照してください。
+[パッケージとコンテナ](./distribution.ja.md)を参照してください。
 以下はサービスを手動で導入する場合の手順です。
 
 Linux では、専用の `ghalet` と `ghalet-runner` ユーザーを、それぞれ利用できる

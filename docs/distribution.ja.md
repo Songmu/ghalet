@@ -1,13 +1,13 @@
 # Linux パッケージとコンテナ
 
-[English](distribution.md)
+[English](./distribution.md)
 
 リリースタグごとに amd64 / arm64 のバイナリ、`.deb` / `.rpm` パッケージ、
 マルチプラットフォームイメージ `ghcr.io/songmu/ghalet:TAG` を公開します。
 アーカイブ、`install.sh`、`go install` も利用できます。
 APT/DNF リポジトリは提供しません。
 Homebrew でのインストールと macOS のサービス連携は
-[導入ガイド](getting-started.ja.md#インストール)を参照してください。
+[導入ガイド](./getting-started.ja.md#インストール)を参照してください。
 
 ## Debian / RPM パッケージ
 
@@ -59,7 +59,7 @@ Organization では `--scope ORG` を使います。静的設定は変更せず�
 保存します。表示された target の YAML を設定に追加し、設定がなければパッケージ用の runner
 ユーザーとログパスを含む設定全体の案を、検証・起動前に保存してください。
 表示された URL をブラウザで開いてください。SSH では
-[App セットアップ](app-setup.ja.md#ssh-とブラウザの手動操作)のポート転送を使います。
+[App セットアップ](./app-setup.ja.md#ssh-とブラウザの手動操作)のポート転送を使います。
 
 PAT を使う場合は、パッケージの設定例をコピーして編集します。
 
@@ -75,14 +75,14 @@ sudo systemctl enable --now ghalet
 設定の `OWNER/REPO` を置き換え、runner の管理に必要な権限を持つ PAT を用意してください。
 登録コマンドは参照先を managed ファイルの `defaults.credential` に書き込み、
 他の認証設定がない target 間で共有します。静的な認証設定が引き続き優先します。
-[セットアップで管理する情報](operations.ja.md#セットアップで管理する情報)も参照してください。
+[セットアップで管理する情報](./operations.ja.md#セットアップで管理する情報)も参照してください。
 パッケージのインストール・更新時にシークレットを要求せず、
 登録は明示的な別コマンドで行います。App キー、複数の認証情報、自動構築、
-ローテーションは[暗号化した認証情報](credentials.ja.md)を参照してください。
+ローテーションは[暗号化した認証情報](./credentials.ja.md)を参照してください。
 認証情報を YAML の値やシェルのコマンド引数に直接書かないでください。
 古い systemd では、所有者のみ読める PAT ファイルを
 `defaults.credential.tokenFile` に指定する構成も使えます。
-[運用ガイド](operations.ja.md#設定と認証情報)を参照してください。
+[運用ガイド](./operations.ja.md#設定と認証情報)を参照してください。
 
 unit は `StateDirectory=ghalet` と `CacheDirectory=ghalet` によって
 `STATE_DIRECTORY` と `CACHE_DIRECTORY` を渡し、
@@ -114,7 +114,7 @@ sudo systemctl start ghalet
 unit は `KillMode=mixed` と、停止処理全体に対する 15 分の最終期限を使います。
 デフォルトの drain 期限 10 分を変更する場合は、unit 側の期限も延ばしてください。
 停止時とクラッシュ時の後始末については、
-[サービスとしての常駐化](operations.ja.md#サービスとしての常駐化)を参照してください。
+[サービスとしての常駐化](./operations.ja.md#サービスとしての常駐化)を参照してください。
 
 ## Docker Compose
 

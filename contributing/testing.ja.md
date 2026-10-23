@@ -1,6 +1,6 @@
 # テスト
 
-[English](testing.md)
+[English](./testing.md)
 
 自動テストと、公式 runner・GitHub に対して任意で実行するテストの手順です。
 コマンドはリポジトリルートで実行してください。

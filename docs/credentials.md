@@ -1,15 +1,15 @@
 # Encrypted credentials for systemd
 
-[日本語](credentials.ja.md)
+[日本語](./credentials.ja.md)
 
 For PAT creation, GitHub App registration and minimum GitHub permissions, start
-with [authentication setup](authentication.md). This guide covers storing those
+with [authentication setup](./authentication.md). This guide covers storing those
 credentials for the packaged Linux service.
 For direct Linux/macOS execution without systemd, use
-[ordinary credential files](file-credentials.md).
+[ordinary credential files](./file-credentials.md).
 
 To create a new App and configure its encrypted key in one flow, use
-[`ghalet systemd app setup --scope OWNER/REPO --scale-set project`](app-setup.md#packaged-systemd-service).
+[`ghalet systemd app setup --scope OWNER/REPO --scale-set project`](./app-setup.md#packaged-systemd-service).
 The commands below import existing PATs and App keys.
 
 `ghalet systemd credential set` registers a named PAT or GitHub App private key
@@ -21,7 +21,7 @@ or restarts the service.
 
 ## Register a PAT
 
-First copy and edit the [package configuration](distribution.md#debian-and-rpm-packages),
+First copy and edit the [package configuration](./distribution.md#debian-and-rpm-packages),
 including the target scopes. Then register a PAT:
 
 ```sh
@@ -62,7 +62,7 @@ It also saves `defaults.credential` in `/var/lib/ghalet/managed.yaml`, without
 rewriting `/etc/ghalet/config.yaml`. Static defaults and explicit target
 authentication remain authoritative. Select a different configuration with
 `--config PATH`; this does not change the unit's `ExecStart`.
-See [managed setup information](operations.md#managed-setup-information) for
+See [managed setup information](./operations.md#managed-setup-information) for
 path overrides, custom systemd configurations and precedence.
 
 ```yaml
@@ -74,7 +74,7 @@ defaults:
 ```
 
 Only targets that omit `credential` inherit the shared default;
-`credential: {}` selects `gh`. See [credential inheritance](operations.md#configuration-and-credentials)
+`credential: {}` selects `gh`. See [credential inheritance](./operations.md#configuration-and-credentials)
 for override rules.
 
 Validate and start explicitly:
@@ -150,7 +150,7 @@ is retained and its path is included in the error.
 
 Unlike ordinary credential files reread by `apply`, encrypted systemd
 credentials refresh only on service start. Stop normally and verify successful
-shutdown as shown above; resolve [forced or incomplete drain](operations.md#capacity-retries-and-shutdown)
+shutdown as shown above; resolve [forced or incomplete drain](./operations.md#capacity-retries-and-shutdown)
 before starting again. All targets sharing the credential switch together.
 After verifying authentication and runner operation for every affected target,
 revoke the old PAT or remove the old App key, then remove its rollback backup:
