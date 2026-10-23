@@ -137,10 +137,19 @@ func RunDaemon(ctx context.Context, config *settings.Config) error {
 	defer func() {
 		d.cancel()
 		d.workers.Wait()
+		if err := d.metrics.Load().Close(); err != nil {
+			slog.Warn("Telemetry shutdown incomplete", "event", "telemetry.shutdown_failed")
+		}
 	}()
 	if err := d.initialize(ctx, false); err != nil {
 		return err
 	}
+	metrics := d.metrics.Load()
+	update, err := metrics.Prepare(ctx, Version, config.Telemetry, d.telemetrySnapshot)
+	if err != nil {
+		return err
+	}
+	metrics.Commit(update)
 	if err := ctx.Err(); err != nil {
 		return err
 	}

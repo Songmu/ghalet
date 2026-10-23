@@ -33,6 +33,7 @@ ghalet は Linux / macOS 向けの軽量な GitHub Actions Self-hosted runner
 
 - [運用ガイド](operations.ja.md): 設定、実行ユーザー、スケーリング、復旧、ログ、
   常駐化、信頼境界。
+- [OpenTelemetry メトリクス](telemetry.ja.md): 任意の OTLP 送信、計測項目、配信上の制約。
 - [コマンド一覧](../README.ja.md#コマンド): CLI の各コマンドの用途。
 - [設定サンプル](../examples/config.yaml)と[設定スキーマ](../schema.yaml)。
 

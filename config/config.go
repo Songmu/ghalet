@@ -50,13 +50,14 @@ func (d *Duration) UnmarshalYAML(unmarshal func(any) error) error {
 }
 
 type Config struct {
-	ManagedFile string         `yaml:"managedFile"`
-	Defaults    DefaultsConfig `yaml:"defaults"`
-	Capacity    CapacityConfig `yaml:"capacity"`
-	Targets     []Target       `yaml:"targets"`
-	Runner      RunnerConfig   `yaml:"runner"`
-	Logs        LogsConfig     `yaml:"logs"`
-	Path        string         `yaml:"-"`
+	ManagedFile string          `yaml:"managedFile"`
+	Defaults    DefaultsConfig  `yaml:"defaults"`
+	Capacity    CapacityConfig  `yaml:"capacity"`
+	Targets     []Target        `yaml:"targets"`
+	Runner      RunnerConfig    `yaml:"runner"`
+	Logs        LogsConfig      `yaml:"logs"`
+	Telemetry   TelemetryConfig `yaml:"telemetry"`
+	Path        string          `yaml:"-"`
 	secretNames map[string]bool
 }
 
@@ -135,6 +136,40 @@ type LogsConfig struct {
 	Preserve  bool     `yaml:"preserve"`
 	Retention Duration `yaml:"retention"`
 	Root      string   `yaml:"root"`
+}
+
+type TelemetryConfig struct {
+	Metrics            MetricsConfig     `yaml:"metrics"`
+	ServiceName        string            `yaml:"serviceName"`
+	ResourceAttributes map[string]string `yaml:"resourceAttributes"`
+}
+
+type MetricsConfig struct {
+	Exporter string    `yaml:"exporter"`
+	Endpoint string    `yaml:"endpoint"`
+	Interval *Duration `yaml:"interval"`
+	Timeout  *Duration `yaml:"timeout"`
+}
+
+func (c TelemetryConfig) Validate() error {
+	switch c.Metrics.Exporter {
+	case "", "none", "otlp":
+	default:
+		return errors.New("telemetry.metrics.exporter must be otlp or none")
+	}
+	if c.Metrics.Endpoint != "" {
+		u, err := url.Parse(c.Metrics.Endpoint)
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") ||
+			u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+			return errors.New("telemetry.metrics.endpoint must be an HTTP(S) URL without credentials, query or fragment")
+		}
+	}
+	for _, duration := range []*Duration{c.Metrics.Interval, c.Metrics.Timeout} {
+		if duration != nil && time.Duration(*duration) < time.Millisecond {
+			return errors.New("telemetry.metrics.interval and timeout must be at least 1ms when specified")
+		}
+	}
+	return nil
 }
 
 // ResolvePath returns the lexical absolute configuration path, preserving symlinks.
@@ -347,6 +382,9 @@ func TargetKey(scope, group, scaleSet string) (string, error) {
 }
 
 func (c *Config) Validate() error {
+	if err := c.Telemetry.Validate(); err != nil {
+		return err
+	}
 	if c.Defaults.Credential != nil {
 		if err := c.Defaults.Credential.validate(); err != nil {
 			return fmt.Errorf("defaults.credential: %w", err)
@@ -526,7 +564,7 @@ func (c *Config) SecretEnv(name string) bool {
 	}
 	switch strings.ToUpper(name) {
 	case "GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN",
-		"ACTIONS_RUNNER_INPUT_JITCONFIG":
+		"ACTIONS_RUNNER_INPUT_JITCONFIG", "OTEL_EXPORTER_OTLP_HEADERS", "OTEL_EXPORTER_OTLP_METRICS_HEADERS":
 		return true
 	}
 	if c.Defaults.Credential != nil && name != "" && c.Defaults.Credential.TokenEnv == name {

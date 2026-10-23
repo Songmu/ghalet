@@ -24,6 +24,16 @@ func nextConfig(d *daemon) *settings.Config {
 
 func writeApplyConfig(t *testing.T, c *settings.Config) {
 	t.Helper()
+	metrics := map[string]any{
+		"exporter": c.Telemetry.Metrics.Exporter,
+		"endpoint": c.Telemetry.Metrics.Endpoint,
+	}
+	if interval := c.Telemetry.Metrics.Interval; interval != nil {
+		metrics["interval"] = time.Duration(*interval).String()
+	}
+	if timeout := c.Telemetry.Metrics.Timeout; timeout != nil {
+		metrics["timeout"] = time.Duration(*timeout).String()
+	}
 	data, err := yaml.Marshal(map[string]any{
 		"capacity": c.Capacity, "targets": c.Targets,
 		"runner": map[string]any{
@@ -35,6 +45,10 @@ func writeApplyConfig(t *testing.T, c *settings.Config) {
 		"logs": map[string]any{
 			"preserve": c.Logs.Preserve, "root": c.Logs.Root,
 			"retention": time.Duration(c.Logs.Retention).String(),
+		},
+		"telemetry": map[string]any{
+			"metrics": metrics, "serviceName": c.Telemetry.ServiceName,
+			"resourceAttributes": c.Telemetry.ResourceAttributes,
 		},
 	})
 	if err != nil {

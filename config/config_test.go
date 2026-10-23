@@ -43,7 +43,10 @@ func TestRetainSecretEnvironment(t *testing.T) {
 	current.RetainSecretEnvironment(old)
 	next := &Config{}
 	next.RetainSecretEnvironment(current)
-	for _, name := range []string{"DEFAULT_PAT", "TARGET_PAT", "CURRENT_PAT", "GH_TOKEN", "github_token"} {
+	for _, name := range []string{
+		"DEFAULT_PAT", "TARGET_PAT", "CURRENT_PAT", "GH_TOKEN", "github_token",
+		"OTEL_EXPORTER_OTLP_HEADERS", "otel_exporter_otlp_metrics_headers",
+	} {
 		if !next.SecretEnv(name) {
 			t.Errorf("lost secret environment name %q", name)
 		}

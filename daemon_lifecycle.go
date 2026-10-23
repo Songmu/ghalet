@@ -40,6 +40,9 @@ func (d *daemon) jobEvent(ctx context.Context, target *targetRuntime, runnerID i
 		return nil
 	}
 	newlyReady := busy && !run.State.Ready
+	if newlyReady {
+		run.startup.Ready()
+	}
 	run.State.Busy = busy
 	if busy {
 		run.State.Ready, run.State.Phase = true, "busy"
@@ -126,6 +129,9 @@ func (d *daemon) processEvent(event runEvent) {
 			return
 		}
 		newlyReady := !run.State.Ready
+		if newlyReady {
+			run.startup.Ready()
+		}
 		run.State.Ready = true
 		if !run.State.Busy {
 			run.State.Phase = "idle"
@@ -157,6 +163,7 @@ func (d *daemon) finishExit(run *activeRun) {
 	newlyReady := run.output != nil && run.output.ready && !run.State.Ready
 	if newlyReady {
 		run.State.Ready = true
+		run.startup.Ready()
 	}
 	if !result.stopping && ((!run.State.Ready && !run.State.Busy) || result.err != nil) {
 		if target := d.runTarget(run); target != nil && !target.Forced {
@@ -164,6 +171,7 @@ func (d *daemon) finishExit(run *activeRun) {
 			if err == nil {
 				err = errors.New("runner exited before readiness")
 			}
+			run.startup.Fail(err)
 			d.startFailure(target, err)
 		}
 	} else if !result.stopping && result.err == nil && run.State.Ready {
@@ -310,10 +318,12 @@ func (d *daemon) enforceStartupTimeout(run *activeRun) {
 		config = d.config
 	}
 	if !state.Ready && !state.Busy && time.Since(state.StartedAt) > time.Duration(config.Runner.StartupTimeout) {
-		if err := d.retireIdle(run); err != nil {
+		err := d.retireIdle(run)
+		if state.ProcessDone && !state.Ready && !state.Busy {
+			run.ioResult.startError = fmt.Errorf("runner startup timeout before readiness: %w", context.DeadlineExceeded)
+		}
+		if err != nil {
 			state.Error = d.secrets.Redact(err.Error())
-		} else {
-			run.ioResult.startError = errors.New("runner startup timeout before readiness")
 		}
 	}
 }

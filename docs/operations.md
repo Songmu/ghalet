@@ -12,6 +12,7 @@ the [command overview](../README.md#commands).
 - [Applying configuration](#applying-configuration)
 - [Diagnosis and garbage collection](#diagnosis-and-garbage-collection)
 - [Logs](#logs)
+- [OpenTelemetry metrics](telemetry.md)
 - [Service deployment](#service-deployment)
 - [Deployment verification](#deployment-verification)
 - [Trust boundary](#trust-boundary)
@@ -296,7 +297,8 @@ Transient listener and preparation/start failures remain visible in `status` and
 Workflow results are not retried by ghalet.
 
 SIGINT/SIGTERM starts drain for all targets during normal shutdown.
-`apply` also drains all targets before switching configuration.
+`apply` also drains all targets before switching configuration, except for
+telemetry-only changes.
 Normal shutdown retains scale sets.
 New acquisitions and warm replenishment stop, but already assigned,
 unstarted jobs can still provision runners within both limits. The drain
@@ -336,11 +338,13 @@ sudo systemctl reload ghalet
 ```
 
 Edit the file and run `apply` to change targets, limits, credentials, runner
-versions, environment, timeouts or log policy. It requires a running daemon
+versions, environment, timeouts, log policy or telemetry. It requires a running daemon
 and reloads that daemon's original config path without modifying the file.
 Missing or invalid configuration fails rather than falling back to another file.
+Changes limited to [telemetry](telemetry.md) are applied without draining
+runners or replacing target listeners.
 
-`apply` waits for reconciliation. It validates the new configuration before
+For other changes, `apply` waits for reconciliation. It validates the new configuration before
 stopping new job acceptance, drains all targets
 under the old limits/timeouts, closes their listeners, then registers targets
 from the new configuration and waits for their listener initialization.

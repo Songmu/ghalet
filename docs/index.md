@@ -34,6 +34,8 @@ one another; use only trusted workflows.
 
 - [Operations](operations.md): configuration, execution users, scaling,
   recovery, logs, service deployment, and trust boundaries.
+- [OpenTelemetry metrics](telemetry.md): opt-in OTLP export, instruments,
+  and delivery limits.
 - [Commands](../README.md#commands): CLI command overview.
 - [Example configuration](../examples/config.yaml) and
   [configuration schema](../schema.yaml).

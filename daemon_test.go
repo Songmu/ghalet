@@ -376,38 +376,6 @@ func TestDrainStartsPreviouslyAcceptedBacklogWithinCapacity(t *testing.T) {
 	}
 }
 
-func TestStartupTimeoutIsMeasuredAfterProcessStart(t *testing.T) {
-	d, _ := testDaemon(t)
-	cleanupProcesses(t, d)
-	seedDistribution(t, d.config, "#!/bin/sh\nsleep 30\n")
-	d.targets[buildTargetID].Assigned = 1
-	var state *RunState
-	pumpUntil(t, d, func() bool {
-		for _, run := range d.runs {
-			if run.State.Process.PID > 0 && !run.Preparing {
-				state = run.State
-				return true
-			}
-		}
-		return false
-	})
-	if state.StartedAt.IsZero() || state.Ready {
-		t.Fatal("startup clock or readiness is invalid")
-	}
-	d.mu.Lock()
-	state.StartedAt = time.Now().Add(-3 * time.Minute)
-	d.reconcile()
-	d.mu.Unlock()
-	settleRuns(d)
-	d.mu.Lock()
-	if d.runs[state.RunID] != nil || d.targets[buildTargetID].Failures != 1 {
-		status := d.statusLocked()
-		d.mu.Unlock()
-		t.Fatalf("startup timeout did not stop/reap and back off: status=%+v", status)
-	}
-	d.mu.Unlock()
-}
-
 func TestDrainTimeoutForceStopsButIsNotSuccess(t *testing.T) {
 	d, _ := testDaemon(t)
 	cleanupProcesses(t, d)

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	settings "github.com/Songmu/ghalet/config"
+	"github.com/Songmu/ghalet/telemetry"
 )
 
 // ApplyResult includes the applied snapshot and individual reconciliation results.
@@ -56,18 +57,33 @@ func (d *daemon) apply(ctx context.Context) controlResponse {
 	}
 	d.mu.Lock()
 	err = d.validateApply(next)
+	telemetryChanged := !sameTelemetrySettings(next.Telemetry, d.config.Telemetry)
+	telemetryOnly := telemetryChanged && sameNonTelemetrySettings(d.config, next)
 	d.mu.Unlock()
 	if err != nil {
 		return controlResponse{Error: d.secrets.Redact(err.Error())}
+	}
+	var update *telemetry.Update
+	if telemetryChanged {
+		update, err = d.metrics.Load().Prepare(ctx, Version, next.Telemetry, d.telemetrySnapshot)
+		if err != nil {
+			return controlResponse{Error: d.secrets.Redact(err.Error())}
+		}
+		defer update.Close()
+	}
+	if telemetryOnly {
+		return d.applyTelemetry(ctx, next, update)
 	}
 
 	response, old := d.drainForApply(ctx)
 	if response.Error != "" {
 		return response
 	}
-	if !d.replaceApplyConfig(ctx, next, old) {
+	retired, replaced := d.replaceApplyConfig(ctx, next, old, update)
+	if !replaced {
 		return controlResponse{Error: "apply interrupted by shutdown"}
 	}
+	closeTelemetry(retired)
 	d.registerApplyTargets(ctx, next, &response)
 	retained := d.retireApplyRegistrations(ctx, next, &response)
 	return d.resumeAfterApply(ctx, next, retained, response)
@@ -117,11 +133,11 @@ func (d *daemon) drainForApply(ctx context.Context) (controlResponse, []*targetR
 	return response, old
 }
 
-func (d *daemon) replaceApplyConfig(ctx context.Context, next *settings.Config, old []*targetRuntime) bool {
+func (d *daemon) replaceApplyConfig(ctx context.Context, next *settings.Config, old []*targetRuntime, update *telemetry.Update) (*telemetry.Update, bool) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if ctx.Err() != nil || d.stopping {
-		return false
+		return nil, false
 	}
 	// Retained executions keep their old credentials and log policy, even
 	// when the same registration remains in the new configuration.
@@ -135,6 +151,10 @@ func (d *daemon) replaceApplyConfig(ctx context.Context, next *settings.Config, 
 	}
 	d.retired = append(d.retired, old...)
 	d.config = next
+	var retired *telemetry.Update
+	if update != nil {
+		retired = d.metrics.Load().Commit(update)
+	}
 	d.reloading = true
 	d.targets = make(map[string]*targetRuntime, len(next.Targets))
 	d.order = nil
@@ -143,7 +163,7 @@ func (d *daemon) replaceApplyConfig(ctx context.Context, next *settings.Config, 
 		d.order = append(d.order, config.ID)
 	}
 	d.nextRetention = time.Time{}
-	return true
+	return retired, true
 }
 
 func (d *daemon) registerApplyTargets(ctx context.Context, next *settings.Config, response *controlResponse) {
