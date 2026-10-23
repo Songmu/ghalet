@@ -55,6 +55,9 @@ func TestPromptPTY(t *testing.T) {
 		t.Run(mode, func(t *testing.T) {
 			root := testDirectory(t)
 			command := exec.Command(os.Args[0], "-test.run=^TestPromptProcess$")
+			if directory := os.Getenv("GHALET_TEST_COVERDIR"); directory != "" && testing.CoverMode() != "" {
+				command.Args = append(command.Args, "-test.gocoverdir="+directory)
+			}
 			command.Env = append(os.Environ(), "GHALET_PROMPT_TEST_PROCESS="+mode, "STATE_DIRECTORY=", "XDG_STATE_HOME="+root)
 			attrs := &syscall.SysProcAttr{Setsid: true, Setctty: true}
 			master, slave, err := pty.Open()

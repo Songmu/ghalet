@@ -38,7 +38,11 @@ jobs:
       with:
         go-version-file: go.mod
     - name: test
-      run: go test -race -coverprofile coverage.out -covermode atomic ./...
+      run: |
+        mkdir -p "$RUNNER_TEMP/ghalet-coverage"
+        GHALET_TEST_COVERDIR="$RUNNER_TEMP/ghalet-coverage" \
+          go test -count=1 -race -coverpkg=./... -coverprofile coverage.out -covermode atomic ./...
+        go tool covdata textfmt -i "$RUNNER_TEMP/ghalet-coverage" -o coverage-subprocess.out
     - name: validate builds and example configuration
       run: |
         go vet ./...
@@ -48,6 +52,9 @@ jobs:
         git diff --check
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v7.1.1
+      with:
+        files: coverage.out,coverage-subprocess.out
+        disable_search: true
 
   govulncheck:
     runs-on: ubuntu-latest

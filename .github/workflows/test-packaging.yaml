@@ -81,7 +81,7 @@ jobs:
         sudo "$RUNNER_TEMP/fshelper-tests" -test.run '^TestLockFileAdministratorUsesDirectoryOwner$' -test.v
         go test -c -o "$RUNNER_TEMP/credential-tests" ./credentialstore
         sudo env GHALET_TEST_SYSTEMD_CREDENTIALS=1 \
-          "$RUNNER_TEMP/credential-tests" -test.run '^TestSystemdCredentialEncryption$' -test.v
+          "$RUNNER_TEMP/credential-tests" -test.run '^TestSystemd(Credential|AppKey)Encryption$' -test.v
         go test -c -o "$RUNNER_TEMP/ghalet-credential-tests" .
         sudo env GHALET_TEST_SYSTEMD_CREDENTIALS=1 \
           "$RUNNER_TEMP/ghalet-credential-tests" -test.run '^TestProtectedSystemd' -test.v

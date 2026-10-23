@@ -5,6 +5,9 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -129,6 +132,65 @@ func TestNewPreservesHTTPTimeout(t *testing.T) {
 	timeout := 10 * time.Minute
 	if got := New(timeout).client.Timeout; got != timeout {
 		t.Fatalf("HTTP timeout %s, want %s", got, timeout)
+	}
+}
+
+func TestDownloadPublishesOnlyCompleteResponses(t *testing.T) {
+	for _, name := range []string{"success", "HTTP error", "truncated", "canceled"} {
+		t.Run(name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch name {
+				case "HTTP error":
+					w.WriteHeader(http.StatusServiceUnavailable)
+					return
+				case "truncated":
+					w.Header().Set("Content-Length", "100")
+				}
+				fmt.Fprint(w, "runner archive")
+				if name == "canceled" {
+					w.(http.Flusher).Flush()
+					cancel()
+					<-r.Context().Done()
+				}
+			}))
+			defer server.Close()
+			directory := testDirectory(t)
+			dest := filepath.Join(directory, "runner.tar.gz")
+			if err := os.WriteFile(dest, []byte("original cache"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			distribution := New(5 * time.Second)
+			err := distribution.download(ctx, server.URL, dest)
+			want := "original cache"
+			switch name {
+			case "success":
+				if err != nil {
+					t.Fatal(err)
+				}
+				want = "runner archive"
+			case "truncated":
+				if !errors.Is(err, io.ErrUnexpectedEOF) {
+					t.Fatal("truncated response was not reported", err)
+				}
+			case "canceled":
+				if !errors.Is(err, context.Canceled) {
+					t.Fatal("download did not preserve cancellation", err)
+				}
+			default:
+				if err == nil || !strings.Contains(err.Error(), "HTTP 503") {
+					t.Fatal("HTTP failure was not reported", err)
+				}
+			}
+			if data, err := os.ReadFile(dest); err != nil || string(data) != want {
+				t.Fatal("download published incomplete data or lost the original cache", string(data), err)
+			}
+			entries, err := os.ReadDir(directory)
+			if err != nil || len(entries) != 1 || entries[0].Name() != filepath.Base(dest) {
+				t.Fatal("download left temporary files", entries, err)
+			}
+		})
 	}
 }
 

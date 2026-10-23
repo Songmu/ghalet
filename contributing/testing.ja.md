@@ -20,6 +20,22 @@ CI は Linux と macOS で、実際の GitHub 登録を使わずにテストを�
 ルートパッケージの `TestMain` は、runner helper の子プロセスを明示的に振り分けます。
 CLI の子プロセステストでは、ビルドしたバイナリを通じて非公開コマンドも検証します。
 
+パッケージをまたぐ呼び出しと、CLI・端末プロンプトの子プロセスのカバレッジは、
+CI と同じコマンドで収集できます。
+
+```sh
+coverdir=$(mktemp -d)
+GHALET_TEST_COVERDIR="$coverdir" \
+  go test -count=1 -race -coverpkg=./... -coverprofile coverage.out -covermode atomic ./...
+go tool covdata textfmt -i "$coverdir" -o coverage-subprocess.out
+```
+
+`-count=1` でキャッシュ済みのテスト結果を使わず、子プロセスのプロファイルを再生成します。
+CI は両方のプロファイルを Codecov にアップロードします。収集先は絶対パスで、
+テストユーザーが書き込めるディレクトリを指定してください。特権を使うパッケージ検証や、
+runner guard のようにカバレッジを書き出す前に強制終了する helper は含まれません。
+カバレッジが低いだけで、その処理が未テストとは限りません。
+
 使い捨ての Linux ホスト・コンテナでは、ルートパッケージのテストバイナリをビルドし、
 root で `GHALET_TEST_SYSTEMD_CREDENTIALS=1 ./ghalet-tests -test.run '^TestProtectedSystemdCredentialAccess$' -test.v`
 を実行すると、実際の credential ACL と非 root の読み取りプロセスを検証できます。

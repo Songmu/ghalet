@@ -20,6 +20,22 @@ Run as a non-root user: process tests skip under root.
 The root package's `TestMain` explicitly dispatches runner helper subprocesses.
 CLI subprocess tests also exercise the private commands through the built binary.
 
+To collect coverage across package boundaries and from the CLI and terminal-prompt
+subprocesses, use the same commands as CI:
+
+```sh
+coverdir=$(mktemp -d)
+GHALET_TEST_COVERDIR="$coverdir" \
+  go test -count=1 -race -coverpkg=./... -coverprofile coverage.out -covermode atomic ./...
+go tool covdata textfmt -i "$coverdir" -o coverage-subprocess.out
+```
+
+`-count=1` ensures subprocess profiles are regenerated instead of using cached
+test results. CI uploads both profiles to Codecov. The coverage directory must be
+absolute and writable by the test user. These profiles do not include privileged
+packaging checks or helper processes killed before they can flush coverage, such
+as the runner guard. Low coverage alone does not mean those paths are untested.
+
 On a disposable Linux host/container, compile the root package's test binary
 and run `GHALET_TEST_SYSTEMD_CREDENTIALS=1 ./ghalet-tests -test.run '^TestProtectedSystemdCredentialAccess$' -test.v`
 as root to test real credential ACLs with a non-root reader. With systemd as
