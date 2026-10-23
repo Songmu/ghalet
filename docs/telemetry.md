@@ -48,9 +48,17 @@ not implemented.
 For systemd, set these variables in a service drop-in, run
 `systemctl daemon-reload`, and restart the service. For launchd, use the
 service's `EnvironmentVariables` and reload it. Changing the shell environment
-does not change the running daemon's telemetry. Configuration-file changes
-also require a normal stop/restart; `ghalet apply` rejects telemetry changes.
+does not change the running daemon's telemetry; service environment changes
+require a restart. Configuration-file changes can be reloaded with
+`ghalet apply --config /path/to/config.yaml`.
 See [service deployment](operations.md#service-deployment).
+
+A telemetry-only change does not drain runners or replace target listeners.
+When other settings also change, normal apply reconciliation still runs.
+The replacement is prepared before any drain and does not collect or send
+until committed. Invalid replacement settings leave the old configuration
+and provider active. Retiring the old provider makes a bounded final export;
+a failed delivery is logged but does not roll back the new configuration.
 
 Nonempty environment variables override the corresponding file settings.
 For endpoints, precedence is metrics-specific environment, general environment,
@@ -84,6 +92,7 @@ Following the [service resource conventions](https://opentelemetry.io/docs/specs
 the resource includes ghalet's `service.version` and a fresh
 `service.instance.id` for each daemon start. These two attributes are assigned
 by ghalet rather than inherited from file or environment attributes.
+`service.instance.id` stays the same when telemetry is reconfigured with `apply`.
 Controller environment variables are not automatically copied to runner jobs.
 OTLP authentication-header variables cannot be configured through `runner.env`.
 
@@ -127,16 +136,24 @@ capacity. States with no executions have no series.
 
 The startup histogram's bucket boundaries, in seconds, are
 `0.1, 0.5, 1, 2, 5, 10, 30, 60, 120, 300, 600`.
-Startup measurements are not reconstructed for recovered executions.
+Startup measurements are not reconstructed for recovered executions or
+startups begun while telemetry was disabled. A startup already being measured
+keeps its original timer and records its outcome through the provider active
+at completion. An outcome observed while disabled is not replayed later.
 Runner readiness and exit are not workflow results; no workflow success rate
-is inferred. Runner startup time is not `cicd.pipeline.run.duration`, and
-execution records are not `cicd.pipeline.run.active`; those require pipeline
-identity and lifecycle information that these measurements do not provide.
+is inferred. Scale set notifications include workflow run IDs/references,
+job results, and timestamps, but cover jobs for the managed scale set, not
+necessarily all jobs in a workflow. Runner startup time is therefore not
+`cicd.pipeline.run.duration`, and execution records are not
+`cicd.pipeline.run.active`. These metrics require a workflow-level data source
+rather than treating each job as a pipeline run.
 
-Counters and histograms reset on daemon restart, not on `apply`; counters
-appear after their first measurement. Removed runner-state series disappear
-on the next collection. Historical counter/histogram series can remain for
-the daemon's lifetime. Each instrument is limited to 2000 series, including
+Counters and histograms reset on daemon restart or when changed telemetry
+settings replace the provider. Applying other settings without a telemetry
+change does not reset them. Counters appear after their first measurement.
+Removed runner-state series disappear on the next collection. Historical
+counter/histogram series can remain for
+the provider's lifetime. Each instrument is limited to 2000 series, including
 the SDK's overflow series (`otel.metric.overflow=true`).
 Run IDs, runner names, paths, URLs, and error messages are not metric labels.
 

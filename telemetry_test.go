@@ -1,6 +1,7 @@
 package ghalet
 
 import (
+	"context"
 	"errors"
 	"io"
 	"net/http"
@@ -17,6 +18,20 @@ import (
 	collectormetrics "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
 	"google.golang.org/protobuf/proto"
 )
+
+func clearTelemetryEnvironment(t *testing.T) {
+	t.Helper()
+	for _, name := range []string{
+		"OTEL_SDK_DISABLED", "OTEL_METRICS_EXPORTER", "OTEL_RESOURCE_ATTRIBUTES", "OTEL_SERVICE_NAME",
+		"OTEL_EXPORTER_OTLP_ENDPOINT", "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT",
+		"OTEL_EXPORTER_OTLP_PROTOCOL", "OTEL_EXPORTER_OTLP_METRICS_PROTOCOL",
+		"OTEL_EXPORTER_OTLP_HEADERS", "OTEL_EXPORTER_OTLP_METRICS_HEADERS",
+		"OTEL_METRIC_EXPORT_INTERVAL", "OTEL_METRIC_EXPORT_TIMEOUT",
+		"OTEL_EXPORTER_OTLP_TIMEOUT", "OTEL_EXPORTER_OTLP_METRICS_TIMEOUT",
+	} {
+		t.Setenv(name, "")
+	}
+}
 
 func TestTelemetrySnapshot(t *testing.T) {
 	d, _ := testDaemon(t)
@@ -91,16 +106,7 @@ func TestTelemetryConfiguration(t *testing.T) {
 func TestTelemetryFileExport(t *testing.T) {
 	for _, endpoint := range []string{"file", "general environment", "signal environment"} {
 		t.Run(endpoint, func(t *testing.T) {
-			for _, name := range []string{
-				"OTEL_SDK_DISABLED", "OTEL_METRICS_EXPORTER", "OTEL_RESOURCE_ATTRIBUTES", "OTEL_SERVICE_NAME",
-				"OTEL_EXPORTER_OTLP_ENDPOINT", "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT",
-				"OTEL_EXPORTER_OTLP_PROTOCOL", "OTEL_EXPORTER_OTLP_METRICS_PROTOCOL",
-				"OTEL_EXPORTER_OTLP_HEADERS", "OTEL_EXPORTER_OTLP_METRICS_HEADERS",
-				"OTEL_METRIC_EXPORT_INTERVAL", "OTEL_METRIC_EXPORT_TIMEOUT",
-				"OTEL_EXPORTER_OTLP_TIMEOUT", "OTEL_EXPORTER_OTLP_METRICS_TIMEOUT",
-			} {
-				t.Setenv(name, "")
-			}
+			clearTelemetryEnvironment(t)
 			requests := make(chan *collectormetrics.ExportMetricsServiceRequest, 1)
 			wantPath := "/file/metrics"
 			if endpoint == "general environment" {
@@ -178,24 +184,156 @@ func TestTelemetryFileExport(t *testing.T) {
 	}
 }
 
-func TestTelemetryApplyRequiresRestart(t *testing.T) {
-	d, _ := testDaemon(t)
-	interval := settings.Duration(time.Minute)
-	d.config.Telemetry = settings.TelemetryConfig{
-		Metrics:            settings.MetricsConfig{Exporter: "otlp", Interval: &interval},
-		ResourceAttributes: map[string]string{"deployment.environment.name": "test"},
+func TestTelemetryApply(t *testing.T) {
+	clearTelemetryEnvironment(t)
+	t.Setenv("OTEL_METRIC_EXPORT_INTERVAL", "3600000")
+	d, api := testDaemon(t)
+	useFakeManagement(d, api)
+	m := d.metrics.Load()
+	target := d.targets[buildTargetID]
+	state := testState(t, d.config)
+	state.Ready, state.Busy, state.Phase = true, true, "busy"
+	run := &activeRun{State: state, Target: target}
+	d.runs[state.RunID] = run
+	type exported struct {
+		path string
+		data *collectormetrics.ExportMetricsServiceRequest
+	}
+	requests := make(chan exported, 8)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		data, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		request := &collectormetrics.ExportMetricsServiceRequest{}
+		if err := proto.Unmarshal(data, request); err != nil {
+			t.Error(err)
+			return
+		}
+		requests <- exported{path: r.URL.Path, data: request}
+		w.Header().Set("Content-Type", "application/x-protobuf")
+	}))
+	defer server.Close()
+	defer m.Close()
+	apply := func(next *settings.Config) {
+		t.Helper()
+		writeApplyConfig(t, next)
+		ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
+		defer cancel()
+		if response := d.apply(ctx); response.Error != "" {
+			t.Fatalf("telemetry apply failed: %+v", response)
+		}
+	}
+	instanceID := ""
+	checkExport := func(name string, attempts int64, startups uint64) {
+		t.Helper()
+		var request exported
+		select {
+		case request = <-requests:
+		case <-time.After(3 * time.Second):
+			t.Fatal("retired provider did not make its final export")
+		}
+		if request.path != "/"+name || len(request.data.ResourceMetrics) != 1 {
+			t.Fatalf("unexpected export: %+v", request)
+		}
+		resource := request.data.ResourceMetrics[0]
+		attrs := map[string]string{}
+		for _, attr := range resource.Resource.Attributes {
+			attrs[attr.Key] = attr.Value.GetStringValue()
+		}
+		if instanceID == "" {
+			instanceID = attrs["service.instance.id"]
+		}
+		if instanceID == "" || attrs["service.instance.id"] != instanceID || attrs["service.name"] != name {
+			t.Fatalf("resource configuration or daemon identity lost across apply: %v", attrs)
+		}
+		var gotAttempts int64
+		var gotStartups uint64
+		for _, scope := range resource.ScopeMetrics {
+			for _, metric := range scope.Metrics {
+				switch metric.Name {
+				case "ghalet.runner.start.attempts":
+					for _, point := range metric.GetSum().DataPoints {
+						gotAttempts += point.GetAsInt()
+					}
+				case "ghalet.runner.startup.duration":
+					for _, point := range metric.GetHistogram().DataPoints {
+						gotStartups += point.Count
+					}
+				}
+			}
+		}
+		if gotAttempts != attempts || gotStartups != startups {
+			t.Fatalf("%s: attempts=%d startups=%d, want %d/%d", name, gotAttempts, gotStartups, attempts, startups)
+		}
 	}
 	next := nextConfig(d)
-	equalInterval := interval
-	next.Telemetry.Metrics.Interval = &equalInterval
-	next.Telemetry.ResourceAttributes = map[string]string{"deployment.environment.name": "test"}
-	if err := d.validateApply(next); err != nil {
-		t.Fatalf("equivalent telemetry settings require restart: %v", err)
+	next.Telemetry.ServiceName = "first"
+	next.Telemetry.Metrics = settings.MetricsConfig{Exporter: "otlp", Endpoint: server.URL + "/first"}
+	apply(next)
+	startup := m.StartRunner(buildTargetID)
+	next = nextConfig(d)
+	next.Telemetry.ServiceName = "second"
+	next.Telemetry.Metrics.Endpoint = server.URL + "/second"
+	writeApplyConfig(t, next)
+	t.Setenv("OTEL_EXPORTER_OTLP_METRICS_PROTOCOL", "grpc")
+	if response := d.apply(t.Context()); response.Error == "" || !strings.Contains(response.Error, "http/protobuf") {
+		t.Fatalf("invalid telemetry update was not rejected: %+v", response)
 	}
-	next.Telemetry.ResourceAttributes["deployment.environment.name"] = "changed"
-	if err := d.validateApply(next); err == nil || !strings.Contains(err.Error(), "stop/restart") {
-		t.Fatalf("telemetry change silently accepted by apply: %v", err)
+	t.Setenv("OTEL_EXPORTER_OTLP_METRICS_PROTOCOL", "")
+	if d.config.Telemetry.ServiceName != "first" || target.Draining || d.runs[state.RunID] != run {
+		t.Fatal("failed telemetry preparation changed config or drained a runner")
 	}
+	apply(next)
+	if d.metrics.Load() != m || d.targets[buildTargetID] != target || target.Draining ||
+		d.runs[state.RunID] != run || !run.State.Busy || api.createCalls != 0 || api.deleteCalls != 0 {
+		t.Fatal("telemetry-only apply replaced the recorder, listener, or busy runner")
+	}
+	checkExport("first", 1, 0)
+	startup.Ready()
+	startup.Ready()
+	m.StartRunner(buildTargetID)
+
+	d.mu.Lock()
+	delete(d.runs, state.RunID)
+	d.mu.Unlock()
+	next = nextConfig(d)
+	next.Capacity.MaxRunners++
+	apply(next)
+	if len(requests) != 0 {
+		t.Fatal("applying other settings retired an unchanged telemetry provider")
+	}
+	m.StartRunner(buildTargetID)
+	previousTarget := d.targets[buildTargetID]
+	next = nextConfig(d)
+	next.Capacity.MaxRunners++
+	next.Telemetry.ServiceName = "third"
+	next.Telemetry.Metrics.Endpoint = server.URL + "/third"
+	apply(next)
+	if d.config.Capacity != next.Capacity || d.targets[buildTargetID] == previousTarget || d.metrics.Load() != m {
+		t.Fatal("mixed apply failed to reconcile targets and telemetry together")
+	}
+	checkExport("second", 2, 1)
+	disabledStartup := m.StartRunner(buildTargetID)
+	next = nextConfig(d)
+	next.Telemetry.Metrics.Exporter = "none"
+	apply(next)
+	checkExport("third", 1, 0)
+	disabledStartup.Ready()
+	if m.StartRunner(buildTargetID) != nil {
+		t.Fatal("disabled metrics still recorded a startup")
+	}
+	next = nextConfig(d)
+	next.Telemetry.ServiceName = "fourth"
+	next.Telemetry.Metrics = settings.MetricsConfig{Exporter: "otlp", Endpoint: server.URL + "/fourth"}
+	apply(next)
+	disabledStartup.Ready()
+	m.StartRunner(buildTargetID).Ready()
+	if err := m.Close(); err != nil {
+		t.Fatal(err)
+	}
+	checkExport("fourth", 1, 1)
 }
 
 func TestDaemonOTLPMetrics(t *testing.T) {

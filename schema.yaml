@@ -121,7 +121,7 @@ properties:
           absolute, or ~/.local/state/ghalet/logs.
   telemetry:
     type: object
-    description: Optional daemon metrics. Changes require a normal stop/restart; nonempty OTel environment variables override these defaults.
+    description: Optional daemon metrics, reloadable with apply. Telemetry-only changes do not drain runners; nonempty OTel environment variables override these defaults.
     properties:
       serviceName:
         type: string

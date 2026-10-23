@@ -81,10 +81,12 @@ func TestMetricContract(t *testing.T) {
 		Runners: map[Runner]int64{{"target", "idle"}: 1},
 		Workers: map[Runner]int64{{"target", "available"}: 1},
 	}
-	m, err := newMetrics(provider, "test", func() Snapshot { return snapshot })
-	if err != nil {
+	g := &generation{provider: provider}
+	if err := g.instrument("test", func() Snapshot { return snapshot }); err != nil {
 		t.Fatal(err)
 	}
+	m := NewRecorder()
+	m.Commit(&Update{generation: g})
 	ready := m.StartRunner("target")
 	ready.Ready()
 	ready.Ready()

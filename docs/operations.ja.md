@@ -278,7 +278,7 @@ listener と準備・起動の一時的な失敗は、対応する listener ま�
 workflow の実行結果に対する再試行は ghalet では行いません。
 
 SIGINT / SIGTERM は通常停止時に全 target の drain を開始します。
-`apply` も設定切り替え前に全 target を drain します。
+`apply` も設定切り替え前に全 target を drain しますが、テレメトリだけの変更は除きます。
 通常停止では Scale Set を残します。
 新規取得と待機 runner の補充は止まりますが、割り当て済みで未起動のジョブには、
 target・ホスト両方の上限内で引き続き runner を用意できます。
@@ -315,12 +315,13 @@ ghalet apply --config /path/to/config.yaml
 sudo systemctl reload ghalet
 ```
 
-target、上限、認証情報、runner バージョン、環境変数、タイムアウト、ログ保存方針は、
+target、上限、認証情報、runner バージョン、環境変数、タイムアウト、ログ保存方針、テレメトリは、
 設定を編集して `apply` で反映します。稼働中のデーモンが必要で、
 そのデーモン自身の設定パスを再読込し、ファイルは変更しません。
 設定が存在しないか不正な場合は失敗し、別のファイルで代用しません。
+[テレメトリ](telemetry.ja.md)だけの変更では、runner の drain や target listener の置き換えを行いません。
 
-`apply` は反映処理の完了まで待ちます。
+それ以外の変更では、`apply` は反映処理の完了まで待ちます。
 新設定を検証してから新規受付を止め、旧設定の上限・タイムアウトで全 target を drain し、
 listener を閉じた後、新設定の target を登録して listener の初期化を待ちます。
 変更のない Scale Set は再利用します。起動失敗は apply の結果に含め、
@@ -344,7 +345,7 @@ listener を閉じた後、新設定の target を登録して listener の初�
 停止要求では apply を中断します。CLI が切断・タイムアウトしてもデーモン側では処理を
 継続するため、再試行前に `status` と `doctor` を確認してください。
 
-実行ユーザー・管理ディレクトリ・[テレメトリ](telemetry.ja.md)の変更には通常停止・再起動が必要で、
+実行ユーザーと管理ディレクトリの変更には通常停止・再起動が必要で、
 drain 前に拒否します。環境変数や systemd が復号した認証情報ファイルは稼働中サービスに
 属し、付属の unit でその入力を更新するにはサービスの再起動が必要です。
 通常の認証情報ファイルは apply で新クライアントを作る際に再読込します。

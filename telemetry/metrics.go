@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	settings "github.com/Songmu/ghalet/config"
@@ -36,19 +37,52 @@ type Snapshot struct {
 	Workers  map[Runner]int64
 }
 
-// Metrics owns one daemon's provider. A nil Metrics is disabled.
+// Metrics routes lifecycle measurements to the current provider.
+// A nil Metrics or one without a provider is disabled.
 type Metrics struct {
+	mu         sync.RWMutex
+	current    *generation
+	instanceID string
+}
+
+type generation struct {
 	provider        *sdkmetric.MeterProvider
+	active          atomic.Bool
 	startAttempts   metric.Int64Counter
 	systemErrors    metric.Int64Counter
 	startupDuration metric.Float64Histogram
 }
 
+// Update owns a prepared provider until Commit consumes it.
+type Update struct {
+	generation *generation
+}
+
+// NewRecorder creates a stable lifecycle recorder without an SDK or background work.
+func NewRecorder() *Metrics {
+	return &Metrics{instanceID: rand.Text()}
+}
+
 // New enables OTLP/HTTP metrics when configuration or OTEL_METRICS_EXPORTER selects "otlp".
 // It does not modify the global OTel providers or start a network listener.
 func New(ctx context.Context, version string, config settings.TelemetryConfig, snapshot func() Snapshot) (*Metrics, error) {
-	if strings.EqualFold(os.Getenv("OTEL_SDK_DISABLED"), "true") {
+	m := NewRecorder()
+	update, err := m.Prepare(ctx, version, config, snapshot)
+	if err != nil {
+		return nil, err
+	}
+	if update.generation == nil {
 		return nil, nil
+	}
+	m.Commit(update)
+	return m, nil
+}
+
+// Prepare validates and constructs a replacement without collecting or exporting.
+// Close the returned update if it is not committed.
+func (m *Metrics) Prepare(ctx context.Context, version string, config settings.TelemetryConfig, snapshot func() Snapshot) (*Update, error) {
+	if strings.EqualFold(os.Getenv("OTEL_SDK_DISABLED"), "true") {
+		return &Update{}, nil
 	}
 	if err := config.Validate(); err != nil {
 		return nil, err
@@ -59,7 +93,7 @@ func New(ctx context.Context, version string, config settings.TelemetryConfig, s
 	}
 	switch selected {
 	case "", "none":
-		return nil, nil
+		return &Update{}, nil
 	case "otlp":
 	default:
 		return nil, errors.New("metrics exporter must be otlp or none")
@@ -84,7 +118,7 @@ func New(ctx context.Context, version string, config settings.TelemetryConfig, s
 		resource.WithFromEnv(),
 		resource.WithAttributes(
 			semconv.ServiceVersion(version),
-			semconv.ServiceInstanceID(rand.Text()),
+			semconv.ServiceInstanceID(m.instanceID),
 		),
 	)
 	if err != nil {
@@ -114,61 +148,74 @@ func New(ctx context.Context, version string, config settings.TelemetryConfig, s
 	if err != nil {
 		return nil, errors.New("cannot initialize OTLP metrics exporter; check its endpoint and TLS configuration")
 	}
-	reader := sdkmetric.NewPeriodicReader(redactedExporter{exporter}, readerOptions...)
-	provider := sdkmetric.NewMeterProvider(
+	g := &generation{}
+	reader := sdkmetric.NewPeriodicReader(redactedExporter{Exporter: exporter, active: &g.active}, readerOptions...)
+	g.provider = sdkmetric.NewMeterProvider(
 		sdkmetric.WithReader(reader),
 		sdkmetric.WithResource(res),
 		sdkmetric.WithCardinalityLimit(2000),
 	)
-	m, err := newMetrics(provider, version, snapshot)
-	if err != nil {
-		closeCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
-		defer cancel()
-		_ = provider.Shutdown(closeCtx)
+	if err := g.instrument(version, snapshot); err != nil {
+		_ = (&Update{generation: g}).Close()
 		return nil, err
 	}
-	return m, nil
+	return &Update{generation: g}, nil
 }
 
-func newMetrics(provider *sdkmetric.MeterProvider, version string, snapshot func() Snapshot) (*Metrics, error) {
-	m := &Metrics{provider: provider}
-	meter := provider.Meter("github.com/Songmu/ghalet",
+// Commit atomically installs a prepared provider and returns the previous one.
+// Close the returned update outside application locks; it makes a final export.
+func (m *Metrics) Commit(next *Update) *Update {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	old := &Update{generation: m.current}
+	m.current, next.generation = next.generation, nil
+	if m.current != nil {
+		m.current.active.Store(true)
+	}
+	return old
+}
+
+func (g *generation) instrument(version string, snapshot func() Snapshot) error {
+	meter := g.provider.Meter("github.com/Songmu/ghalet",
 		metric.WithInstrumentationVersion(version), metric.WithSchemaURL(semconv.SchemaURL))
 	var err error
-	if m.startAttempts, err = meter.Int64Counter("ghalet.runner.start.attempts",
+	if g.startAttempts, err = meter.Int64Counter("ghalet.runner.start.attempts",
 		metric.WithUnit("{attempt}"), metric.WithDescription("Runner startup attempts.")); err != nil {
-		return nil, err
+		return err
 	}
-	if m.systemErrors, err = meter.Int64Counter("cicd.system.errors",
+	if g.systemErrors, err = meter.Int64Counter("cicd.system.errors",
 		metric.WithUnit("{error}"), metric.WithDescription("Errors in runner startup and cleanup in the controller.")); err != nil {
-		return nil, err
+		return err
 	}
-	if m.startupDuration, err = meter.Float64Histogram("ghalet.runner.startup.duration",
+	if g.startupDuration, err = meter.Float64Histogram("ghalet.runner.startup.duration",
 		metric.WithUnit("s"), metric.WithDescription("Time from runner reservation to first observed readiness."),
 		metric.WithExplicitBucketBoundaries(0.1, 0.5, 1, 2, 5, 10, 30, 60, 120, 300, 600)); err != nil {
-		return nil, err
+		return err
 	}
 	capacity, err := meter.Int64ObservableGauge("ghalet.capacity.limit",
 		metric.WithUnit("{slot}"), metric.WithDescription("Configured host-wide runner capacity."))
 	if err != nil {
-		return nil, err
+		return err
 	}
 	occupied, err := meter.Int64ObservableGauge("ghalet.capacity.occupied",
 		metric.WithUnit("{slot}"), metric.WithDescription("Occupied capacity, including retained diagnostic reservations."))
 	if err != nil {
-		return nil, err
+		return err
 	}
 	runners, err := meter.Int64ObservableUpDownCounter("ghalet.execution.count",
 		metric.WithUnit("{execution}"), metric.WithDescription("Retained runner executions by target and exclusive state."))
 	if err != nil {
-		return nil, err
+		return err
 	}
 	workers, err := meter.Int64ObservableUpDownCounter("cicd.worker.count",
 		metric.WithUnit("{worker}"), metric.WithDescription("Known online workers managed by this daemon, by target and state."))
 	if err != nil {
-		return nil, err
+		return err
 	}
 	_, err = meter.RegisterCallback(func(_ context.Context, observer metric.Observer) error {
+		if !g.active.Load() {
+			return nil
+		}
 		s := snapshot()
 		observer.ObserveInt64(capacity, s.Capacity)
 		observer.ObserveInt64(occupied, s.Occupied)
@@ -186,20 +233,28 @@ func newMetrics(provider *sdkmetric.MeterProvider, version string, snapshot func
 		}
 		return nil
 	}, capacity, occupied, runners, workers)
-	if err != nil {
-		return nil, err
-	}
-	return m, nil
+	return err
 }
 
-// Close makes a final export and releases resources with a bounded wait.
+// Close disables measurements and shuts down the current provider.
 func (m *Metrics) Close() error {
 	if m == nil {
 		return nil
 	}
+	return m.Commit(&Update{}).Close()
+}
+
+// Close releases a prepared or retired provider with a bounded wait.
+// An uncommitted provider does not collect or export.
+func (u *Update) Close() error {
+	if u == nil || u.generation == nil {
+		return nil
+	}
+	g := u.generation
+	u.generation = nil
 	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
-	return m.provider.Shutdown(ctx)
+	return g.provider.Shutdown(ctx)
 }
 
 // Startup follows one reservation across worker snapshots and duplicate events.
@@ -216,8 +271,13 @@ func (m *Metrics) StartRunner(targetID string) *Startup {
 	if m == nil {
 		return nil
 	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.current == nil {
+		return nil
+	}
 	options := metric.WithAttributes(attribute.String("ghalet.target.id", targetID))
-	m.startAttempts.Add(context.Background(), 1, options)
+	m.current.startAttempts.Add(context.Background(), 1, options)
 	return &Startup{metrics: m, started: time.Now(), options: options, targetID: targetID}
 }
 
@@ -227,7 +287,11 @@ func (s *Startup) Ready() {
 		return
 	}
 	s.once.Do(func() {
-		s.metrics.startupDuration.Record(context.Background(), time.Since(s.started).Seconds(), s.options)
+		s.metrics.mu.RLock()
+		defer s.metrics.mu.RUnlock()
+		if current := s.metrics.current; current != nil {
+			current.startupDuration.Record(context.Background(), time.Since(s.started).Seconds(), s.options)
+		}
 	})
 }
 
@@ -251,6 +315,11 @@ func (m *Metrics) CleanupFailed(targetID string, err error) {
 }
 
 func (m *Metrics) recordError(targetID, operation string, err error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.current == nil {
+		return
+	}
 	kind := "_OTHER"
 	var timeout interface{ Timeout() bool }
 	switch {
@@ -263,7 +332,7 @@ func (m *Metrics) recordError(targetID, operation string, err error) {
 	case errors.Is(err, context.Canceled):
 		kind = "canceled"
 	}
-	m.systemErrors.Add(context.Background(), 1, metric.WithAttributes(
+	m.current.systemErrors.Add(context.Background(), 1, metric.WithAttributes(
 		attribute.String("ghalet.target.id", targetID),
 		attribute.String("ghalet.operation", operation),
 		semconv.CICDSystemComponent("controller"),
@@ -271,9 +340,15 @@ func (m *Metrics) recordError(targetID, operation string, err error) {
 	))
 }
 
-type redactedExporter struct{ sdkmetric.Exporter }
+type redactedExporter struct {
+	sdkmetric.Exporter
+	active *atomic.Bool
+}
 
 func (e redactedExporter) Export(ctx context.Context, data *metricdata.ResourceMetrics) error {
+	if !e.active.Load() {
+		return nil
+	}
 	if err := e.Exporter.Export(ctx, data); err != nil {
 		// SDK diagnostics must not include collector URLs, credentials, or response bodies.
 		return errors.New("OTLP metrics export failed")

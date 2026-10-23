@@ -2,7 +2,57 @@
 
 package ghalet
 
-import "github.com/Songmu/ghalet/telemetry"
+import (
+	"context"
+	"log/slog"
+	"maps"
+	"reflect"
+
+	settings "github.com/Songmu/ghalet/config"
+	"github.com/Songmu/ghalet/telemetry"
+)
+
+func sameTelemetrySettings(current, next settings.TelemetryConfig) bool {
+	if !maps.Equal(current.ResourceAttributes, next.ResourceAttributes) {
+		return false
+	}
+	current.ResourceAttributes, next.ResourceAttributes = nil, nil
+	return reflect.DeepEqual(current, next)
+}
+
+func sameNonTelemetrySettings(current, next *settings.Config) bool {
+	currentRunner, nextRunner := current.Runner, next.Runner
+	if !maps.Equal(currentRunner.Env, nextRunner.Env) {
+		return false
+	}
+	currentRunner.Env, nextRunner.Env = nil, nil
+	return current.Path == next.Path && current.ManagedFile == next.ManagedFile &&
+		current.Capacity == next.Capacity && current.Logs == next.Logs &&
+		reflect.DeepEqual(current.Defaults, next.Defaults) &&
+		reflect.DeepEqual(current.Targets, next.Targets) &&
+		reflect.DeepEqual(currentRunner, nextRunner)
+}
+
+func closeTelemetry(update *telemetry.Update) {
+	if err := update.Close(); err != nil {
+		slog.Warn("Retired telemetry shutdown incomplete", "event", "telemetry.shutdown_failed")
+	}
+}
+
+func (d *daemon) applyTelemetry(ctx context.Context, next *settings.Config, update *telemetry.Update) controlResponse {
+	d.mu.Lock()
+	if ctx.Err() != nil || d.stopping {
+		d.mu.Unlock()
+		return controlResponse{Error: "apply interrupted by shutdown"}
+	}
+	d.config = next
+	old := d.metrics.Load().Commit(update)
+	status := d.statusLocked()
+	d.mu.Unlock()
+	closeTelemetry(old)
+	slog.Info("Telemetry configuration applied", "event", "config.applied", "targets", len(next.Targets))
+	return controlResponse{Status: &status}
+}
 
 func (d *daemon) telemetrySnapshot() telemetry.Snapshot {
 	d.mu.Lock()

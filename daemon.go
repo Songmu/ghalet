@@ -227,6 +227,7 @@ func newDaemon(c *settings.Config) (*daemon, error) {
 		ctx: ctx, cancel: cancel,
 		makeRunDirectory: createRunDirectory,
 	}
+	d.metrics.Store(telemetry.NewRecorder())
 	d.clientFactory = func(ctx context.Context, target settings.Target) (scaleAPI, error) {
 		return newScaleClient(ctx, target, secret)
 	}

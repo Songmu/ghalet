@@ -47,9 +47,16 @@ systemd ではサービスのドロップインで環境変数を設定し、
 `systemctl daemon-reload` 後にサービスを再起動してください。launchd では
 サービスの `EnvironmentVariables` に設定して再読込します。
 シェルの環境変数を変えても、稼働中のデーモンのテレメトリ設定は変わりません。
-設定ファイルの変更にも通常の停止・再起動が必要で、
-`ghalet apply` はテレメトリ設定の変更を拒否します。
+サービスの環境変数の変更には再起動が必要ですが、設定ファイルの変更は
+`ghalet apply --config /path/to/config.yaml` で反映できます。
 [サービスとしての常駐化](operations.ja.md#サービスとしての常駐化)を参照してください。
+
+テレメトリだけの変更では runner の drain や target listener の置き換えを行いません。
+他の設定も同時に変更した場合は、通常の apply の反映処理を行います。
+新しい provider は drain 前に準備し、反映までは収集・送信しません。
+準備に失敗した場合は旧設定・provider を維持します。
+旧 provider の終了時には期限付きで最後の送信を試みますが、配信失敗はログに記録するだけで、
+新設定をロールバックしません。
 
 空でない環境変数は対応するファイル設定より優先します。endpoint の優先順位は、
 メトリクス固有の環境変数、全体の環境変数、設定ファイル、SDK デフォルトの順です。
@@ -82,6 +89,7 @@ SDK の標準 OTLP/HTTP 設定による圧縮、TLS 証明書、メトリクス�
 resource には ghalet の `service.version` と、デーモン起動ごとに新しい
 `service.instance.id` を付けます。この 2 属性はファイル・環境変数の属性から
 継承せず、ghalet が設定します。
+`apply` でテレメトリを再構成しても `service.instance.id` は維持します。
 コントローラーの環境変数は runner のジョブへ自動ではコピーされません。
 OTLP 認証ヘッダーの環境変数は `runner.env` に設定できません。
 
@@ -123,15 +131,20 @@ system errors の対象は `ghalet.operation=runner.start`（ready 前の失敗�
 
 起動時間 histogram の bucket 境界は、秒単位で
 `0.1, 0.5, 1, 2, 5, 10, 30, 60, 120, 300, 600` です。
-復旧した実行の起動計測値は再構成しません。
+復旧した実行や、テレメトリ無効時に開始した起動の計測値は再構成しません。
+すでに計測中の起動は元のタイマーを維持し、完了時点で有効な provider に結果を記録します。
+無効時に観測した結果を、後から再送することはありません。
 runner の ready や終了は workflow の結果ではなく、workflow 成功率は推測しません。
-runner 起動時間を `cicd.pipeline.run.duration`、実行記録数を
-`cicd.pipeline.run.active` としては扱いません。それらが必要とする pipeline の
-識別情報・ライフサイクルは、この計測値からは得られないためです。
+Scale Set の通知には workflow run ID・workflow 参照・ジョブ結果・時刻が含まれますが、
+対象はその Scale Set のジョブであり、workflow の全ジョブとは限りません。
+そのため runner 起動時間を `cicd.pipeline.run.duration`、実行記録数を
+`cicd.pipeline.run.active` としては扱いません。これらの計測には、各ジョブを
+pipeline run と見なすのではなく、workflow 単位の情報源が必要です。
 
-counter と histogram は `apply` ではなくデーモンの再起動でリセットします。
+counter と histogram は、デーモンの再起動またはテレメトリ設定変更による provider の
+置き換えでリセットします。テレメトリ設定を変えずに他の設定を `apply` する場合はリセットしません。
 counter は最初の計測後に現れます。削除された runner 状態の series は次の収集で消えますが、
-過去の counter・histogram の series はデーモンの存続中に残ることがあります。
+過去の counter・histogram の series は provider の存続中に残ることがあります。
 instrument ごとに、SDK の overflow series（`otel.metric.overflow=true`）を含む
 2000 series を上限とします。
 run ID、runner 名、path、URL、エラー本文はメトリクスのラベルに含めません。

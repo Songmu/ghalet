@@ -51,7 +51,7 @@ targets:
 #   retention: 7d # Log retention (d, h, m, s).
 #   root: /absolute/path/to/logs # Default: $STATE_DIRECTORY/logs or the XDG state directory's logs.
 
-# telemetry: # Disabled by default; changes require a stop/restart.
+# telemetry: # Disabled by default; reload changes with ghalet apply.
 #   serviceName: ghalet
 #   resourceAttributes:
 #     deployment.environment.name: production
