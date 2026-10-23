@@ -5,7 +5,10 @@ import (
 	"context"
 	"crypto/rand"
 	"errors"
+	"fmt"
+	"net/url"
 	"os"
+	"regexp"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -22,6 +25,8 @@ import (
 )
 
 const shutdownTimeout = 3 * time.Second
+
+var headerNamePattern = regexp.MustCompile("^[!#$%&'*+.^_`|~0-9A-Za-z-]+$")
 
 // Runner identifies a bounded execution- or worker-state series, not an individual execution.
 type Runner struct {
@@ -105,6 +110,9 @@ func (m *Metrics) Prepare(ctx context.Context, version string, config settings.T
 	if protocol != "" && protocol != "http/protobuf" {
 		return nil, errors.New("OTLP metrics require the http/protobuf protocol")
 	}
+	if err := validateExporterEnvironment(); err != nil {
+		return nil, err
+	}
 	attributes := []attribute.KeyValue{semconv.ServiceName("ghalet")}
 	for name, value := range config.ResourceAttributes {
 		attributes = append(attributes, attribute.String(name, value))
@@ -160,6 +168,33 @@ func (m *Metrics) Prepare(ctx context.Context, version string, config settings.T
 		return nil, err
 	}
 	return &Update{generation: g}, nil
+}
+
+func validateExporterEnvironment() error {
+	for _, name := range []string{"OTEL_EXPORTER_OTLP_ENDPOINT", "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT"} {
+		if value := strings.TrimSpace(os.Getenv(name)); value != "" {
+			if _, err := url.Parse(value); err != nil {
+				return fmt.Errorf("%s is not a valid OTLP endpoint URL", name)
+			}
+		}
+	}
+	// The SDK parses general settings even when signal-specific settings override them.
+	for _, name := range []string{"OTEL_EXPORTER_OTLP_HEADERS", "OTEL_EXPORTER_OTLP_METRICS_HEADERS"} {
+		value := strings.TrimSpace(os.Getenv(name))
+		if value == "" {
+			continue
+		}
+		for _, header := range strings.Split(value, ",") {
+			key, value, found := strings.Cut(header, "=")
+			if !found || !headerNamePattern.MatchString(strings.TrimSpace(key)) {
+				return fmt.Errorf("%s must contain URL-encoded key=value headers", name)
+			}
+			if _, err := url.PathUnescape(value); err != nil {
+				return fmt.Errorf("%s must contain URL-encoded key=value headers", name)
+			}
+		}
+	}
+	return nil
 }
 
 // Commit atomically installs a prepared provider and returns the previous one.

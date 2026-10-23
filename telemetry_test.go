@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -14,6 +15,7 @@ import (
 
 	settings "github.com/Songmu/ghalet/config"
 	"github.com/Songmu/ghalet/telemetry"
+	"github.com/actions/scaleset"
 	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 	collectormetrics "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
 	"google.golang.org/protobuf/proto"
@@ -43,13 +45,16 @@ func TestTelemetrySnapshot(t *testing.T) {
 		"exiting":   {State: &RunState{TargetID: "target", RunnerID: 3, Ready: true, Phase: "exiting"}},
 		"cleaning":  {State: &RunState{TargetID: "target", RunnerID: 4, Ready: true, ProcessDone: true}},
 		"uncertain": {State: &RunState{TargetID: "target", RunnerID: 5, Ready: true, ProcessDone: true}, Uncertain: true},
+		"exited":    {State: &RunState{TargetID: "target", RunnerID: 6, Ready: true, Busy: true}, Exited: true},
+		"stopped":   {State: &RunState{TargetID: "target", RunnerID: 7, Ready: true}, GroupStopped: true},
 	}
 	snapshot := d.telemetrySnapshot()
 	want := map[telemetry.Runner]int64{}
 	for _, state := range []string{"preparing", "idle", "busy", "exiting", "cleaning", "uncertain"} {
 		want[telemetry.Runner{TargetID: "target", State: state}] = 1
 	}
-	if snapshot.Capacity != int64(d.config.Capacity.MaxRunners) || snapshot.Occupied != 6 || !reflect.DeepEqual(snapshot.Runners, want) {
+	want[telemetry.Runner{TargetID: "target", State: "exiting"}] = 3
+	if snapshot.Capacity != int64(d.config.Capacity.MaxRunners) || snapshot.Occupied != 8 || !reflect.DeepEqual(snapshot.Runners, want) {
 		t.Fatalf("unexpected snapshot: %+v", snapshot)
 	}
 	wantWorkers := map[telemetry.Runner]int64{
@@ -66,6 +71,109 @@ func TestTelemetrySnapshot(t *testing.T) {
 	delete(d.runs, "idle")
 	if snapshot.Runners[telemetry.Runner{TargetID: "target", State: "idle"}] != 1 {
 		t.Fatal("snapshot aliases daemon state")
+	}
+}
+
+func TestTelemetryStartupTimeout(t *testing.T) {
+	for _, outcome := range []string{"cleanup succeeds", "cleanup fails", "assignment wins"} {
+		t.Run(outcome, func(t *testing.T) {
+			clearTelemetryEnvironment(t)
+			d, api := testDaemon(t)
+			cleanupProcesses(t, d)
+			requests := make(chan *collectormetrics.ExportMetricsServiceRequest, 1)
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				data, err := io.ReadAll(r.Body)
+				if err != nil {
+					t.Error(err)
+					return
+				}
+				request := &collectormetrics.ExportMetricsServiceRequest{}
+				if err := proto.Unmarshal(data, request); err != nil {
+					t.Error(err)
+					return
+				}
+				requests <- request
+				w.Header().Set("Content-Type", "application/x-protobuf")
+			}))
+			defer server.Close()
+			m, err := telemetry.New(t.Context(), Version, settings.TelemetryConfig{
+				Metrics: settings.MetricsConfig{Exporter: "otlp", Endpoint: server.URL},
+			}, d.telemetrySnapshot)
+			if err != nil {
+				t.Fatal(err)
+			}
+			d.metrics.Store(m)
+			defer m.Close()
+			seedDistribution(t, d.config, "#!/bin/sh\nsleep 30\n")
+			target := d.targets[buildTargetID]
+			target.Assigned = 1
+			run := waitForRun(t, d, func(run *activeRun) bool {
+				return run.State.Process.PID > 0 && !run.Preparing
+			})
+			state := run.State
+			if state.StartedAt.IsZero() || state.Ready {
+				t.Fatal("startup clock or readiness is invalid")
+			}
+			if outcome == "cleanup fails" {
+				if err := os.MkdirAll(filepath.Dir(d.config.Logs.Root), 0700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(d.config.Logs.Root, []byte("not a directory"), 0600); err != nil {
+					t.Fatal(err)
+				}
+			} else if outcome == "assignment wins" {
+				api.removeErr = scaleset.JobStillRunningError
+			}
+			d.mu.Lock()
+			state.StartedAt = time.Now().Add(-3 * time.Minute)
+			d.reconcile()
+			d.mu.Unlock()
+			settleRuns(d)
+			if outcome == "assignment wins" {
+				if !state.Ready || !state.Busy || state.ProcessDone || target.Failures != 0 {
+					t.Fatal("assignment arbitration did not preserve the ready runner")
+				}
+			} else if target.Failures != 1 || !state.ProcessDone ||
+				(outcome == "cleanup succeeds" && d.runs[state.RunID] != nil) ||
+				(outcome == "cleanup fails" && (d.runs[state.RunID] == nil || state.Error == "")) {
+				t.Fatalf("startup timeout outcome lost: state=%+v, failures=%d", state, target.Failures)
+			}
+			if err := m.Close(); err != nil {
+				t.Fatal(err)
+			}
+			var timeouts, readiness uint64
+			for _, resource := range (<-requests).ResourceMetrics {
+				for _, scope := range resource.ScopeMetrics {
+					for _, metric := range scope.Metrics {
+						if metric.Name == "cicd.system.errors" {
+							for _, point := range metric.GetSum().DataPoints {
+								attributes := map[string]string{}
+								for _, attr := range point.Attributes {
+									attributes[attr.Key] = attr.Value.GetStringValue()
+								}
+								if attributes["ghalet.operation"] == "runner.start" {
+									if attributes["error.type"] != "timeout" {
+										t.Fatalf("startup timeout misclassified: %v", attributes)
+									}
+									timeouts += uint64(point.GetAsInt())
+								}
+							}
+						} else if metric.Name == "ghalet.runner.startup.duration" {
+							for _, point := range metric.GetHistogram().DataPoints {
+								readiness += point.Count
+							}
+						}
+					}
+				}
+			}
+			wantTimeouts, wantReadiness := uint64(1), uint64(0)
+			if outcome == "assignment wins" {
+				wantTimeouts, wantReadiness = 0, 1
+			}
+			if timeouts != wantTimeouts || readiness != wantReadiness {
+				t.Fatalf("timeouts=%d, readiness=%d; want %d, %d", timeouts, readiness, wantTimeouts, wantReadiness)
+			}
+		})
 	}
 }
 

@@ -5,6 +5,8 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"os/exec"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -201,6 +203,43 @@ func TestMetricContract(t *testing.T) {
 				t.Fatal("removed runner series remained observable")
 			}
 		}
+	}
+}
+
+func TestInitializationDiagnostics(t *testing.T) {
+	if os.Getenv("GHALET_TEST_OTEL_INITIALIZATION") == "1" {
+		m, err := New(t.Context(), "test", settings.TelemetryConfig{
+			Metrics: settings.MetricsConfig{Exporter: "otlp"},
+		}, func() Snapshot { return Snapshot{} })
+		if err == nil || m != nil {
+			m.Close()
+			t.Fatal("invalid exporter environment was accepted")
+		}
+		if strings.Contains(err.Error(), "collector-secret") {
+			t.Fatalf("initialization error exposed configuration: %v", err)
+		}
+		return
+	}
+	for _, tc := range []struct{ name, value string }{
+		{"OTEL_EXPORTER_OTLP_HEADERS", "Authorization=collector-secret%"},
+		{"OTEL_EXPORTER_OTLP_METRICS_HEADERS", "collector-secret"},
+		{"OTEL_EXPORTER_OTLP_METRICS_HEADERS", "Authorization=collector-secret%"},
+		{"OTEL_EXPORTER_OTLP_METRICS_HEADERS", "collector-secret invalid=value"},
+		{"OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4318/collector-secret%"},
+		{"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT", "http://localhost:4318/collector-secret%"},
+	} {
+		t.Run(tc.name+"/"+tc.value, func(t *testing.T) {
+			metricEnvironment(t)
+			t.Setenv("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT", "http://127.0.0.1:1/v1/metrics")
+			t.Setenv("OTEL_EXPORTER_OTLP_METRICS_HEADERS", "Authorization=valid")
+			t.Setenv(tc.name, tc.value)
+			command := exec.CommandContext(t.Context(), os.Args[0], "-test.run=^TestInitializationDiagnostics$")
+			command.Env = append(os.Environ(), "GHALET_TEST_OTEL_INITIALIZATION=1")
+			output, err := command.CombinedOutput()
+			if err != nil || strings.Contains(string(output), "collector-secret") {
+				t.Fatalf("unsafe initialization diagnostics: %v\n%s", err, output)
+			}
+		})
 	}
 }
 

@@ -71,7 +71,7 @@ func (d *daemon) telemetrySnapshot() telemetry.Snapshot {
 		case run.Preparing:
 		case run.State.ProcessDone:
 			state = "cleaning"
-		case run.Stopping || run.State.Phase == "exiting":
+		case run.Stopping || run.Exited || run.GroupStopped || run.State.Phase == "exiting":
 			state = "exiting"
 		case run.State.Busy:
 			state = "busy"

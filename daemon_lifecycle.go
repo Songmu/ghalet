@@ -318,10 +318,12 @@ func (d *daemon) enforceStartupTimeout(run *activeRun) {
 		config = d.config
 	}
 	if !state.Ready && !state.Busy && time.Since(state.StartedAt) > time.Duration(config.Runner.StartupTimeout) {
-		if err := d.retireIdle(run); err != nil {
+		err := d.retireIdle(run)
+		if state.ProcessDone && !state.Ready && !state.Busy {
+			run.ioResult.startError = fmt.Errorf("runner startup timeout before readiness: %w", context.DeadlineExceeded)
+		}
+		if err != nil {
 			state.Error = d.secrets.Redact(err.Error())
-		} else {
-			run.ioResult.startError = errors.New("runner startup timeout before readiness")
 		}
 	}
 }
