@@ -22,16 +22,6 @@ type runnerGuardResult struct {
 	Error     string `json:"error,omitempty"`
 }
 
-func init() {
-	if len(os.Args) != 3 || os.Args[1] != runnerGuardArgument {
-		return
-	}
-	if err := runRunnerGuard(os.Args[2]); err != nil {
-		fmt.Fprintln(os.Stderr, "runner guard:", err)
-	}
-	os.Exit(1)
-}
-
 func runnerGuardCommand(runner string) (*exec.Cmd, error) {
 	executable, err := os.Executable()
 	if err != nil {
@@ -46,11 +36,16 @@ func killGuardGroup() {
 	}
 }
 
-func runRunnerGuard(runner string) error {
+// RunRunnerGuard supervises a runner using the inherited controller-liveness
+// and exit-report descriptors and the process's standard streams.
+func RunRunnerGuard(runner string) error {
 	gate, report := os.NewFile(3, "controller-liveness"), os.NewFile(4, "runner-exit")
 	syscall.CloseOnExec(3)
 	syscall.CloseOnExec(4)
-	return guardRunner(runner, bufio.NewReader(gate), report, os.Stdin, os.Stdout, os.Stderr)
+	if err := guardRunner(runner, bufio.NewReader(gate), report, os.Stdin, os.Stdout, os.Stderr); err != nil {
+		return fmt.Errorf("runner guard: %w", err)
+	}
+	return errors.New("runner guard exited without terminating its process group")
 }
 
 func guardRunner(runner string, reader *bufio.Reader, report io.WriteCloser, input io.Reader, stdout, stderr io.Writer) (retErr error) {

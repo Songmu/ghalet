@@ -40,15 +40,11 @@ type runnerUserResult struct {
 	Errno syscall.Errno `json:"errno,omitempty"`
 }
 
-func init() {
-	if (len(os.Args) != 2 && len(os.Args) != 3) || os.Args[1] != runnerUserArgument {
-		return
-	}
-	err := runRunnerUser(os.Stdin)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "runner user:", err)
-	}
-	if len(os.Args) == 2 {
+// RunRunnerUser executes a delegated runner operation using the process's
+// standard streams. A non-empty runner selects the launch protocol.
+func RunRunnerUser(runner string) error {
+	err := runRunnerUser(os.Stdin, runner)
+	if runner == "" {
 		result := runnerUserResult{}
 		if err != nil {
 			result.Error = err.Error()
@@ -57,9 +53,9 @@ func init() {
 		err = errors.Join(err, json.NewEncoder(os.Stdout).Encode(result))
 	}
 	if err != nil {
-		os.Exit(1)
+		return fmt.Errorf("runner user: %w", err)
 	}
-	os.Exit(0)
+	return nil
 }
 
 func readRunnerUserRequest(input io.Reader) (runnerUserRequest, *bufio.Reader, error) {
@@ -89,7 +85,7 @@ func readRunnerUserRequest(input io.Reader) (runnerUserRequest, *bufio.Reader, e
 	return request, reader, nil
 }
 
-func runRunnerUser(input io.Reader) error {
+func runRunnerUser(input io.Reader, runner string) error {
 	if os.Geteuid() == 0 {
 		return errors.New("runner operations require a non-root execution user")
 	}
@@ -103,8 +99,7 @@ func runRunnerUser(input io.Reader) error {
 		command.Dir, command.Env = request.RunnerDir, request.Environment
 		return command.Run()
 	case "launch":
-		runner := filepath.Join(request.RunnerDir, "bin", "Runner.Listener")
-		if len(os.Args) != 3 || os.Args[2] != runner {
+		if runner == "" || runner != filepath.Join(request.RunnerDir, "bin", "Runner.Listener") {
 			return errors.New("runner command does not match the launch request")
 		}
 		if syscall.Getpgrp() != os.Getpid() {

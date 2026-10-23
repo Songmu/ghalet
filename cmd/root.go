@@ -17,6 +17,14 @@ const cmdName = "ghalet"
 
 // Run executes the ghalet command.
 func Run(ctx context.Context, argv []string, outStream, errStream io.Writer) error {
+	if len(argv) > 0 {
+		switch argv[0] {
+		case "__ghalet_runner_user":
+			return runnerUser(argv[1:])
+		case "__ghalet_runner_guard":
+			return runnerGuard(argv[1:])
+		}
+	}
 	fs := flag.NewFlagSet(cmdName, flag.ContinueOnError)
 	fs.SetOutput(errStream)
 	versionFlag := fs.Bool("version", false, "display version")

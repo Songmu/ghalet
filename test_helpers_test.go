@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"os"
@@ -20,6 +21,33 @@ import (
 	"github.com/Songmu/ghalet/logreduct"
 	"github.com/actions/scaleset"
 )
+
+func TestMain(m *testing.M) {
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case runnerUserArgument:
+			if len(os.Args) == 2 || len(os.Args) == 3 {
+				runner := ""
+				if len(os.Args) == 3 {
+					runner = os.Args[2]
+				}
+				if err := RunRunnerUser(runner); err != nil {
+					fmt.Fprintln(os.Stderr, err)
+					os.Exit(1)
+				}
+				os.Exit(0)
+			}
+		case runnerGuardArgument:
+			if len(os.Args) == 3 {
+				if err := RunRunnerGuard(os.Args[2]); err != nil {
+					fmt.Fprintln(os.Stderr, err)
+				}
+				os.Exit(1)
+			}
+		}
+	}
+	os.Exit(m.Run())
+}
 
 func testDirectory(t *testing.T) string {
 	t.Helper()

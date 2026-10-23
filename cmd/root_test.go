@@ -147,6 +147,11 @@ func TestHelpAndInvalidArguments(t *testing.T) {
 		{args: []string{"status", "extra"}, wantErr: "unexpected arguments: extra"},
 		{args: []string{"run", "--unknown"}, wantErr: "flag provided but not defined: -unknown"},
 		{args: []string{"gc", "--dry-run=invalid"}, wantErr: "invalid boolean value"},
+		{args: []string{"__ghalet_runner_user", "runner", "extra"}, wantErr: "usage: ghalet __ghalet_runner_user"},
+		{args: []string{"__ghalet_runner_user", ""}, wantErr: "usage: ghalet __ghalet_runner_user"},
+		{args: []string{"__ghalet_runner_guard"}, wantErr: "usage: ghalet __ghalet_runner_guard"},
+		{args: []string{"__ghalet_runner_guard", ""}, wantErr: "usage: ghalet __ghalet_runner_guard"},
+		{args: []string{"__ghalet_runner_guard", "runner", "extra"}, wantErr: "usage: ghalet __ghalet_runner_guard"},
 	} {
 		t.Run(strings.Join(tc.args, " "), func(t *testing.T) {
 			var output, stderr bytes.Buffer
@@ -154,6 +159,9 @@ func TestHelpAndInvalidArguments(t *testing.T) {
 			if tc.wantHelp {
 				if !errors.Is(err, flag.ErrHelp) || !strings.Contains(stderr.String(), "Usage: ghalet") {
 					t.Fatalf("expected help, got %v (%s)", err, stderr.String())
+				}
+				if strings.Contains(stderr.String(), "__ghalet_runner") {
+					t.Fatal("private runner commands appeared in help")
 				}
 			} else if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
 				t.Fatalf("got %v, want %q", err, tc.wantErr)

@@ -17,6 +17,9 @@ go vet ./...
 CI runs the suite on Linux and macOS without real GitHub registrations.
 Run as a non-root user: process tests skip under root.
 
+The root package's `TestMain` explicitly dispatches runner helper subprocesses.
+CLI subprocess tests also exercise the private commands through the built binary.
+
 On a disposable Linux host/container, compile the root package's test binary
 and run `GHALET_TEST_SYSTEMD_CREDENTIALS=1 ./ghalet-tests -test.run '^TestProtectedSystemdCredentialAccess$' -test.v`
 as root to test real credential ACLs with a non-root reader. With systemd as

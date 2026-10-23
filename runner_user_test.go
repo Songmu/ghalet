@@ -259,7 +259,7 @@ func TestRunnerUserRejectsInvalidOperations(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := runRunnerUser(bytes.NewReader(append(data, '\n'))); err == nil {
+		if err := runRunnerUser(bytes.NewReader(append(data, '\n')), ""); err == nil {
 			t.Fatal("accepted invalid runner operation", request)
 		}
 	}

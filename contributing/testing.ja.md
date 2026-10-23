@@ -17,6 +17,9 @@ go vet ./...
 CI は Linux と macOS で、実際の GitHub 登録を使わずにテストを実行します。
 非 root ユーザーで実行してください。root ではプロセスのテストをスキップします。
 
+ルートパッケージの `TestMain` は、runner helper の子プロセスを明示的に振り分けます。
+CLI の子プロセステストでは、ビルドしたバイナリを通じて非公開コマンドも検証します。
+
 使い捨ての Linux ホスト・コンテナでは、ルートパッケージのテストバイナリをビルドし、
 root で `GHALET_TEST_SYSTEMD_CREDENTIALS=1 ./ghalet-tests -test.run '^TestProtectedSystemdCredentialAccess$' -test.v`
 を実行すると、実際の credential ACL と非 root の読み取りプロセスを検証できます。
