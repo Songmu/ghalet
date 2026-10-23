@@ -11,7 +11,38 @@ ghalet は、OpenTelemetry Collector などの OTLP 対応 receiver にデーモ
 
 ## メトリクスの有効化
 
-設定ファイルでメトリクスを有効にできます。
+設定ファイルに次の項目を追加して、メトリクスを有効にします。
+
+```yaml
+telemetry:
+  metrics:
+    exporter: otlp
+    endpoint: http://127.0.0.1:4318/v1/metrics
+```
+
+`endpoint` は path を含む完全なメトリクス URL です。それ以外の設定は任意なので、
+必要になるまでは既定値を使い、変更する場合は[詳細設定](#詳細設定)を参照してください。
+URL や resource 属性には認証情報を含めず、認証には標準ヘッダーの
+[環境変数](#環境変数)を使ってください。
+
+HTTP と binary protobuf による OTLP のみに対応します。ghalet から外向きに通信し、
+メトリクス用ポートは開きません。Collector を同じホストに置く必要もありません。
+トレース、OTLP ログ、メトリクスの標準出力、Prometheus endpoint は未実装です。
+
+設定ファイルの変更は
+`ghalet apply --config /path/to/config.yaml` で反映できます。
+
+テレメトリだけの変更では runner の drain や target listener の置き換えを行いません。
+他の設定も同時に変更した場合は、通常の apply の反映処理を行います。
+新しい provider は drain 前に準備し、反映までは収集・送信しません。
+準備に失敗した場合は旧設定・provider を維持します。
+旧 provider の終了時には期限付きで最後の送信を試みますが、配信失敗はログに記録するだけで、
+新設定をロールバックしません。
+
+## 詳細設定
+
+サービスの識別情報、resource 属性、送信間隔、タイムアウトは必要に応じて変更できます。
+上書きしたい項目だけを指定してください。
 
 ```yaml
 telemetry:
@@ -25,13 +56,13 @@ telemetry:
     timeout: 10s
 ```
 
-`endpoint` は path を含む完全なメトリクス URL です。`interval` と `timeout` は
-設定ファイルの期間記法を使い、`1ms` 以上を指定します。
+`interval` と `timeout` は設定ファイルの期間記法を使い、`1ms` 以上を指定します。
 `timeout` は収集・送信と HTTP リクエストの両方の期限を設定します。
 省略時の SDK デフォルトはそれぞれ 30 秒、10 秒です。resource 属性の値は文字列です。
-URL や resource 属性には認証情報を含めず、認証には後述の標準ヘッダー環境変数を使ってください。
 
-代わりに、`ghalet run` を起動するプロセスの環境変数でも設定できます。
+### 環境変数
+
+設定ファイルの代わりに、`ghalet run` を起動するプロセスの環境変数でも設定できます。
 
 ```sh
 OTEL_METRICS_EXPORTER=otlp \
@@ -39,24 +70,12 @@ OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=http://127.0.0.1:4318/v1/metrics \
 ghalet run --config /path/to/config.yaml
 ```
 
-HTTP と binary protobuf による OTLP のみに対応します。ghalet から外向きに通信し、
-メトリクス用ポートは開きません。Collector を同じホストに置く必要もありません。
-トレース、OTLP ログ、メトリクスの標準出力、Prometheus endpoint は未実装です。
-
 systemd ではサービスのドロップインで環境変数を設定し、
 `systemctl daemon-reload` 後にサービスを再起動してください。launchd では
 サービスの `EnvironmentVariables` に設定して再読込します。
 シェルの環境変数を変えても、稼働中のデーモンのテレメトリ設定は変わりません。
-サービスの環境変数の変更には再起動が必要ですが、設定ファイルの変更は
-`ghalet apply --config /path/to/config.yaml` で反映できます。
+環境変数の変更にはサービスの再起動が必要です。
 [サービスとしての常駐化](operations.ja.md#サービスとしての常駐化)を参照してください。
-
-テレメトリだけの変更では runner の drain や target listener の置き換えを行いません。
-他の設定も同時に変更した場合は、通常の apply の反映処理を行います。
-新しい provider は drain 前に準備し、反映までは収集・送信しません。
-準備に失敗した場合は旧設定・provider を維持します。
-旧 provider の終了時には期限付きで最後の送信を試みますが、配信失敗はログに記録するだけで、
-新設定をロールバックしません。
 
 空でない環境変数は対応するファイル設定より優先します。endpoint の優先順位は、
 メトリクス固有の環境変数、全体の環境変数、設定ファイル、SDK デフォルトの順です。

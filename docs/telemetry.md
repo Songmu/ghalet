@@ -11,7 +11,40 @@ commands, including offline `gc`, do not initialize telemetry.
 
 ## Enable metrics
 
-Enable metrics in the configuration file:
+Add these settings to the configuration file:
+
+```yaml
+telemetry:
+  metrics:
+    exporter: otlp
+    endpoint: http://127.0.0.1:4318/v1/metrics
+```
+
+`endpoint` is a full metrics URL, including the path. Other settings are
+optional; keep their defaults unless you need the
+[advanced configuration](#advanced-configuration).
+Do not put credentials in URLs or resource attributes; use the standard
+header [environment variables](#environment-variables) for authentication.
+
+Only OTLP over HTTP with binary protobuf is supported. ghalet makes outbound
+requests; it does not open a metrics port or require a Collector on the same
+host. Traces, OTLP logs, stdout metric export, and a Prometheus endpoint are
+not implemented.
+
+Reload configuration-file changes with
+`ghalet apply --config /path/to/config.yaml`.
+
+A telemetry-only change does not drain runners or replace target listeners.
+When other settings also change, normal apply reconciliation still runs.
+The replacement is prepared before any drain and does not collect or send
+until committed. Invalid replacement settings leave the old configuration
+and provider active. Retiring the old provider makes a bounded final export;
+a failed delivery is logged but does not roll back the new configuration.
+
+## Advanced configuration
+
+Service identity, resource attributes, export interval, and timeouts can be
+customized when needed. Specify only values you want to override:
 
 ```yaml
 telemetry:
@@ -25,14 +58,15 @@ telemetry:
     timeout: 10s
 ```
 
-`endpoint` is a full metrics URL, including the path. `interval` and `timeout`
-use the configuration's duration syntax and must be at least `1ms`.
-`timeout` supplies both the collection/export and HTTP timeouts; if omitted,
-their SDK defaults are 30s and 10s respectively. Resource values must be
-strings. Do not put credentials in URLs or resource attributes; use the
-standard header environment variables below for authentication.
+`interval` and `timeout` use the configuration's duration syntax and must be
+at least `1ms`. `timeout` supplies both the collection/export and HTTP
+timeouts; if omitted, their SDK defaults are 30s and 10s respectively.
+Resource values must be strings.
 
-Alternatively, set the environment of the process running `ghalet run`:
+### Environment variables
+
+Instead of file settings, you can set the environment of the process running
+`ghalet run`:
 
 ```sh
 OTEL_METRICS_EXPORTER=otlp \
@@ -40,25 +74,11 @@ OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=http://127.0.0.1:4318/v1/metrics \
 ghalet run --config /path/to/config.yaml
 ```
 
-Only OTLP over HTTP with binary protobuf is supported. ghalet makes outbound
-requests; it does not open a metrics port or require a Collector on the same
-host. Traces, OTLP logs, stdout metric export, and a Prometheus endpoint are
-not implemented.
-
 For systemd, set these variables in a service drop-in, run
 `systemctl daemon-reload`, and restart the service. For launchd, use the
 service's `EnvironmentVariables` and reload it. Changing the shell environment
 does not change the running daemon's telemetry; service environment changes
-require a restart. Configuration-file changes can be reloaded with
-`ghalet apply --config /path/to/config.yaml`.
-See [service deployment](operations.md#service-deployment).
-
-A telemetry-only change does not drain runners or replace target listeners.
-When other settings also change, normal apply reconciliation still runs.
-The replacement is prepared before any drain and does not collect or send
-until committed. Invalid replacement settings leave the old configuration
-and provider active. Retiring the old provider makes a bounded final export;
-a failed delivery is logged but does not roll back the new configuration.
+require a restart. See [service deployment](operations.md#service-deployment).
 
 Nonempty environment variables override the corresponding file settings.
 For endpoints, precedence is metrics-specific environment, general environment,
