@@ -47,12 +47,14 @@ ARC manages Runner Scale Sets on Kubernetes and is a natural choice if you
 already operate a Kubernetes cluster.
 
 ghalet instead manages Runner Scale Sets with a single, lightweight Go daemon.
+It uses the [actions/scaleset](https://github.com/actions/scaleset) library,
+which is also used internally by ARC, to manage Runner Scale Sets.
 It runs on one host without Kubernetes or an external database. If you do not
 need multi-host orchestration, this keeps setup, operation and stored state
-small. It scales **runner processes on one host**; scaling the hosts themselves
-is out of scope.
+small. It focuses on scaling runner processes on a single host; scaling the
+hosts themselves is out of scope.
 
-Runners start as native OS processes; ghalet does not create VMs or containers.
+ghalet starts runners as native OS processes and does not create VMs or containers.
 Each runner is registered as **ephemeral** and executes a job,
 but this does not isolate the execution environment: jobs running as the same
 user share HOME, tools, caches and privileges. Use only trusted workflows,

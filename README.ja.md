@@ -40,9 +40,9 @@ ghalet は Linux / macOS 上で GitHub Actions Runner Scale Set を管理しま�
 
 Self-hosted runner をスケールさせる場合、まずは公式の [Actions Runner Controller (ARC)](https://github.com/actions/actions-runner-controller) を検討してください。ARC は Kubernetes 上で Runner Scale Set を管理するコントローラーで、既に Kubernetes クラスターを運用している場合は自然な選択肢です。
 
-それに対し、ghalet は単一の Go デーモンで Runner Scale Set を管理する、軽量でシンプルなコントローラーです。Kubernetes や外部データベースに依存せず、単一ホスト上で動作します。複数ホストのオーケストレーションが不要なユースケースでは、導入・運用の構成も保持する状態も小さく済みます。増減するのは **単一ホスト上の runner プロセス** であり、ホスト自体のスケールは対象外です。
+それに対し、ghalet は単一の Go デーモンで Runner Scale Set を管理する、軽量でシンプルなコントローラーです。Runner Scale Set の管理には、ARC内部でも使用されている [actions/scaleset](https://github.com/actions/scaleset) ライブラリを利用します。Kubernetes や外部データベースに依存せず、単一ホスト上で動作します。複数ホストのオーケストレーションが不要なユースケースでは、導入・運用の構成も保持する状態も小さく済みます。単一ホスト上でのrunnerプロセスの増減に特化しているため、ホスト自体のスケールは対象外です。
 
-runner は OS のネイティブプロセスとして起動し、VM やコンテナは作成しません。各 runner は **Ephemeral** に登録され、ジョブを実行しますが、実行環境が隔離されるわけではありません。同じ実行ユーザーのジョブは HOME、ツール、キャッシュ、権限を共有します。
+ghaletはrunner を OS のネイティブプロセスとして起動し、VM やコンテナは作成しません。各 runner は **Ephemeral** に登録され、ジョブを実行しますが、実行環境が隔離されるわけではありません。同じ実行ユーザーのジョブは HOME、ツール、キャッシュ、権限を共有します。
 
 信頼できる workflow のみに使用し、信頼できない fork PR や悪意あるコードが実行されないようにしてください。`runner.user` に権限を限定した専用の非 root OS ユーザーを指定することを推奨します。
 
