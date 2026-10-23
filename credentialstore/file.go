@@ -128,21 +128,7 @@ func setFileWithWriter(ctx context.Context, directory string, options Options, i
 	if err != nil {
 		return Result{}, err
 	}
-	if options.Prompt {
-		file, ok := input.(*os.File)
-		if !ok || !term.IsTerminal(int(file.Fd())) {
-			return Result{}, errors.New("--prompt requires an interactive terminal; use --file or --stdin")
-		}
-		data, err := readPassword(ctx, options.PromptOutput)
-		if err != nil {
-			clear(data)
-			return Result{}, fmt.Errorf("PAT input canceled or failed: %w", err)
-		}
-		defer clear(data)
-		input = bytes.NewReader(data)
-		options.Prompt, options.Stdin = false, true
-	}
-	secret, err := readCredentialInput(options, input)
+	secret, err := readFileSecret(ctx, options, input)
 	if err != nil {
 		return Result{}, err
 	}
@@ -182,6 +168,24 @@ func setFileWithWriter(ctx context.Context, directory string, options Options, i
 		result.PreviousPath = previousPath
 	}
 	return result, nil
+}
+
+func readFileSecret(ctx context.Context, options Options, input io.Reader) ([]byte, error) {
+	if !options.Prompt {
+		return readCredentialInput(options, input)
+	}
+	file, ok := input.(*os.File)
+	if !ok || !term.IsTerminal(int(file.Fd())) {
+		return nil, errors.New("--prompt requires an interactive terminal; use --file or --stdin")
+	}
+	data, err := readPassword(ctx, options.PromptOutput)
+	if err != nil {
+		clear(data)
+		return nil, fmt.Errorf("PAT input canceled or failed: %w", err)
+	}
+	defer clear(data)
+	options.Prompt, options.Stdin = false, true
+	return readCredentialInput(options, bytes.NewReader(data))
 }
 
 func readPassword(ctx context.Context, output io.Writer) (secret []byte, resultErr error) {

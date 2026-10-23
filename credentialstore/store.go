@@ -329,26 +329,38 @@ func (s credentialStore) provisionAppKey(ctx context.Context, name string) error
 	if err := s.prepareDropIns(); err != nil {
 		return err
 	}
-	path := filepath.Join(s.dropIns, "credential-"+name+".conf")
-	before, err := snapshotCredentialFile(path)
+	before, data, err := s.prepareDropIn(name)
 	if err != nil {
 		return err
 	}
-	data := s.dropInData(name)
-	if before.exists && !bytes.Equal(before.data, data) {
-		return fmt.Errorf("refusing to overwrite customized systemd drop-in %s", path)
-	}
 	if !before.exists {
-		if err := fshelper.WriteFileAtomic(path, data, 0644); err != nil {
+		if err := fshelper.WriteFileAtomic(before.path, data, 0644); err != nil {
 			return err
 		}
 	}
-	ctx, cancel := context.WithTimeout(ctx, commandTimeoutForCredential)
-	defer cancel()
-	if err := s.run(ctx, "systemctl", []string{"daemon-reload"}, nil, io.Discard); err != nil {
+	if err := s.reload(ctx); err != nil {
 		return fmt.Errorf("reload systemd configuration: %w", err)
 	}
 	return nil
+}
+
+func (s credentialStore) prepareDropIn(name string) (credentialFile, []byte, error) {
+	path := filepath.Join(s.dropIns, "credential-"+name+".conf")
+	before, err := snapshotCredentialFile(path)
+	if err != nil {
+		return credentialFile{}, nil, err
+	}
+	data := s.dropInData(name)
+	if before.exists && !bytes.Equal(before.data, data) {
+		return credentialFile{}, nil, fmt.Errorf("refusing to overwrite customized systemd drop-in %s", path)
+	}
+	return before, data, nil
+}
+
+func (s credentialStore) reload(ctx context.Context) error {
+	ctx, cancel := context.WithTimeout(ctx, commandTimeoutForCredential)
+	defer cancel()
+	return s.run(ctx, "systemctl", []string{"daemon-reload"}, nil, io.Discard)
 }
 
 func (s credentialStore) set(ctx context.Context, options Options, input io.Reader) (result Result, err error) {
@@ -373,13 +385,9 @@ func (s credentialStore) set(ctx context.Context, options Options, input io.Read
 	if err != nil {
 		return result, err
 	}
-	dropIn, err := snapshotCredentialFile(dropInPath)
+	dropIn, dropInData, err := s.prepareDropIn(options.Name)
 	if err != nil {
 		return result, err
-	}
-	dropInData := s.dropInData(options.Name)
-	if dropIn.exists && !bytes.Equal(dropIn.data, dropInData) {
-		return result, fmt.Errorf("refusing to overwrite customized systemd drop-in %s", dropInPath)
 	}
 	previous, err := snapshotPreviousCredential(previousPath, "previous credential backup already exists at %s; finish or roll back the previous rotation before updating again")
 	if err != nil {
@@ -409,9 +417,7 @@ func (s credentialStore) set(ctx context.Context, options Options, input io.Read
 	rollback := func(cause error) error {
 		cause = updates.rollback(cause, previousPath, "previous encrypted credential")
 		// Reload the restored unit even if the caller canceled the operation.
-		reloadCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), commandTimeoutForCredential)
-		defer cancel()
-		if err := s.run(reloadCtx, "systemctl", []string{"daemon-reload"}, nil, io.Discard); err != nil {
+		if err := s.reload(context.WithoutCancel(ctx)); err != nil {
 			cause = errors.Join(cause, fmt.Errorf("reload restored systemd configuration: %w", err))
 		}
 		return cause
@@ -449,9 +455,7 @@ func (s credentialStore) set(ctx context.Context, options Options, input io.Read
 			return result, rollback(err)
 		}
 	}
-	reloadCtx, cancel := context.WithTimeout(ctx, commandTimeoutForCredential)
-	defer cancel()
-	if err := s.run(reloadCtx, "systemctl", []string{"daemon-reload"}, nil, io.Discard); err != nil {
+	if err := s.reload(ctx); err != nil {
 		return result, rollback(fmt.Errorf("reload systemd configuration: %w", err))
 	}
 	result = Result{

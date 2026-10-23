@@ -25,92 +25,109 @@ func Run(ctx context.Context, argv []string, outStream, errStream io.Writer) err
 			return runnerGuard(argv[1:])
 		}
 	}
-	fs := flag.NewFlagSet(cmdName, flag.ContinueOnError)
-	fs.SetOutput(errStream)
-	versionFlag := fs.Bool("version", false, "display version")
-	config := fs.String("config", "", "configuration path (management commands discover a single daemon; otherwise ~/.config/ghalet/config.yaml)")
-	// Accept common flags both before and after the command.
-	command := ""
-	if len(argv) > 0 && !strings.HasPrefix(argv[0], "-") {
-		command, argv = argv[0], argv[1:]
-	}
-	if command == "config" {
-		if len(argv) == 0 || argv[0] != "validate" {
-			return errors.New("usage: ghalet config validate [--config path]")
-		}
-		command, argv = "validate", argv[1:]
-	}
-	if command == "systemd" {
-		return systemd(ctx, argv, "", outStream, errStream)
-	}
-	if command == "credential" {
-		return runCredential(ctx, argv, "", outStream, errStream, false)
-	}
-	if command == "app" {
-		return app(ctx, argv, "", outStream, errStream, false)
-	}
-	dryRun := fs.Bool("dry-run", false, "show garbage collection without modifying files")
-	fs.Usage = func() {
-		fmt.Fprintln(errStream, "Usage: ghalet <run|apply|config validate|app setup|credential set|systemd app setup|systemd credential set|list|status|doctor|gc> [options]")
-		fs.PrintDefaults()
-	}
-	if err := fs.Parse(argv); err != nil {
+	command, err := parseCommand(argv, errStream)
+	if err != nil {
 		return err
 	}
-	if *versionFlag {
+	if command.version {
 		return printVersion(outStream)
 	}
-	if command == "" && fs.NArg() > 0 {
-		command = fs.Arg(0)
-		remaining := fs.Args()[1:]
-		if command == "config" && len(remaining) > 0 && remaining[0] == "validate" {
-			command, remaining = "validate", remaining[1:]
-		}
-		if command == "systemd" {
-			return systemd(ctx, remaining, *config, outStream, errStream)
-		}
-		if command == "credential" {
-			return runCredential(ctx, remaining, *config, outStream, errStream, false)
-		}
-		if command == "app" {
-			return app(ctx, remaining, *config, outStream, errStream, false)
-		}
-		if err := fs.Parse(remaining); err != nil {
-			return err
-		}
-	}
-	if *versionFlag {
-		return printVersion(outStream)
-	}
-	if fs.NArg() != 0 {
-		return fmt.Errorf("unexpected arguments: %s", strings.Join(fs.Args(), " "))
+	switch command.name {
+	case "systemd":
+		return systemd(ctx, command.args, command.config, outStream, errStream)
+	case "credential":
+		return runCredential(ctx, command.args, command.config, outStream, errStream, false)
+	case "app":
+		return app(ctx, command.args, command.config, outStream, errStream, false)
 	}
 	logStream := errStream
-	if command == "run" {
+	if command.name == "run" {
 		logStream = outStream
 	}
 	slog.SetDefault(slog.New(slog.NewJSONHandler(logStream, &slog.HandlerOptions{
 		ReplaceAttr: logreduct.Default.ReplaceAttr,
 	})))
-	switch command {
+	switch command.name {
 	case "run":
-		return run(ctx, *config)
+		return run(ctx, command.config)
 	case "apply":
-		return apply(ctx, *config, outStream)
+		return apply(ctx, command.config, outStream)
 	case "validate":
-		return validate(*config, outStream)
+		return validate(command.config, outStream)
 	case "list":
-		return list(ctx, *config, outStream)
+		return list(ctx, command.config, outStream)
 	case "status":
-		return status(ctx, *config, outStream)
+		return status(ctx, command.config, outStream)
 	case "doctor":
-		return doctor(ctx, *config, outStream)
+		return doctor(ctx, command.config, outStream)
 	case "gc":
-		return gc(ctx, *config, *dryRun, outStream)
+		return gc(ctx, command.config, command.dryRun, outStream)
 	default:
-		fs.Usage()
+		command.usage()
 		return errors.New("a supported command is required")
 	}
+}
+
+type commandLine struct {
+	name, config string
+	args         []string
+	version      bool
+	dryRun       bool
+	usage        func()
+}
+
+func parseCommand(argv []string, errStream io.Writer) (commandLine, error) {
+	var command commandLine
+	fs := flag.NewFlagSet(cmdName, flag.ContinueOnError)
+	fs.SetOutput(errStream)
+	fs.BoolVar(&command.version, "version", false, "display version")
+	fs.StringVar(&command.config, "config", "", "configuration path (management commands discover a single daemon; otherwise ~/.config/ghalet/config.yaml)")
+	// Accept common flags both before and after the command.
+	if len(argv) > 0 && !strings.HasPrefix(argv[0], "-") {
+		command.name, argv = argv[0], argv[1:]
+	}
+	if command.name == "config" {
+		if len(argv) == 0 || argv[0] != "validate" {
+			return command, errors.New("usage: ghalet config validate [--config path]")
+		}
+		command.name, argv = "validate", argv[1:]
+	}
+	switch command.name {
+	case "systemd", "credential", "app":
+		command.args = argv
+		return command, nil
+	}
+	fs.BoolVar(&command.dryRun, "dry-run", false, "show garbage collection without modifying files")
+	fs.Usage = func() {
+		fmt.Fprintln(errStream, "Usage: ghalet <run|apply|config validate|app setup|credential set|systemd app setup|systemd credential set|list|status|doctor|gc> [options]")
+		fs.PrintDefaults()
+	}
+	command.usage = fs.Usage
+	if err := fs.Parse(argv); err != nil {
+		return command, err
+	}
+	if command.version {
+		return command, nil
+	}
+	if command.name == "" && fs.NArg() > 0 {
+		command.name = fs.Arg(0)
+		remaining := fs.Args()[1:]
+		if command.name == "config" && len(remaining) > 0 && remaining[0] == "validate" {
+			command.name, remaining = "validate", remaining[1:]
+		}
+		switch command.name {
+		case "systemd", "credential", "app":
+			command.args = remaining
+			return command, nil
+		}
+		if err := fs.Parse(remaining); err != nil {
+			return command, err
+		}
+	}
+	if !command.version && fs.NArg() != 0 {
+		return command, fmt.Errorf("unexpected arguments: %s", strings.Join(fs.Args(), " "))
+	}
+	return command, nil
 }
 
 func printVersion(out io.Writer) error {

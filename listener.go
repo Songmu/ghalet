@@ -208,16 +208,7 @@ func (s *targetScaler) Scale(ctx context.Context, message *scaleset.RunnerScaleS
 		}
 	}
 	if !target.Draining && target.Fault == "" && (!target.HasMessage || target.LastMessage != message.MessageID) {
-		available := d.config.Capacity.MaxRunners - len(d.problems)
-		for _, other := range d.targets {
-			available -= other.Assigned + other.Pending
-		}
-		for _, run := range d.runs {
-			if run.Uncertain && run.occupiesCapacity() {
-				available--
-			}
-		}
-		available = min(available, target.Config.Scaling.MaxRunners-target.Assigned-target.Pending)
+		available := d.availableAcquisitions(target)
 		var requests []int64
 		for _, event := range message.JobAvailableMessages {
 			if len(requests) >= available {
@@ -247,4 +238,18 @@ func (s *targetScaler) Scale(ctx context.Context, message *scaleset.RunnerScaleS
 	}
 	target.LastMessage, target.HasMessage = message.MessageID, true
 	return nil
+}
+
+// availableAcquisitions requires d.mu to be held.
+func (d *daemon) availableAcquisitions(target *targetRuntime) int {
+	available := d.config.Capacity.MaxRunners - len(d.problems)
+	for _, other := range d.targets {
+		available -= other.Assigned + other.Pending
+	}
+	for _, run := range d.runs {
+		if run.Uncertain && run.occupiesCapacity() {
+			available--
+		}
+	}
+	return min(available, target.Config.Scaling.MaxRunners-target.Assigned-target.Pending)
 }

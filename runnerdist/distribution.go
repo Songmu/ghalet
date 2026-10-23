@@ -249,39 +249,12 @@ func extractRunner(ctx context.Context, archive, dest string) error {
 		if err != nil {
 			return err
 		}
-		name := path.Clean(header.Name)
-		if name == "." {
-			continue
-		}
-		if !filepath.IsLocal(name) || strings.Contains(name, "\\") {
-			return fmt.Errorf("unsafe archive path %q", header.Name)
-		}
-		mode := os.FileMode(header.Mode) & 0777
-		switch header.Typeflag {
-		case tar.TypeDir:
-			err = root.MkdirAll(name, mode|0700)
-		case tar.TypeReg:
-			if err = root.MkdirAll(filepath.Dir(name), 0700); err != nil {
-				return err
-			}
-			var output *os.File
-			output, err = root.OpenFile(name, os.O_CREATE|os.O_EXCL|os.O_WRONLY, mode|0600)
-			if err == nil {
-				_, copyErr := io.Copy(output, reader)
-				err = errors.Join(copyErr, output.Close())
-			}
-		case tar.TypeSymlink:
-			target := path.Clean(path.Join(path.Dir(name), header.Linkname))
-			if path.IsAbs(header.Linkname) || !filepath.IsLocal(target) {
-				return fmt.Errorf("unsafe archive symlink %q -> %q", name, header.Linkname)
-			}
-			err = root.Symlink(header.Linkname, name)
-			symlinks = append(symlinks, name)
-		default:
-			return fmt.Errorf("unsupported archive entry type %d for %s", header.Typeflag, name)
-		}
+		symlink, err := extractRunnerEntry(root, header, reader)
 		if err != nil {
 			return err
+		}
+		if symlink != "" {
+			symlinks = append(symlinks, symlink)
 		}
 	}
 	// Forward references are valid, but every link must resolve inside the
@@ -296,4 +269,37 @@ func extractRunner(ctx context.Context, archive, dest string) error {
 		return errors.New("runner archive is missing executable bin/Runner.Listener")
 	}
 	return nil
+}
+
+func extractRunnerEntry(root *os.Root, header *tar.Header, reader io.Reader) (string, error) {
+	name := path.Clean(header.Name)
+	if name == "." {
+		return "", nil
+	}
+	if !filepath.IsLocal(name) || strings.Contains(name, "\\") {
+		return "", fmt.Errorf("unsafe archive path %q", header.Name)
+	}
+	mode := os.FileMode(header.Mode) & 0777
+	switch header.Typeflag {
+	case tar.TypeDir:
+		return "", root.MkdirAll(name, mode|0700)
+	case tar.TypeReg:
+		if err := root.MkdirAll(filepath.Dir(name), 0700); err != nil {
+			return "", err
+		}
+		output, err := root.OpenFile(name, os.O_CREATE|os.O_EXCL|os.O_WRONLY, mode|0600)
+		if err != nil {
+			return "", err
+		}
+		_, copyErr := io.Copy(output, reader)
+		return "", errors.Join(copyErr, output.Close())
+	case tar.TypeSymlink:
+		target := path.Clean(path.Join(path.Dir(name), header.Linkname))
+		if path.IsAbs(header.Linkname) || !filepath.IsLocal(target) {
+			return "", fmt.Errorf("unsafe archive symlink %q -> %q", name, header.Linkname)
+		}
+		return name, root.Symlink(header.Linkname, name)
+	default:
+		return "", fmt.Errorf("unsupported archive entry type %d for %s", header.Typeflag, name)
+	}
 }
