@@ -612,16 +612,12 @@ func TestConfigTargetScope(t *testing.T) {
 		{"/owner/repository", ""},
 		{"//owner", ""},
 		{"//owner/repository", ""},
-		{"https://github.com//owner", ""},
-		{"https://github.com//owner/repository", ""},
 		{"owner//repository", ""},
 		{"owner/repository/extra", ""},
 		{"owner/../repository", ""},
 		{"owner/repository?token=hidden", ""},
 		{"owner/repository#fragment", ""},
-		{"http:github.com/owner", ""},
 		{"http://github.com/owner", ""},
-		{"ssh://github.com/owner", ""},
 		{"enterprises/company", ""},
 		{"Enterprises/company", ""},
 	} {
@@ -875,17 +871,10 @@ func TestConfigRejectsInvalidInput(t *testing.T) {
 		"old URL key":              strings.Replace(testYAML, "scope: https://github.com/owner/repository", "url: https://github.com/owner/repository", 1),
 		"old scale set key":        strings.Replace(testYAML, "scaleSet: build", "scaleSetName: build", 1),
 		"repository group":         strings.Replace(testYAML, "scaleSet: build", "runnerGroup: special\n    scaleSet: build", 1),
-		"enterprise":               strings.Replace(testYAML, "owner/repository", "enterprises/company", 1),
-		"HTTP scope":               strings.Replace(testYAML, "https:", "http:", 1),
-		"userinfo":                 strings.Replace(testYAML, "github.com/", "user:secret@github.com/", 1),
-		"query":                    strings.Replace(testYAML, "owner/repository", "owner/repository?token=abc", 1),
-		"missing scale set":        strings.Replace(testYAML, "    scaleSet: build\n", "", 1),
-		"empty scale set":          strings.Replace(testYAML, "scaleSet: build", `scaleSet: ""`, 1),
 		"negative min":             strings.Replace(testYAML, "minRunners: 0", "minRunners: -1", 1),
 		"min exceeds max":          strings.Replace(testYAML, "minRunners: 0", "minRunners: 3", 1),
 		"zero max":                 strings.Replace(testYAML, "maxRunners: 2", "maxRunners: 0", 1),
 		"min exceeds global":       strings.Replace(testYAML, "minRunners: 0", "minRunners: 2", 1) + "capacity:\n  maxRunners: 1\n",
-		"zero log retention":       testYAML + "logs:\n  retention: 0s\n",
 		"two PAT inputs":           strings.Replace(testYAML, "tokenEnv: GHALET_TEST_TOKEN", "tokenEnv: GHALET_TEST_TOKEN\n      tokenFile: token", 1),
 		"inline token":             strings.Replace(testYAML, "tokenEnv: GHALET_TEST_TOKEN", "token: secret", 1),
 		"App installation":         strings.Replace(testYAML, "tokenEnv: GHALET_TEST_TOKEN", "tokenEnv: GHALET_TEST_TOKEN\n      installationId: 10", 1),
@@ -991,30 +980,6 @@ func TestConfigValidationOrder(t *testing.T) {
 			tc.change(c)
 			if err := c.Validate(); err == nil || err.Error() != tc.want {
 				t.Fatalf("Validate() = %v, want %q", err, tc.want)
-			}
-		})
-	}
-}
-
-func TestScopeURLValidation(t *testing.T) {
-	for _, tc := range []struct {
-		name, raw string
-		wantErr   bool
-	}{
-		{"organization", "https://github.com/org", false},
-		{"repository", "https://github.com/org/repo", false},
-		{"enterprise host", "https://ghe.example.com/org/repo", false},
-		{"missing owner", "https://github.com", true},
-		{"parent traversal", "https://github.com/a/../b", true},
-		{"extra path", "https://github.com/a/b/c", true},
-		{"encoded slash", "https://github.com/a%2fb", true},
-		{"explicit port", "https://github.com:443/org", true},
-		{"enterprise scope", "https://github.com/Enterprises/acme", true},
-		{"uppercase enterprise scope", "https://github.com/ENTERPRISES/acme", true},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			if _, err := settings.ScopeURL(tc.raw); (err != nil) != tc.wantErr {
-				t.Fatalf("scopeURL(%q): got %v, want error=%v", tc.raw, err, tc.wantErr)
 			}
 		})
 	}

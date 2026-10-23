@@ -12,9 +12,21 @@ import (
 
 func TestRunnerHelperCommands(t *testing.T) {
 	executable := filepath.Join(t.TempDir(), "ghalet")
-	build := exec.Command("go", "build", "-o", executable, ".")
+	args := []string{"build", "-o", executable}
+	coverDirectory := os.Getenv("GHALET_TEST_COVERDIR")
+	if coverDirectory != "" {
+		args = append(args, "-cover", "-covermode=atomic")
+	}
+	build := exec.Command("go", append(args, ".")...)
 	if output, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build CLI: %v\n%s", err, output)
+	}
+	commandFor := func(args ...string) *exec.Cmd {
+		command := exec.Command(executable, args...)
+		if coverDirectory != "" {
+			command.Env = append(os.Environ(), "GOCOVERDIR="+coverDirectory)
+		}
+		return command
 	}
 	for _, tc := range []struct {
 		name    string
@@ -41,7 +53,7 @@ func TestRunnerHelperCommands(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			command := exec.Command(executable, tc.args...)
+			command := commandFor(tc.args...)
 			command.Stdin = strings.NewReader(tc.input)
 			var output, diagnostic bytes.Buffer
 			command.Stdout, command.Stderr = &output, &diagnostic
@@ -76,7 +88,7 @@ func TestRunnerHelperCommands(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			command := exec.Command(executable, "__ghalet_runner_user")
+			command := commandFor("__ghalet_runner_user")
 			command.Stdin = bytes.NewReader(append(request, '\n'))
 			var output, diagnostic bytes.Buffer
 			command.Stdout, command.Stderr = &output, &diagnostic

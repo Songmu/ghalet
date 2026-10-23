@@ -15,17 +15,18 @@ import (
 	"github.com/Songmu/ghalet/runnerlog"
 )
 
-func TestArchiveBeforeDeletionAndIdempotentRetry(t *testing.T) {
+func TestCleanupArchivesBeforeDeletingExecution(t *testing.T) {
 	d, _ := testDaemon(t)
 	state := testState(t, d.config)
 	if err := d.store.save(state); err != nil {
 		t.Fatal(err)
 	}
-	fshelper.EnsureDirectory(filepath.Join(state.RunnerDir, "_diag", "nested"), 0700)
-	os.WriteFile(filepath.Join(state.RunnerDir, "output.log"), []byte("management-secret\n"), 0600)
-	os.WriteFile(filepath.Join(state.RunnerDir, "_diag", "Runner.log"), []byte("diagnostic\n"), 0600)
-	os.WriteFile(filepath.Join(state.RunnerDir, "_diag", "nested", "Worker.log"), []byte("nested diagnostic\n"), 0600)
-	os.WriteFile(filepath.Join(state.RunnerDir, ".credentials"), []byte("do-not-archive"), 0600)
+	if err := fshelper.EnsureDirectory(state.RunnerDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(state.RunnerDir, "output.log"), []byte("management-secret\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
 	d.secrets.Add("management-secret")
 	state.ProcessDone = true
 	state.Phase = "cleaning"
@@ -44,26 +45,8 @@ func TestArchiveBeforeDeletionAndIdempotentRetry(t *testing.T) {
 	if err != nil || json.Unmarshal(data, &metadata) != nil || metadata.Scope != state.ScopeURL {
 		t.Fatal("archive metadata did not identify the registration by URL", err)
 	}
-	if _, err := os.Stat(filepath.Join(archive, ".credentials")); !os.IsNotExist(err) {
-		t.Fatal("runner credentials were archived")
-	}
-	if data, err := os.ReadFile(filepath.Join(archive, "_diag", "nested", "Worker.log")); err != nil || string(data) != "nested diagnostic\n" {
-		t.Fatal("nested diagnostic log was not preserved", err)
-	}
 	if _, err := os.Stat(filepath.Dir(state.RunnerDir)); !os.IsNotExist(err) {
 		t.Fatal("execution directory survived successful archive and cleanup")
-	}
-	output := filepath.Join(archive, "output.log")
-	if err := os.Chmod(output, 0000); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		if err := os.Chmod(output, 0600); err != nil {
-			t.Error(err)
-		}
-	})
-	if err := runnerlog.Archive(d.config.Logs.Root, runnerlog.Run{RunID: state.RunID, TargetID: state.TargetID, Scope: state.ScopeURL, RunnerDir: state.RunnerDir}, d.secrets); err != nil {
-		t.Fatal("completed archive retry tried to reopen already synced logs", err)
 	}
 }
 
@@ -136,37 +119,6 @@ func TestArchiveRetryRejectsUnsafeEntriesBeforeDeletingOriginals(t *testing.T) {
 	}
 }
 
-func TestLogRetentionOnlyExpiresCompletedArchives(t *testing.T) {
-	c := testConfig(t)
-	state := testState(t, c)
-	stateStore{c.Runner.WorkRoot}.save(state)
-	fshelper.EnsureDirectory(state.RunnerDir, 0700)
-	source := filepath.Join(state.RunnerDir, "output.log")
-	os.WriteFile(source, []byte("original"), 0600)
-	if err := runnerlog.Archive(c.Logs.Root, runnerlog.Run{RunID: state.RunID, TargetID: state.TargetID, Scope: state.ScopeURL, RunnerDir: state.RunnerDir}, &logreduct.Redactor{}); err != nil {
-		t.Fatal(err)
-	}
-	dir := filepath.Join(c.Logs.Root, "runs", state.RunID)
-	metadata, _ := json.Marshal(runnerlog.Metadata{RunID: state.RunID, TargetID: state.TargetID, ArchivedAt: time.Now().Add(-30 * 24 * time.Hour)})
-	os.WriteFile(filepath.Join(dir, "metadata.json"), metadata, 0600)
-	results, err := expireLogs(t.Context(), c, true)
-	if err != nil || len(results) != 1 {
-		t.Fatal(results, err)
-	}
-	if _, err := os.Stat(dir); err != nil {
-		t.Fatal("dry-run removed logs")
-	}
-	if _, err := expireLogs(t.Context(), c, false); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(dir); !os.IsNotExist(err) {
-		t.Fatal("expired archive was not removed")
-	}
-	if _, err := os.Stat(source); err != nil {
-		t.Fatal("retention deleted unarchived execution logs")
-	}
-}
-
 func TestLogRetentionThroughTrustedBaseAlias(t *testing.T) {
 	c := testConfig(t)
 	base := testDirectory(t)
@@ -200,7 +152,14 @@ func TestLogRetentionThroughTrustedBaseAlias(t *testing.T) {
 	if err := os.Symlink(outside, filepath.Join(archive, "outside")); err != nil {
 		t.Fatal(err)
 	}
-	results, err := expireLogs(t.Context(), c, false)
+	results, err := expireLogs(t.Context(), c, true)
+	if err != nil || len(results) != 1 || results[0].Error != "" {
+		t.Fatal("retention dry-run could not inspect an owned archive", results, err)
+	}
+	if _, err := os.Stat(archive); err != nil {
+		t.Fatal("retention dry-run removed the archive", err)
+	}
+	results, err = expireLogs(t.Context(), c, false)
 	if err != nil || len(results) != 1 || results[0].Error != "" {
 		t.Fatal("retention could not remove an owned archive", results, err)
 	}

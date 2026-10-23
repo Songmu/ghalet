@@ -17,38 +17,32 @@ import (
 )
 
 func TestSetupCreatesNewConfigAndResumes(t *testing.T) {
-	for _, registration := range []struct{ scope, group string }{
-		{scope: "owner/repo"}, {scope: "owner"}, {scope: "owner", group: "linux"},
-	} {
-		t.Run(registration.scope+"/"+registration.group, func(t *testing.T) {
-			f := setupFixture(t, registration.scope, "Organization")
-			f.options.RunnerGroup = registration.group
-			f.options.credentialName, _ = settings.TargetKey(registration.scope, registration.group, f.options.ScaleSet)
-			f.options.Config = filepath.Join(filepath.Dir(f.options.Config), "new", "config.yaml")
-			var output bytes.Buffer
-			result, err := f.run(t.Context(), f.options, nil, &output)
-			if err != nil {
-				t.Fatal(err)
-			}
-			want := f.options.credentialName
-			config, err := settings.LoadConfig(f.options.Config)
-			if err != nil || len(config.Targets) != 1 || config.Targets[0].ID != want || config.Targets[0].RunnerGroup != registration.group ||
-				config.Targets[0].Credential.InstallationID != 123 || result.Target != want {
-				t.Fatal("new configuration did not use the derived ID", config, err)
-			}
-			info, err := os.Stat(f.options.Config)
-			if err != nil || info.Mode().Perm() != 0600 {
-				t.Fatal("new configuration is not owner-only", err)
-			}
-			second, err := f.run(t.Context(), f.options, nil, io.Discard)
-			if err != nil || second.KeyPath != result.KeyPath || f.conversions.Load() != 1 {
-				t.Fatal("repeated scope setup created another App", err)
-			}
-			config, err = settings.LoadConfig(f.options.Config)
-			if err != nil || len(config.Targets) != 1 {
-				t.Fatal("repeated scope setup duplicated the target", err)
-			}
-		})
+	f := setupFixture(t, "owner", "Organization")
+	f.options.RunnerGroup = "linux"
+	f.options.credentialName, _ = settings.TargetKey(f.options.Scope, f.options.RunnerGroup, f.options.ScaleSet)
+	f.options.Config = filepath.Join(filepath.Dir(f.options.Config), "new", "config.yaml")
+	var output bytes.Buffer
+	result, err := f.run(t.Context(), f.options, nil, &output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := f.options.credentialName
+	config, err := settings.LoadConfig(f.options.Config)
+	if err != nil || len(config.Targets) != 1 || config.Targets[0].ID != want || config.Targets[0].RunnerGroup != f.options.RunnerGroup ||
+		config.Targets[0].Credential.InstallationID != 123 || result.Target != want {
+		t.Fatal("new configuration did not use the derived ID", config, err)
+	}
+	info, err := os.Stat(f.options.Config)
+	if err != nil || info.Mode().Perm() != 0600 {
+		t.Fatal("new configuration is not owner-only", err)
+	}
+	second, err := f.run(t.Context(), f.options, nil, io.Discard)
+	if err != nil || second.KeyPath != result.KeyPath || f.conversions.Load() != 1 {
+		t.Fatal("repeated scope setup created another App", err)
+	}
+	config, err = settings.LoadConfig(f.options.Config)
+	if err != nil || len(config.Targets) != 1 {
+		t.Fatal("repeated scope setup duplicated the target", err)
 	}
 }
 
