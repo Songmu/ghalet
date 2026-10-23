@@ -1,5 +1,12 @@
 # Changelog
 
+## [v0.2.3](https://github.com/Songmu/ghalet/compare/v0.2.2...v0.2.3) - 2026-10-23
+
+- Replace runner helper init hooks with explicit CLI dispatch by @Songmu in https://github.com/Songmu/ghalet/pull/85
+- Improve coverage measurement and focus regression tests by @Songmu in https://github.com/Songmu/ghalet/pull/87
+- Consolidate credential input tests and strengthen recovery coverage by @Songmu in https://github.com/Songmu/ghalet/pull/88
+- Make complex runner and credential operations easier to follow by @Songmu in https://github.com/Songmu/ghalet/pull/89
+
 ## [v0.2.2](https://github.com/Songmu/ghalet/compare/v0.2.1...v0.2.2) - 2026-10-22
 
 - Fix non-root runner preparation for safe distribution symlinks by @Songmu in https://github.com/Songmu/ghalet/pull/83
