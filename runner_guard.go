@@ -33,6 +33,11 @@ func runnerGuardCommand(runner string) (*exec.Cmd, error) {
 func killGuardGroup() {
 	if err := syscall.Kill(-os.Getpid(), syscall.SIGKILL); err != nil {
 		fmt.Fprintln(os.Stderr, "runner guard: kill owned process group:", err)
+		return
+	}
+	// Signal delivery can lag behind a successful kill on macOS.
+	for {
+		time.Sleep(time.Hour)
 	}
 }
 
