@@ -85,9 +85,16 @@ go install github.com/Songmu/ghalet/cmd/ghalet@latest
 | `ghalet apply` | 全 target を drain して設定と登録を反映し、未使用 Scale Set の削除を試みます。 |
 | `ghalet config validate` | GitHub に接続せず、設定とローカルパスを検証します。 |
 | `ghalet app setup --scope OWNER/REPO --scale-set ghalet-runner` | 非公開 GitHub App を作成・インストールし、managed 認証を保存して、必要な静的 target 設定を表示します。Organization、SSH、再開は [App セットアップ](./docs/app-setup.ja.md)を参照してください。 |
-| `ghalet systemd app setup --scope OWNER/REPO --scale-set ghalet-runner` | App のセットアップ、サービス用の暗号化認証情報の保存、target の実行時の鍵の参照設定を行います（Linux/root）。[App セットアップ](./docs/app-setup.ja.md#パッケージの-systemd-サービス)を参照してください。 |
 | `ghalet credential set NAME --prompt` | 静的設定を書き換えず、所有者限定の認証ファイルを保存して managed の共通認証を更新します。App キーや交換は[通常ファイルの認証情報](./docs/file-credentials.ja.md)を参照してください。 |
-| `ghalet systemd credential set NAME --prompt` | サービス用 PAT を暗号化登録し、managed の共通認証を更新します（Linux・root 必須）。App キー、自動構築、ローテーションは[認証情報](./docs/credentials.ja.md)を参照してください。 |
+
+#### systemd
+
+これらのコマンドは Linux・root 必須で、デフォルト設定パスは `/etc/ghalet/config.yaml` です。
+
+| コマンド | 用途 |
+| --- | --- |
+| `ghalet systemd app setup --scope OWNER/REPO --scale-set ghalet-runner` | App のセットアップ、サービス用の暗号化認証情報の保存、target の実行時の鍵の参照設定を行います。[App セットアップ](./docs/app-setup.ja.md#パッケージの-systemd-サービス)を参照してください。 |
+| `ghalet systemd credential set NAME --prompt` | サービス用 PAT を暗号化登録し、managed の共通認証を更新します。App キー、自動構築、ローテーションは[認証情報](./docs/credentials.ja.md)を参照してください。 |
 
 ### 運用管理
 
@@ -98,7 +105,7 @@ go install github.com/Songmu/ghalet/cmd/ghalet@latest
 | `ghalet doctor` | デーモンを診断し、問題があれば非ゼロで終了します。 |
 | `ghalet gc [--dry-run]` | 停止確認済みの実行と期限切れログを削除します。`--dry-run` で事前確認できます。 |
 
-`ghalet --version` でバージョンを表示します。App・認証情報のセットアップ案内を除き、管理コマンドの応答は JSON です。`systemd app setup` と `systemd credential set` のデフォルト設定パスは `/etc/ghalet/config.yaml` です。
+`ghalet --version` でバージョンを表示します。App・認証情報のセットアップ案内を除き、管理コマンドの応答は JSON です。
 
 `status`、`doctor`、`apply`、`gc` は `--config` を省略すると、アクセス可能なデーモンが 1 件なら自動選択し、複数なら設定の明示を求めます。見つからない場合は、`run` や `config validate` と同じくユーザーごとの `~/.config/ghalet/config.yaml` を使います。
 
