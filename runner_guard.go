@@ -35,7 +35,8 @@ func killGuardGroup() {
 		fmt.Fprintln(os.Stderr, "runner guard: kill owned process group:", err)
 		return
 	}
-	// Signal delivery can lag behind a successful kill on macOS.
+	// Wait here until SIGKILL terminates this process; signal delivery can lag
+	// behind a successful kill on macOS.
 	for {
 		time.Sleep(time.Hour)
 	}
