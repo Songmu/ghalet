@@ -1,5 +1,12 @@
 # Changelog
 
+## [v0.2.4](https://github.com/Songmu/ghalet/compare/v0.2.3...v0.2.4) - 2026-10-24
+
+- docs: clarify ghalet's scope and improve Japanese readability by @Songmu in https://github.com/Songmu/ghalet/pull/91
+- Unify daemon diagnostics under status --fail-on-error by @Songmu in https://github.com/Songmu/ghalet/pull/93
+- Fix intermittent macOS runner guard output failures by @Songmu in https://github.com/Songmu/ghalet/pull/94
+- Fix flaky controller-death tests during runner group teardown by @Songmu in https://github.com/Songmu/ghalet/pull/95
+
 ## [v0.2.3](https://github.com/Songmu/ghalet/compare/v0.2.2...v0.2.3) - 2026-10-23
 
 - Replace runner helper init hooks with explicit CLI dispatch by @Songmu in https://github.com/Songmu/ghalet/pull/85
