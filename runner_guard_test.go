@@ -148,21 +148,19 @@ func testRunnerGuardKillsGroupWhenControllerIsKilled(t *testing.T, runnerUser st
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
+	// The leader can disappear before its remaining group members finish exiting.
 	for {
 		table, err = procgroup.Snapshot(ctx, []procgroup.ProcessIdentity{state.Process})
-		if err != nil {
-			t.Fatal(err)
-		}
-		alive, _, err := procgroup.Inspect(state.processGroup(), table)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if !alive {
-			break
+		if err == nil {
+			var alive bool
+			alive, _, err = procgroup.Inspect(state.processGroup(), table)
+			if err == nil && !alive {
+				break
+			}
 		}
 		select {
 		case <-ctx.Done():
-			t.Fatal("runner group survived controller SIGKILL")
+			t.Fatalf("runner group termination was not confirmed after controller SIGKILL (last inspection error: %v)", err)
 		case <-time.After(20 * time.Millisecond):
 		}
 	}
