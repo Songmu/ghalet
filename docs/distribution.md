@@ -45,7 +45,7 @@ configuration, enable the service, or start it.
 
 The unit uses `Type=notify`: `systemctl start` waits until daemon initialization
 is complete and the management socket can serve requests. This does not guarantee
-a successful `ghalet doctor`; target and execution diagnostics remain separate.
+a successful `ghalet status --fail-on-error`; target and execution diagnostics remain separate.
 
 To create a GitHub App and configure its encrypted service key:
 
@@ -96,7 +96,7 @@ journald configuration.
 
 ```sh
 sudo journalctl -u ghalet -f
-sudo ghalet doctor --config /etc/ghalet/config.yaml
+sudo ghalet status --fail-on-error --config /etc/ghalet/config.yaml
 ```
 
 For updates, stop the service normally and inspect any incomplete shutdown
@@ -141,7 +141,7 @@ sudo chmod 0600 credentials/token
 export GHALET_VERSION=vX.Y.Z
 docker compose run --rm ghalet config validate --config /etc/ghalet/config.yaml
 docker compose up -d
-docker compose exec ghalet ghalet doctor --config /etc/ghalet/config.yaml
+docker compose exec ghalet ghalet status --fail-on-error --config /etc/ghalet/config.yaml
 ```
 
 Set `GHALET_VERSION` to a published release tag. Verify the image provenance

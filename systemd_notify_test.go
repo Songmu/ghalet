@@ -91,7 +91,7 @@ func TestRunDaemonNotifyReady(t *testing.T) {
 	if err != nil || string(data[:n]) != "READY=1" {
 		t.Fatal("daemon did not notify readiness", string(data[:n]), err)
 	}
-	status, err := Doctor(ctx, c.Path)
+	status, err := GetStatus(ctx, c.Path)
 	if err != nil || status == nil || status.Config != c.Path {
 		t.Fatal("management socket was not ready after notification", status, err)
 	}

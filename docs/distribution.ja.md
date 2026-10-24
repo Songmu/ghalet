@@ -27,7 +27,7 @@ runner は自身の実行ディレクトリに到達するため `/var/lib/ghale
 
 **本番設定の作成、サービスの自動起動の有効化、サービスの起動は行いません。**
 
-unit は `Type=notify` を使い、`systemctl start` はデーモンの初期化が完了して管理 socket がリクエストに応答できる状態になるまで待ちます。`ghalet doctor` の成功を保証するものではなく、target と実行データの診断は別途行います。
+unit は `Type=notify` を使い、`systemctl start` はデーモンの初期化が完了して管理 socket がリクエストに応答できる状態になるまで待ちます。`ghalet status --fail-on-error` の成功を保証するものではなく、target と実行データの診断は別途行います。
 
 GitHub App の作成とサービス用の鍵の暗号化保存を行う場合:
 
@@ -64,7 +64,7 @@ unit は `StateDirectory=ghalet` と `CacheDirectory=ghalet` によって `STATE
 
 ```sh
 sudo journalctl -u ghalet -f
-sudo ghalet doctor --config /etc/ghalet/config.yaml
+sudo ghalet status --fail-on-error --config /etc/ghalet/config.yaml
 ```
 
 更新時はサービスを通常停止し、停止が不完全なら状況を確認してからパッケージを置き換えます。パッケージの更新スクリプトもサービスを停止しますが、自動では再起動しません。更新後は明示的に起動してください。既存の OS 起動時の自動起動設定は保持します。
@@ -94,7 +94,7 @@ sudo chmod 0600 credentials/token
 export GHALET_VERSION=vX.Y.Z
 docker compose run --rm ghalet config validate --config /etc/ghalet/config.yaml
 docker compose up -d
-docker compose exec ghalet ghalet doctor --config /etc/ghalet/config.yaml
+docker compose exec ghalet ghalet status --fail-on-error --config /etc/ghalet/config.yaml
 ```
 
 `GHALET_VERSION` には公開済みのリリースタグを指定します。イメージの provenance は `gh attestation verify oci://ghcr.io/songmu/ghalet:TAG --repo Songmu/ghalet` で確認できます。他の Docker ホストでは、コンテナ内で実際に見える所有者とモードを確認してください。トークンを誰でも読める状態にすることは解決策ではありません。

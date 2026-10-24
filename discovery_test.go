@@ -70,7 +70,10 @@ func discoverySocket(t *testing.T, root, config string, reply any) string {
 func TestDiscoverDaemonsIgnoresGarbageWithoutRemovingIt(t *testing.T) {
 	root := discoveryRoot(t)
 	config := "/nonexistent/ghalet/config.yaml"
-	socket := discoverySocket(t, root, config, &controlResponse{Status: &Status{Config: config, Capacity: 3}})
+	socket := discoverySocket(t, root, config, &controlResponse{
+		Status: &Status{Config: config, Capacity: 3, Problems: []Problem{{Reason: "target unavailable"}}},
+		Error:  "diagnostic problem",
+	})
 	dir := filepath.Dir(socket)
 	regular := filepath.Join(dir, socketName("/regular"))
 	if err := os.WriteFile(regular, []byte("not a socket"), 0600); err != nil {
@@ -254,17 +257,12 @@ func TestManagementDiscoversDaemonAndApplyKeepsItsConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 	serveTestControl(t, d)
-	for _, command := range []string{"status", "doctor", "gc", "apply"} {
+	for _, command := range []string{"status", "gc", "apply"} {
 		switch command {
 		case "status":
 			status, err := GetStatus(t.Context(), "")
 			if err != nil || status.Config != next.Path {
 				t.Fatal("status did not discover the daemon", status, err)
-			}
-		case "doctor":
-			status, err := Doctor(t.Context(), "")
-			if err != nil || status.Config != next.Path {
-				t.Fatal("doctor did not discover the daemon", status, err)
 			}
 		case "gc":
 			if _, err := GC(t.Context(), "", true); err != nil {
@@ -288,13 +286,11 @@ func TestManagementDiscoversDaemonAndApplyKeepsItsConfig(t *testing.T) {
 	second, secondAPI := testDaemon(t)
 	useFakeManagement(second, secondAPI)
 	secondServer := serveTestControl(t, second)
-	for _, command := range []string{"status", "doctor", "gc", "apply"} {
+	for _, command := range []string{"status", "gc", "apply"} {
 		var err error
 		switch command {
 		case "status":
 			_, err = GetStatus(t.Context(), "")
-		case "doctor":
-			_, err = Doctor(t.Context(), "")
 		case "gc":
 			_, err = GC(t.Context(), "", false)
 		case "apply":

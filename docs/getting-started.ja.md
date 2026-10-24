@@ -89,8 +89,7 @@ ghalet run
 workflow をコミットして対象リポジトリに push し、GitHub の Actions タブで `Runner check` が実行されることを確認してください。別のターミナルから、ホスト上の状態確認と診断も実行できます。
 
 ```sh
-ghalet status
-ghalet doctor
+ghalet status --fail-on-error
 ```
 
 デーモンを停止するには、起動したターミナルで Ctrl-C を押してください。通常停止では全 target の新規ジョブ受付を止め、設定した drain の期限まで受付済みの処理を待ちます。期限を超えたジョブは強制停止される場合があります。設定を編集した後は `ghalet apply`（パッケージのサービスでは `sudo systemctl reload ghalet`）で、デーモンを終了せずに drain と再設定を行えます。

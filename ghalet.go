@@ -33,26 +33,18 @@ func responseError(response controlResponse) error {
 	return nil
 }
 
-func requestStatus(ctx context.Context, path string, request controlRequest) (*Status, error) {
+// GetStatus returns the running daemon's snapshot without reloading its config.
+// Diagnostic problems return an OperationError together with the snapshot.
+func GetStatus(ctx context.Context, path string) (*Status, error) {
 	endpoint, err := resolveControl(ctx, path)
 	if err != nil {
 		return nil, err
 	}
-	response, err := endpoint.call(ctx, request)
+	response, err := endpoint.call(ctx, controlRequest{Command: "status"})
 	if err != nil {
 		return nil, fmt.Errorf("connect to running daemon: %w", err)
 	}
 	return response.Status, responseError(response)
-}
-
-// GetStatus returns the running daemon's snapshot without reloading its config.
-func GetStatus(ctx context.Context, path string) (*Status, error) {
-	return requestStatus(ctx, path, controlRequest{Command: "status"})
-}
-
-// Doctor returns diagnostics, including a snapshot when problems are found.
-func Doctor(ctx context.Context, path string) (*Status, error) {
-	return requestStatus(ctx, path, controlRequest{Command: "doctor"})
 }
 
 // GC cleans stopped executions and expired logs, returning partial results on error.

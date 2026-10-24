@@ -98,7 +98,7 @@ func (d *daemon) serve(ctx context.Context) error {
 				problems := d.statusLocked().Problems
 				d.mu.Unlock()
 				if len(problems) > 0 {
-					return fmt.Errorf("stopped with %d unresolved diagnostics; inspect doctor and run gc", len(problems))
+					return fmt.Errorf("stopped with %d unresolved diagnostics; inspect status and run gc", len(problems))
 				}
 				return nil
 			}
