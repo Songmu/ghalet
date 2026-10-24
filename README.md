@@ -108,9 +108,17 @@ The local `targetId` is derived from that registration, not configured.
 | `ghalet apply` | Drain targets, reload configuration, and reconcile registrations, attempting to delete unused scale sets. |
 | `ghalet config validate` | Validate configuration and local paths without contacting GitHub. |
 | `ghalet app setup --scope OWNER/REPO --scale-set ghalet-runner` | Create and install a private GitHub App, save managed authentication, and print any required static target configuration. See [App setup](./docs/app-setup.md) for organization scopes, SSH and resumption. |
-| `ghalet systemd app setup --scope OWNER/REPO --scale-set ghalet-runner` | Set up an App with encrypted service credentials and the target's runtime key reference (Linux/root). See [App setup](./docs/app-setup.md#packaged-systemd-service). |
 | `ghalet credential set NAME --prompt` | Save an owner-only credential file and update managed defaults without rewriting static config. See [ordinary credentials](./docs/file-credentials.md) for App keys and replacement. |
-| `ghalet systemd credential set NAME --prompt` | Register an encrypted service PAT and update managed defaults (Linux/root). See [credentials](./docs/credentials.md) for App keys, automation and rotation. |
+
+#### systemd
+
+These commands require Linux and root privileges and default to
+`/etc/ghalet/config.yaml`.
+
+| Command | Purpose |
+| --- | --- |
+| `ghalet systemd app setup --scope OWNER/REPO --scale-set ghalet-runner` | Set up an App with encrypted service credentials and the target's runtime key reference. See [App setup](./docs/app-setup.md#packaged-systemd-service). |
+| `ghalet systemd credential set NAME --prompt` | Register an encrypted service PAT and update managed defaults. See [credentials](./docs/credentials.md) for App keys, automation and rotation. |
 
 ### Operations and management
 
@@ -121,8 +129,7 @@ The local `targetId` is derived from that registration, not configured.
 | `ghalet gc [--dry-run]` | Clean verified stopped executions and expired logs; preview with `--dry-run`. |
 
 `ghalet --version` prints the installed version. Management responses are
-JSON, except for the App/credential setup instructions. `systemd app setup` and `systemd credential set`
-default to `/etc/ghalet/config.yaml`. Without `--config`, `status`,
+JSON, except for the App/credential setup instructions. Without `--config`, `status`,
 `apply`, and `gc` automatically select the single accessible daemon; multiple
 daemons require an explicit config. With none found, the per-user default
 `~/.config/ghalet/config.yaml` is used, as it is for `run` and `config validate`.
