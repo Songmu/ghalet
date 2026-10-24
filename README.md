@@ -95,15 +95,27 @@ All commands accept `--config PATH`. A **target** is one Runner Scale Set
 registration, identified by its scope, runner group and scale set name.
 The local `targetId` is derived from that registration, not configured.
 
+### Execution
+
 | Command | Purpose |
 | --- | --- |
 | `ghalet run` | Run the daemon in the foreground for all configured targets. |
+
+### Configuration
+
+| Command | Purpose |
+| --- | --- |
 | `ghalet apply` | Drain targets, reload configuration, and reconcile registrations, attempting to delete unused scale sets. |
 | `ghalet config validate` | Validate configuration and local paths without contacting GitHub. |
 | `ghalet app setup --scope OWNER/REPO --scale-set ghalet-runner` | Create and install a private GitHub App, save managed authentication, and print any required static target configuration. See [App setup](./docs/app-setup.md) for organization scopes, SSH and resumption. |
 | `ghalet systemd app setup --scope OWNER/REPO --scale-set ghalet-runner` | Set up an App with encrypted service credentials and the target's runtime key reference (Linux/root). See [App setup](./docs/app-setup.md#packaged-systemd-service). |
 | `ghalet credential set NAME --prompt` | Save an owner-only credential file and update managed defaults without rewriting static config. See [ordinary credentials](./docs/file-credentials.md) for App keys and replacement. |
 | `ghalet systemd credential set NAME --prompt` | Register an encrypted service PAT and update managed defaults (Linux/root). See [credentials](./docs/credentials.md) for App keys, automation and rotation. |
+
+### Operations and management
+
+| Command | Purpose |
+| --- | --- |
 | `ghalet list` | List accessible daemons, management UIDs, sockets and running snapshots; filter with `--config PATH`. |
 | `ghalet status` | Read state and capacity; a successful response does not imply health. |
 | `ghalet doctor` | Diagnose the daemon; exit nonzero for any problem. |

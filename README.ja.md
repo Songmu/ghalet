@@ -72,15 +72,27 @@ go install github.com/Songmu/ghalet/cmd/ghalet@latest
 
 すべてのコマンドで `--config PATH` を指定できます。**target** は Runner Scale Set の登録単位で、scope・runner group・scale set 名の組み合わせで識別します。ローカルの `targetId` は登録情報から導出され、設定で指定するものではありません。
 
+### 実行
+
 | コマンド | 用途 |
 | --- | --- |
 | `ghalet run` | 全 target のデーモンをフォアグラウンドで起動します。 |
+
+### 設定
+
+| コマンド | 用途 |
+| --- | --- |
 | `ghalet apply` | 全 target を drain して設定と登録を反映し、未使用 Scale Set の削除を試みます。 |
 | `ghalet config validate` | GitHub に接続せず、設定とローカルパスを検証します。 |
 | `ghalet app setup --scope OWNER/REPO --scale-set ghalet-runner` | 非公開 GitHub App を作成・インストールし、managed 認証を保存して、必要な静的 target 設定を表示します。Organization、SSH、再開は [App セットアップ](./docs/app-setup.ja.md)を参照してください。 |
 | `ghalet systemd app setup --scope OWNER/REPO --scale-set ghalet-runner` | App のセットアップ、サービス用の暗号化認証情報の保存、target の実行時の鍵の参照設定を行います（Linux/root）。[App セットアップ](./docs/app-setup.ja.md#パッケージの-systemd-サービス)を参照してください。 |
 | `ghalet credential set NAME --prompt` | 静的設定を書き換えず、所有者限定の認証ファイルを保存して managed の共通認証を更新します。App キーや交換は[通常ファイルの認証情報](./docs/file-credentials.ja.md)を参照してください。 |
 | `ghalet systemd credential set NAME --prompt` | サービス用 PAT を暗号化登録し、managed の共通認証を更新します（Linux・root 必須）。App キー、自動構築、ローテーションは[認証情報](./docs/credentials.ja.md)を参照してください。 |
+
+### 運用管理
+
+| コマンド | 用途 |
+| --- | --- |
 | `ghalet list` | アクセス可能なデーモンの管理 UID、ソケット、稼働状態を一覧表示します。`--config PATH` で絞り込めます。 |
 | `ghalet status` | 状態と容量を取得します。取得成功は正常稼働を意味しません。 |
 | `ghalet doctor` | デーモンを診断し、問題があれば非ゼロで終了します。 |
