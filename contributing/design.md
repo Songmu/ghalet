@@ -20,7 +20,7 @@ Cross-target fairness and distributed writers are not provided.
 
 Slow GitHub requests, runner preparation, process stopping, and cleanup do not
 hold the daemon's shared status/scheduling lock. Other targets can continue
-scheduling, and `status`/`doctor` return the last coherent execution snapshot.
+scheduling, and `status` returns the last coherent execution snapshot.
 Reservations remain visible until preparation or cleanup results are published.
 Drain and apply wait for execution operations to finish; `gc` waits for the
 cleanup it reports rather than returning merely queued work.

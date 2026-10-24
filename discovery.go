@@ -126,7 +126,7 @@ func probeDaemon(ctx context.Context, directory, name string, uid int, config st
 	}
 	// A filesystem entry alone is not a running daemon. Ignore stale,
 	// unresponsive and unrelated sockets without removing anything.
-	if err != nil || response.Error != "" || response.Status == nil {
+	if err != nil || response.Status == nil {
 		return nil, nil
 	}
 	path := response.Status.Config

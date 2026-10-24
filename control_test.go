@@ -2,6 +2,7 @@ package ghalet
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net"
 	"os"
@@ -96,7 +97,7 @@ func TestDiscoveredSocketReplacementCannotRetargetCommands(t *testing.T) {
 	if err := os.Symlink(otherServer.path, server.path); err != nil {
 		t.Fatal(err)
 	}
-	for _, command := range []string{"status", "doctor", "apply", "gc"} {
+	for _, command := range []string{"status", "apply", "gc"} {
 		response, err := endpoint.call(t.Context(), controlRequest{Command: command})
 		if err != nil || !strings.Contains(response.Error, "does not match expected config") ||
 			response.Status != nil || len(response.Results) != 0 {
@@ -159,34 +160,24 @@ func TestControlAddressAndRunningSnapshotSurviveConfigEdit(t *testing.T) {
 	}
 }
 
-func TestStatusAndDoctorExitCodesAndPartialGC(t *testing.T) {
+func TestStatusDiagnosticsAndPartialGC(t *testing.T) {
 	d, _ := testDaemon(t)
 	d.targets[buildTargetID].Fault = "credentials expired"
 	d.problems = append(d.problems, Problem{Path: "/unrecognized", Reason: "corrupt state"})
 	serveTestControl(t, d)
-	for _, command := range []string{"status", "doctor", "gc"} {
-		var err error
-		var results []OperationResult
-		switch command {
-		case "status":
-			var status *Status
-			status, err = GetStatus(t.Context(), d.config.Path)
-			if err == nil && (len(status.Targets) != 1 || status.Targets[0].ID != buildTargetID ||
-				status.Targets[0].Scope != d.config.Targets[0].URL ||
-				status.Targets[0].ScaleSet != "build" || status.Targets[0].RunnerGroup != settings.RunnerGroupName("")) {
-				t.Fatal("status lost the human-readable registration", status)
-			}
-		case "doctor":
-			_, err = Doctor(t.Context(), d.config.Path)
-		case "gc":
-			results, err = GC(t.Context(), d.config.Path, false)
-		}
-		if (command == "status" && err != nil) || (command != "status" && err == nil) {
-			t.Fatalf("incorrect %s exit behavior: %v", command, err)
-		}
-		if command == "gc" && (len(results) == 0 || results[0].Error != "corrupt state") {
-			t.Fatal("partial gc did not report individual failure")
-		}
+	status, err := GetStatus(t.Context(), d.config.Path)
+	var diagnostic OperationError
+	if !errors.As(err, &diagnostic) || status == nil || len(status.Problems) != 2 {
+		t.Fatal("status lost the diagnostic error or snapshot", status, err)
+	}
+	if len(status.Targets) != 1 || status.Targets[0].ID != buildTargetID ||
+		status.Targets[0].Scope != d.config.Targets[0].URL ||
+		status.Targets[0].ScaleSet != "build" || status.Targets[0].RunnerGroup != settings.RunnerGroupName("") {
+		t.Fatal("status lost the human-readable registration", status)
+	}
+	results, err := GC(t.Context(), d.config.Path, false)
+	if err == nil || len(results) == 0 || results[0].Error != "corrupt state" {
+		t.Fatal("partial gc did not report individual failure", results, err)
 	}
 	if _, err := controlCall(t.Context(), d.config.Path, controlRequest{Command: "status"}); err != nil {
 		t.Fatal("partial management failure terminated the daemon", err)
@@ -209,7 +200,7 @@ func TestDisconnectedControlCannotBypassWorkRootLock(t *testing.T) {
 func TestControlRejectsRemovedCommands(t *testing.T) {
 	d, api := testDaemon(t)
 	serveTestControl(t, d)
-	for _, command := range []string{"drain", "destroy", "destroy-plan"} {
+	for _, command := range []string{"drain", "destroy", "destroy-plan", "doctor"} {
 		response, err := controlCall(t.Context(), d.config.Path, controlRequest{Command: command})
 		if err != nil || response.Error != "unknown control command" || response.Status != nil {
 			t.Fatal("removed command was not rejected", response, err)

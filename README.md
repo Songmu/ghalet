@@ -125,12 +125,11 @@ These commands require Linux and root privileges and default to
 | Command | Purpose |
 | --- | --- |
 | `ghalet list` | List accessible daemons, management UIDs, sockets and running snapshots; filter with `--config PATH`. |
-| `ghalet status` | Read state and capacity; a successful response does not imply health. |
-| `ghalet doctor` | Diagnose the daemon; exit nonzero for any problem. |
+| `ghalet status [--fail-on-error]` | Read state, capacity and diagnostics; use `--fail-on-error` to exit nonzero for any diagnostic problem. |
 | `ghalet gc [--dry-run]` | Clean verified stopped executions and expired logs; preview with `--dry-run`. |
 
 `ghalet --version` prints the installed version. Management responses are
-JSON, except for the App/credential setup instructions. Without `--config`, `status`, `doctor`,
+JSON, except for the App/credential setup instructions. Without `--config`, `status`,
 `apply`, and `gc` automatically select the single accessible daemon; multiple
 daemons require an explicit config. With none found, the per-user default
 `~/.config/ghalet/config.yaml` is used, as it is for `run` and `config validate`.

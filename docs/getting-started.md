@@ -110,8 +110,7 @@ on GitHub for the `Runner check` run.
 In another terminal on the host, check the daemon's status and diagnostics:
 
 ```sh
-ghalet status
-ghalet doctor
+ghalet status --fail-on-error
 ```
 
 To stop the daemon, press Ctrl-C in its terminal. Normal shutdown stops new

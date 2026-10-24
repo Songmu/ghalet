@@ -57,9 +57,7 @@ func Run(ctx context.Context, argv []string, outStream, errStream io.Writer) err
 	case "list":
 		return list(ctx, command.config, outStream)
 	case "status":
-		return status(ctx, command.config, outStream)
-	case "doctor":
-		return doctor(ctx, command.config, outStream)
+		return status(ctx, command.config, command.failOnError, outStream)
 	case "gc":
 		return gc(ctx, command.config, command.dryRun, outStream)
 	default:
@@ -73,6 +71,7 @@ type commandLine struct {
 	args         []string
 	version      bool
 	dryRun       bool
+	failOnError  bool
 	usage        func()
 }
 
@@ -98,8 +97,9 @@ func parseCommand(argv []string, errStream io.Writer) (commandLine, error) {
 		return command, nil
 	}
 	fs.BoolVar(&command.dryRun, "dry-run", false, "show garbage collection without modifying files")
+	fs.BoolVar(&command.failOnError, "fail-on-error", false, "exit nonzero if status reports diagnostic problems")
 	fs.Usage = func() {
-		fmt.Fprintln(errStream, "Usage: ghalet <run|apply|config validate|app setup|credential set|systemd app setup|systemd credential set|list|status|doctor|gc> [options]")
+		fmt.Fprintln(errStream, "Usage: ghalet <run|apply|config validate|app setup|credential set|systemd app setup|systemd credential set|list|status|gc> [options]")
 		fs.PrintDefaults()
 	}
 	command.usage = fs.Usage
@@ -126,6 +126,9 @@ func parseCommand(argv []string, errStream io.Writer) (commandLine, error) {
 	}
 	if !command.version && fs.NArg() != 0 {
 		return command, fmt.Errorf("unexpected arguments: %s", strings.Join(fs.Args(), " "))
+	}
+	if command.failOnError && command.name != "status" {
+		return command, errors.New("--fail-on-error is only supported by status")
 	}
 	return command, nil
 }

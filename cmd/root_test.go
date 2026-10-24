@@ -57,7 +57,7 @@ func TestConfigurationValidationCLI(t *testing.T) {
 	if err := Run(t.Context(), []string{"--version"}, &output, &output); err != nil || !strings.Contains(output.String(), "ghalet v") {
 		t.Fatal("version command failed")
 	}
-	for _, command := range []string{"run", "apply", "status", "doctor", "gc"} {
+	for _, command := range []string{"run", "apply", "status", "gc"} {
 		if err := Run(t.Context(), []string{command, "--config", filepath.Join(testDirectory(t), "missing.yaml")}, &output, &output); err == nil {
 			t.Fatalf("%s accepted a missing config", command)
 		}
@@ -81,6 +81,8 @@ func TestRemovedCommandsAreNotSupported(t *testing.T) {
 		{"--config", "missing.yaml", "drain", "--target", "build"},
 		{"destroy"},
 		{"--config", "missing.yaml", "destroy"},
+		{"doctor"},
+		{"--config", "missing.yaml", "doctor"},
 	} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
 			var output, stderr bytes.Buffer
@@ -90,7 +92,8 @@ func TestRemovedCommandsAreNotSupported(t *testing.T) {
 				t.Fatal("removed command was not rejected", err)
 			}
 			if output.Len() != 0 || !strings.Contains(stderr.String(), "Usage: ghalet") ||
-				strings.Contains(stderr.String(), "drain") || strings.Contains(stderr.String(), "destroy") {
+				strings.Contains(stderr.String(), "drain") || strings.Contains(stderr.String(), "destroy") ||
+				strings.Contains(stderr.String(), "doctor") {
 				t.Fatal("unexpected output for removed command", output.String(), stderr.String())
 			}
 		})
@@ -147,6 +150,8 @@ func TestHelpAndInvalidArguments(t *testing.T) {
 		{args: []string{"status", "extra"}, wantErr: "unexpected arguments: extra"},
 		{args: []string{"run", "--unknown"}, wantErr: "flag provided but not defined: -unknown"},
 		{args: []string{"gc", "--dry-run=invalid"}, wantErr: "invalid boolean value"},
+		{args: []string{"status", "--fail-on-error=invalid"}, wantErr: "invalid boolean value"},
+		{args: []string{"run", "--fail-on-error"}, wantErr: "--fail-on-error is only supported by status"},
 		{args: []string{"__ghalet_runner_user", "runner", "extra"}, wantErr: "usage: ghalet __ghalet_runner_user"},
 		{args: []string{"__ghalet_runner_user", ""}, wantErr: "usage: ghalet __ghalet_runner_user"},
 		{args: []string{"__ghalet_runner_guard"}, wantErr: "usage: ghalet __ghalet_runner_guard"},
@@ -174,7 +179,7 @@ func TestHelpAndInvalidArguments(t *testing.T) {
 }
 
 func TestCommandDispatchAndFlagPlacement(t *testing.T) {
-	for _, name := range []string{"run", "apply", "validate", "status", "doctor", "gc"} {
+	for _, name := range []string{"run", "apply", "validate", "status", "gc"} {
 		t.Run(name, func(t *testing.T) {
 			var output, stderr bytes.Buffer
 			command := []string{name}

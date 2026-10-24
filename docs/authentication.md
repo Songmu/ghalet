@@ -216,7 +216,7 @@ For planned replacement of ordinary PAT files or App key files on Linux/macOS:
    targets and creates new clients that reread the files, even if their paths
    have not changed. Plan for the [drain deadline](./operations.md#capacity-retries-and-shutdown);
    rotation is not guaranteed to be interruption-free.
-4. Check the apply result, `ghalet doctor`, daemon logs and a trusted test job
+4. Check the apply result, `ghalet status --fail-on-error`, daemon logs and a trusted test job
    for **every target sharing that credential**. Only after success, revoke
    the old PAT or delete the old App key in GitHub and remove protected rollback
    copies that are no longer needed.
@@ -243,7 +243,7 @@ overlap procedure; restore service with a clean replacement.
 
 ## Check the setup
 
-Run `ghalet config validate`, then `ghalet run` and `ghalet doctor` with the
+Run `ghalet config validate`, then `ghalet run` and `ghalet status --fail-on-error` with the
 same configuration and execution user. Configuration validation is local only:
 it does not prove GitHub permissions. Confirm that the daemon registers the
 target scale set and executes a trusted test workflow using its `runs-on` name.

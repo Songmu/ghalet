@@ -361,9 +361,9 @@ func TestPreparationRetryDiagnosticSurvivesUntilStartupRecovers(t *testing.T) {
 		target.Fault != "" || len(d.runs) != 0 {
 		t.Fatal("recordless preparation failure was hidden or leaked a secret", target)
 	}
-	response := d.handle(t.Context(), controlRequest{Command: "doctor"})
+	response := d.handle(t.Context(), controlRequest{Command: "status"})
 	if response.Error == "" || len(response.Status.Problems) != 1 {
-		t.Fatal("doctor missed the preparation retry diagnostic", response)
+		t.Fatal("status missed the preparation retry diagnostic", response)
 	}
 	state := testState(t, d.config)
 	state.Ready, state.Phase = true, "idle"
@@ -388,8 +388,8 @@ func TestPreparationRetryDiagnosticSurvivesUntilStartupRecovers(t *testing.T) {
 		t.Fatal("startup recovery cleared the wrong diagnostic", target)
 	}
 	target.RetryError = ""
-	if response := d.handle(t.Context(), controlRequest{Command: "doctor"}); response.Error != "" {
-		t.Fatal("doctor did not recover after successful startup", response)
+	if response := d.handle(t.Context(), controlRequest{Command: "status"}); response.Error != "" {
+		t.Fatal("status did not recover after successful startup", response)
 	}
 	d.startFailure(target, context.Canceled)
 	if target.StartError != "" {

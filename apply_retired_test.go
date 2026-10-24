@@ -95,17 +95,15 @@ func TestShutdownInterruptsRetiredScaleSetNetworkCalls(t *testing.T) {
 			case <-time.After(5 * time.Second):
 				t.Fatal("apply did not start retired registration cleanup")
 			}
-			for _, command := range []string{"status", "doctor"} {
-				diagnosed := make(chan controlResponse, 1)
-				go func() { diagnosed <- d.handle(t.Context(), controlRequest{Command: command}) }()
-				select {
-				case response := <-diagnosed:
-					if response.Status == nil || len(response.Status.Problems) == 0 {
-						t.Fatal("pending cleanup diagnostics were lost", response)
-					}
-				case <-time.After(5 * time.Second):
-					t.Fatal(command + " blocked behind a remote request")
+			diagnosed := make(chan controlResponse, 1)
+			go func() { diagnosed <- d.handle(t.Context(), controlRequest{Command: "status"}) }()
+			select {
+			case response := <-diagnosed:
+				if response.Status == nil || len(response.Status.Problems) == 0 {
+					t.Fatal("pending cleanup diagnostics were lost", response)
 				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("status blocked behind a remote request")
 			}
 			shutdown, cancelShutdown := context.WithCancel(t.Context())
 			cancelShutdown()

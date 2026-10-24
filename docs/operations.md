@@ -19,7 +19,7 @@ the [command overview](../README.md#commands).
 ## Configuration and credentials
 
 `run` and `config validate` select `~/.config/ghalet/config.yaml` unless
-`--config` is explicit. Without `--config`, `status`, `doctor`, `apply`, and
+`--config` is explicit. Without `--config`, `status`, `apply`, and
 `gc` discover accessible daemons and select one only when exactly one responds.
 Use `ghalet list` to see their management UIDs, sockets and running snapshots,
 then `--config PATH` to select among multiple daemons. An explicit config
@@ -291,8 +291,8 @@ An unresolved cleanup of a failed preparation or abnormally exited runner
 suspends new starts for that target until cleanup succeeds (or is resolved with
 `gc`/restart), preventing repeated
 failures from accumulating runner trees. Cleanup retry policy is unchanged.
-Transient listener and preparation/start failures remain visible in `status` and
-`doctor` until the corresponding listener or runner startup recovers.
+Transient listener and preparation/start failures remain visible in `status`
+until the corresponding listener or runner startup recovers.
 Workflow results are not retried by ghalet.
 
 SIGINT/SIGTERM starts drain for all targets during normal shutdown.
@@ -345,7 +345,7 @@ stopping new job acceptance, drains all targets
 under the old limits/timeouts, closes their listeners, then registers targets
 from the new configuration and waits for their listener initialization.
 Unchanged scale sets are reused. Startup failures are reported by apply;
-later listener failures remain visible through `doctor`.
+later listener failures remain visible through `status`.
 The normalized scope/group/scale set combination identifies each registration;
 changing any part replaces that registration. Use
 `targets: []` to remove all targets. Missing or null `targets` is invalid.
@@ -365,7 +365,7 @@ configuration is authoritative; unreachable old registrations may need manual
 cleanup in GitHub. Retained execution records are never discarded just to free
 capacity. Concurrent apply requests are rejected; shutdown interrupts apply.
 If the CLI disconnects or times out, the daemon continues the request; inspect
-`status` and `doctor` before retrying.
+`status` before retrying.
 
 Execution-user and managed-directory changes require a normal stop/restart
 and are rejected before drain.
@@ -380,7 +380,7 @@ deadline and `TimeoutStopSec` when increasing drain timeouts or target counts.
 ## Diagnosis and garbage collection
 
 During slow GitHub requests, runner preparation, process stopping, and cleanup,
-other targets can continue scheduling, and `status`/`doctor` return the last
+other targets can continue scheduling, and `status` returns the last
 coherent execution snapshot
 while an operation is in progress. A reservation remains visible until its
 preparation or cleanup result is published. Drain and apply wait for execution
@@ -389,14 +389,17 @@ returning merely queued work.
 
 ```sh
 ghalet status --config /path/to/config.yaml
-ghalet doctor --config /path/to/config.yaml
+ghalet status --fail-on-error --config /path/to/config.yaml
 ghalet gc --config /path/to/config.yaml --dry-run
 ghalet gc --config /path/to/config.yaml
 ```
 
-Management-command responses are JSON. `status` returns zero when it
-retrieves a snapshot, including an unhealthy one. `doctor` is nonzero for
-any diagnostic problem.
+Management-command responses are JSON. `status` always includes diagnostic
+details in `status.problems` and, when problems exist, a top-level `error` summary.
+It returns zero when it retrieves a snapshot, including an unhealthy one.
+`status --fail-on-error` produces the same JSON but returns nonzero for any
+diagnostic problem. Failure to retrieve a snapshot is always nonzero.
+This replaces the former `doctor` command.
 `gc` and `apply` are nonzero for any failed/incomplete part and
 include individual results. A partial management failure does not terminate
 the daemon or roll back successful cleanup.
@@ -548,7 +551,7 @@ acceptance checks, not established by template validation.
 
 ## Deployment verification
 
-After setup or an update, run `ghalet config validate`, `ghalet doctor`, and
+After setup or an update, run `ghalet config validate`, `ghalet status --fail-on-error`, and
 a trusted test workflow for each target. Local validation alone does not prove
 GitHub permissions or server-side job assignment.
 Confirm organization/App permissions, runner group access, multi-target

@@ -101,13 +101,12 @@ go install github.com/Songmu/ghalet/cmd/ghalet@latest
 | コマンド | 用途 |
 | --- | --- |
 | `ghalet list` | アクセス可能なデーモンの管理 UID、ソケット、稼働状態を一覧表示します。`--config PATH` で絞り込めます。 |
-| `ghalet status` | 状態と容量を取得します。取得成功は正常稼働を意味しません。 |
-| `ghalet doctor` | デーモンを診断し、問題があれば非ゼロで終了します。 |
+| `ghalet status [--fail-on-error]` | 状態・容量・診断情報を取得します。`--fail-on-error` を指定すると、診断上の問題があれば非ゼロで終了します。 |
 | `ghalet gc [--dry-run]` | 停止確認済みの実行と期限切れログを削除します。`--dry-run` で事前確認できます。 |
 
 `ghalet --version` でバージョンを表示します。App・認証情報のセットアップ案内を除き、管理コマンドの応答は JSON です。
 
-`status`、`doctor`、`apply`、`gc` は `--config` を省略すると、アクセス可能なデーモンが 1 件なら自動選択し、複数なら設定の明示を求めます。見つからない場合は、`run` や `config validate` と同じくユーザーごとの `~/.config/ghalet/config.yaml` を使います。
+`status`、`apply`、`gc` は `--config` を省略すると、アクセス可能なデーモンが 1 件なら自動選択し、複数なら設定の明示を求めます。見つからない場合は、`run` や `config validate` と同じくユーザーごとの `~/.config/ghalet/config.yaml` を使います。
 
 終了コード、オフラインでの保守、削除時の安全確認については[設定反映](./docs/operations.ja.md#設定反映)と[診断と cleanup](./docs/operations.ja.md#診断ガベージコレクション)を参照してください。
 

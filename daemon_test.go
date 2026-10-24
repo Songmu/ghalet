@@ -474,7 +474,7 @@ func TestShutdownWaitsForUncertainLiveRunnerAfterDrainDeadline(t *testing.T) {
 		t.Fatal("shutdown abandoned an uncertain live runner", err)
 	case <-time.After(time.Second):
 	}
-	response := d.handle(t.Context(), controlRequest{Command: "doctor"})
+	response := d.handle(t.Context(), controlRequest{Command: "status"})
 	if response.Error == "" || len(response.Status.Targets) != 1 || !response.Status.Targets[0].Draining ||
 		!response.Status.Targets[0].Forced {
 		t.Fatal("shutdown lost diagnostics/control access or did not reach its drain deadline", response)

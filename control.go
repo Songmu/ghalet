@@ -211,12 +211,12 @@ func (d *daemon) handle(ctx context.Context, request controlRequest) controlResp
 		}
 	}
 	switch request.Command {
-	case "status", "doctor":
+	case "status":
 		d.mu.Lock()
 		status := d.statusLocked()
 		d.mu.Unlock()
 		response := controlResponse{Status: &status}
-		if request.Command == "doctor" && len(status.Problems) > 0 {
+		if len(status.Problems) > 0 {
 			response.Error = fmt.Sprintf("%d diagnostic problem(s); inspect targets and executions before applying or restarting", len(status.Problems))
 		}
 		return response
