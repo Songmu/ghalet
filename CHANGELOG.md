@@ -1,5 +1,13 @@
 # Changelog
 
+## [v0.3.0](https://github.com/Songmu/ghalet/compare/v0.2.4...v0.3.0) - 2026-10-26
+
+- Bump reviewdog/action-actionlint from 1.80.4 to 1.80.6 by @dependabot[bot] in https://github.com/Songmu/ghalet/pull/100
+- Bump docker/login-action from 4.6.0 to 4.7.0 by @dependabot[bot] in https://github.com/Songmu/ghalet/pull/98
+- Bump reviewdog/action-misspell from 1.30.2 to 1.30.3 by @dependabot[bot] in https://github.com/Songmu/ghalet/pull/97
+- Bump Songmu/tagpr from 1.21.3 to 1.21.4 by @dependabot[bot] in https://github.com/Songmu/ghalet/pull/99
+- Bump github.com/actions/scaleset from 0.4.1-0.20260916214619-e6daac702355 to 0.5.0 by @dependabot[bot] in https://github.com/Songmu/ghalet/pull/96
+
 ## [v0.2.4](https://github.com/Songmu/ghalet/compare/v0.2.3...v0.2.4) - 2026-10-24
 
 - docs: clarify ghalet's scope and improve Japanese readability by @Songmu in https://github.com/Songmu/ghalet/pull/91
