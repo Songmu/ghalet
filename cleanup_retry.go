@@ -13,12 +13,8 @@ import (
 	"github.com/actions/scaleset"
 )
 
-// The pinned scaleset SDK exposes HTTP status only in its error text.
+// The scaleset SDK exposes other HTTP statuses only in its error text.
 var cleanupHTTPStatus = regexp.MustCompile(`^(?:request \S+ \S+ failed\(status="|unexpected HTTP status )([0-9]{3})(?: |")`)
-
-// With retries disabled, retryablehttp drops the response for 429 and returns
-// only this exhaustion error. Other retryable statuses retain a wrapped cause.
-var cleanupRateLimited = regexp.MustCompile(`^(?:GET|POST|DELETE) \S+ giving up after [0-9]+ attempt\(s\)$`)
 
 func cleanupRetryable(err error) bool {
 	for _, permanent := range []error{
@@ -30,13 +26,14 @@ func cleanupRetryable(err error) bool {
 			return false
 		}
 	}
+	var rateLimit *scaleset.RateLimitError
+	if errors.As(err, &rateLimit) {
+		return true
+	}
 	for cause := err; cause != nil; cause = errors.Unwrap(cause) {
 		if match := cleanupHTTPStatus.FindStringSubmatch(cause.Error()); match != nil {
 			status, _ := strconv.Atoi(match[1])
 			return status == 408 || status == 429 || (status >= 500 && status != 501)
-		}
-		if cleanupRateLimited.MatchString(cause.Error()) {
-			return true
 		}
 	}
 	for _, transient := range []error{

@@ -112,7 +112,7 @@ func (d *daemon) recoverListenerRegistration(ctx context.Context, target *target
 
 func (d *daemon) runListenerSession(ctx context.Context, target *targetRuntime, client *scaleset.Client, signalReady func(), attempt int) error {
 	setupCtx, setupCancel := context.WithTimeout(ctx, apiTimeout)
-	session, err := client.MessageSessionClient(setupCtx, target.Set.ID, "ghalet", scaleset.WithTimeout(60*time.Second), scaleset.WithRetryMax(0))
+	session, err := client.MessageSessionClient(setupCtx, target.Set.ID, "ghalet")
 	setupCancel()
 	if err != nil {
 		if ctx.Err() != nil {

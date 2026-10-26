@@ -51,7 +51,10 @@ func readProtected(path string) (string, error) {
 
 func newScaleClient(ctx context.Context, target settings.Target, secret *logreduct.Redactor) (*scaleset.Client, error) {
 	credential := target.Credential
-	options := []scaleset.HTTPOption{scaleset.WithTimeout(apiTimeout), scaleset.WithRetryMax(0)}
+	options := []scaleset.HTTPOption{
+		scaleset.WithHTTPClient(scaleset.NewHTTPClient(scaleset.HTTPClientConfig{Timeout: apiTimeout})),
+		scaleset.WithRetry(scaleset.RetryConfig{Max: 0}),
+	}
 	info := scaleset.SystemInfo{System: "ghalet", Version: Version, CommitSHA: Revision}
 	if credential.Type == "github-app" {
 		key, err := readProtected(credential.PrivateKeyFile)
