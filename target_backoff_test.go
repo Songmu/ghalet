@@ -15,7 +15,6 @@ import (
 
 	settings "github.com/Songmu/ghalet/config"
 	"github.com/actions/scaleset"
-	"github.com/hashicorp/go-retryablehttp"
 )
 
 func TestTargetRetryWait(t *testing.T) {
@@ -49,12 +48,11 @@ func (f targetRetryTransport) RoundTrip(r *http.Request) (*http.Response, error)
 
 func retryTestClient(t *testing.T, transport targetRetryTransport) *scaleset.Client {
 	t.Helper()
-	httpClient := retryablehttp.NewClient()
-	httpClient.RetryMax = 0
-	httpClient.HTTPClient.Transport.(*http.Transport).RegisterProtocol("https", transport)
+	httpClient := scaleset.NewHTTPClient(scaleset.HTTPClientConfig{Timeout: apiTimeout})
+	httpClient.Transport = transport
 	client, err := scaleset.NewClientWithPersonalAccessToken(scaleset.NewClientWithPersonalAccessTokenConfig{
 		GitHubConfigURL: "https://github.com/owner/repository", PersonalAccessToken: "test",
-	}, scaleset.WithRetryableHTTPClint(httpClient), scaleset.WithRetryMax(0))
+	}, scaleset.WithHTTPClient(httpClient), scaleset.WithRetry(scaleset.RetryConfig{Max: 0}))
 	if err != nil {
 		t.Fatal(err)
 	}

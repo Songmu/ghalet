@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Songmu/ghalet/logreduct"
 	"github.com/actions/scaleset"
 )
 
@@ -142,6 +143,7 @@ func TestCleanupRetryableErrors(t *testing.T) {
 		{&os.PathError{Op: "write", Path: "logs", Err: syscall.ENOSPC}, true},
 		{&os.PathError{Op: "open", Path: "logs", Err: syscall.EACCES}, false},
 		{context.Canceled, false},
+		{fmt.Errorf("request: %w", &scaleset.RateLimitError{StatusCode: http.StatusForbidden}), true},
 		{errors.New("runner registration does not match the recovery record"), false},
 		{errors.New(`invalid state: request GET https://example.com failed(status="503 Service Unavailable")`), false},
 	} {
@@ -149,16 +151,19 @@ func TestCleanupRetryableErrors(t *testing.T) {
 			t.Errorf("cleanupRetryable(%v) = %v, want %v", tc.err, got, tc.want)
 		}
 	}
-	// Exercise the pinned SDK, including retryablehttp's status-dropping 429 path.
+	// Exercise the production client, including the SDK's typed rate-limit errors.
 	for _, status := range []int{400, 401, 403, 404, 408, 409, 429, 500, 501, 502, 503, 504} {
 		t.Run(http.StatusText(status), func(t *testing.T) {
+			var attempts int
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				attempts++
 				w.WriteHeader(status)
 			}))
 			defer server.Close()
-			client, err := scaleset.NewClientWithPersonalAccessToken(scaleset.NewClientWithPersonalAccessTokenConfig{
-				GitHubConfigURL: server.URL + "/owner/repository", PersonalAccessToken: "test-token",
-			}, scaleset.WithRetryMax(0))
+			target := testConfig(t).Targets[0]
+			target.URL = server.URL + "/owner/repository"
+			t.Setenv(target.Credential.TokenEnv, "test-token")
+			client, err := newScaleClient(t.Context(), target, &logreduct.Redactor{})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -166,6 +171,9 @@ func TestCleanupRetryableErrors(t *testing.T) {
 			want := status == 408 || status == 429 || (status >= 500 && status != 501)
 			if err == nil || cleanupRetryable(err) != want {
 				t.Fatalf("HTTP %d cleanup classification: %v (want retryable=%v)", status, err, want)
+			}
+			if attempts != 1 {
+				t.Fatalf("HTTP %d made %d attempts; SDK retries must be disabled", status, attempts)
 			}
 		})
 	}
