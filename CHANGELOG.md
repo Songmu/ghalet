@@ -1,5 +1,9 @@
 # Changelog
 
+## [v0.3.1](https://github.com/Songmu/ghalet/compare/v0.3.0...v0.3.1) - 2026-11-13
+
+- Bump tcnksm/ghr from 0.18.5 to 0.18.6 by @dependabot[bot] in https://github.com/Songmu/ghalet/pull/107
+
 ## [v0.3.0](https://github.com/Songmu/ghalet/compare/v0.2.4...v0.3.0) - 2026-10-26
 
 - Bump reviewdog/action-actionlint from 1.80.4 to 1.80.6 by @dependabot[bot] in https://github.com/Songmu/ghalet/pull/100
