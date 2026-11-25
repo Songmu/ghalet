@@ -1,5 +1,13 @@
 # Changelog
 
+## [v0.3.1](https://github.com/Songmu/ghalet/compare/v0.3.0...v0.3.1) - 2026-11-25
+
+- Bump tcnksm/ghr from 0.18.5 to 0.18.6 by @dependabot[bot] in https://github.com/Songmu/ghalet/pull/107
+- Bump ubuntu from `c098726` to `6a06111` by @dependabot[bot] in https://github.com/Songmu/ghalet/pull/102
+- Bump actions/setup-go from 7.0.0 to 7.1.0 in the actions group by @dependabot[bot] in https://github.com/Songmu/ghalet/pull/114
+- Bump the golang-x group with 2 updates by @dependabot[bot] in https://github.com/Songmu/ghalet/pull/111
+- Bump reviewdog/action-misspell from 1.30.3 to 1.31.0 by @dependabot[bot] in https://github.com/Songmu/ghalet/pull/113
+
 ## [v0.3.0](https://github.com/Songmu/ghalet/compare/v0.2.4...v0.3.0) - 2026-10-26
 
 - Bump reviewdog/action-actionlint from 1.80.4 to 1.80.6 by @dependabot[bot] in https://github.com/Songmu/ghalet/pull/100
